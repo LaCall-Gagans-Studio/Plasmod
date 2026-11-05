@@ -1,0 +1,259 @@
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-sans-jp/400.css";
+@import "@fontsource/ibm-plex-sans-jp/500.css";
+@import "@fontsource/ibm-plex-sans-jp/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
+
+@theme {
+  --font-sans: "IBM Plex Sans JP", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* 白を基調にした配色。ground＝画面の地、panel＝カード、ink＝文字 */
+  --color-ground: #f7f6f2;
+  --color-panel: #ffffff;
+  --color-panel-2: #fbfaf8;
+  --color-chip: #efede8;
+  --color-line: #e6e3dc;
+  --color-line-2: #d2cec5;
+  --color-ink: #17171a;
+  --color-ink-2: #44413b;
+  --color-mute: #76736b;
+  /* アクセント（塗り）と、白の上で読める文字の色 */
+  --color-lime: #c8f25a;
+  --color-lime-ink: #3f6b00;
+  --color-lime-soft: #eef7d6;
+  --color-orange: #f07a2a;
+  --color-orange-ink: #b4501a;
+  --color-orange-soft: #fdebdd;
+  --color-blue: #2f6fdb;
+  --color-blue-soft: #e4edfd;
+  --color-yellow-soft: #fbf1dc;
+  --color-yellow-ink: #8a5a00;
+  --color-red-soft: #fce4e0;
+  --color-red-ink: #c2410c;
+  --color-red-line: #f0b5a8;
+  --color-lime-line: #b9d77a;
+  /* 塗り・線に使う色（リング・状態の点・図の線） */
+  --color-ring-lime: #9fd13a;
+  --color-ring-orange: #f07a2a;
+  --color-ring-idle: #c9c5bb;
+  --color-track: #d2cec5;
+  --color-dot-done: #b9b5ac;
+  --color-me: #e9e5dc;
+  --color-unknown: #d9d5cc;
+  /* アクセントの上の文字（暗）と、暗い面（ink の塗り）の上の文字 */
+  --color-on: #17171a;
+  --color-paper: #ffffff;
+}
+
+/* 黒基調。data-theme は theme.ts が決める（自動ならスマホの設定に合わせる。システム画面で白・黒に固定もできる） */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ground: #0d0d0f;
+  --color-panel: #15151a;
+  --color-panel-2: #111114;
+  --color-chip: #1e1e23;
+  --color-line: #26262b;
+  --color-line-2: #3a3a42;
+  --color-ink: #f3f1ec;
+  --color-ink-2: #c9c6be;
+  --color-mute: #a8a59d;
+  --color-lime-ink: #c8f25a;
+  --color-lime-soft: #1e2a10;
+  --color-orange: #ff8a3d;
+  --color-orange-ink: #ffb27a;
+  --color-orange-soft: #3a2614;
+  --color-blue: #8fb8ff;
+  --color-blue-soft: #1a2233;
+  --color-yellow-soft: #2a2414;
+  --color-yellow-ink: #f2c98a;
+  --color-red-soft: #3a1a14;
+  --color-red-ink: #ff9a8a;
+  --color-red-line: #7a2e2a;
+  --color-lime-line: #4a5a2a;
+  --color-ring-lime: #c8f25a;
+  --color-ring-orange: #ff8a3d;
+  --color-ring-idle: #4a4a52;
+  --color-track: #3a3a42;
+  --color-dot-done: #4a4a52;
+  --color-me: #2a2a30;
+  --color-unknown: #9a978f;
+  --color-on: #0d0d0f;
+  --color-paper: #0d0d0f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* 一番上でさらに引っぱっても、ブラウザの「引っぱって再読み込み」にしない（チャットを遡っていて誤って読み込み直さないように） */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font-family: inherit;
+}
+
+/*
+ * 動きの決まり（v2.0 D1）。新しい動きは、この値を使う。
+ * 速い 120ms: 押した反応  ／ 普通 200ms: 開閉・知らせ  ／ ゆっくり 520ms: 画面に現れる
+ * 押したものは少し縮む。動きを減らす設定なら動かさない。
+ */
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 520ms;
+  --ease-out: cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+button:not(:disabled) {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+.gh-nocallout {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+@keyframes gh-listen {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-orange) 45%, transparent); }
+  50% { box-shadow: 0 0 0 26px transparent; }
+}
+.gh-listening { animation: gh-listen 1.8s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .gh-listening { animation: none; } }
+@keyframes gh-shine {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.gh-skel {
+  background: linear-gradient(90deg, var(--color-chip) 25%, var(--color-line) 50%, var(--color-chip) 75%);
+  background-size: 200% 100%;
+  animation: gh-shine 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gh-skel { animation: none; }
+}
+@keyframes gh-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.gh-toast {
+  animation: gh-toast-in var(--motion-base) var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled),
+  button:not(:disabled):active {
+    transition: none;
+    transform: none;
+  }
+  .gh-toast {
+    animation: none;
+  }
+}
+
+/* レポートの動き（Material の emphasized decelerate に寄せる）。動きを減らす設定なら出さない */
+@keyframes gh-sheet-in {
+  from { opacity: 0; transform: translateY(24px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes gh-sheet-back-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.gh-sheet { animation: gh-sheet-in var(--motion-base) var(--ease-out) both; }
+.gh-sheet-back { animation: gh-sheet-back-in var(--motion-base) var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .gh-sheet, .gh-sheet-back { animation: none; }
+}
+
+@keyframes gh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+@keyframes gh-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes gh-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6) rotate(-8deg);
+  }
+}
+@keyframes gh-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+/* レポートの上のバー。時間を測る役目なので、動きを減らす設定でも止めない */
+.gh-fill {
+  animation: gh-fill linear forwards;
+}
+.gh-rise {
+  animation: gh-rise 520ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+}
+.gh-grow {
+  transform-origin: left;
+  animation: gh-grow 900ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+}
+.gh-pop {
+  animation: gh-pop 600ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gh-rise,
+  .gh-grow,
+  .gh-pop {
+    animation: none;
+  }
+}
+
+/* 添付を送っている間（upload.tsx）。くるくると、サーバーの処理待ちの流れる縞 */
+@keyframes gh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes gh-stripes {
+  to {
+    background-position: 28px 0;
+  }
+}
+.gh-spin {
+  animation: gh-spin 0.8s linear infinite;
+}
+.gh-stripes {
+  background-color: var(--color-ink);
+  background-image: repeating-linear-gradient(-45deg, transparent 0 7px, rgb(128 128 128 / 0.5) 7px 14px);
+  background-size: 28px 100%;
+  animation: gh-stripes 0.7s linear infinite;
+}
+/* 送っていることが伝わるよう、動きを減らす設定でも止めずにゆっくりにする */
+@media (prefers-reduced-motion: reduce) {
+  .gh-spin {
+    animation-duration: 2s;
+  }
+  .gh-stripes {
+    animation-duration: 2.5s;
+  }
+}

@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""plasmod-memo: Plasmod のメモを AI（開発エージェント・ハブのエージェントたち）から読み書きする。
+
+受け渡しのフォルダに依頼を置き、アプリの返事を待つ。誰が書いたかは OS のユーザーで決まる（鍵は要らない）。
+アーカイブ（消す）はできない。オーナーが画面から行う。
+
+  plasmod-memo list [-q 語] [-p プロジェクト | --no-project] [-t タグ] [--archived] [-n 件数]
+  plasmod-memo show ID
+  plasmod-memo history ID
+  plasmod-memo new [--title 題] [-p プロジェクト] [-t タグ ...] [本文 | 標準入力]
+  plasmod-memo append ID [文 | 標準入力]
+  plasmod-memo edit ID [--title 題] [-p プロジェクト | --no-project] [-t タグ ... | --no-tags] [--body 本文 | --body-stdin]
+
+  共通: --json（返事をそのまま出す）、--as プロファイル（hermes の中で名乗る。環境変数 PLASMOD_MEMO_AS でも可）
+  受け渡しのフォルダ: 環境変数 PLASMOD_MEMO_SPOOL（既定 /var/lib/plasmod-spool/memo）
+"""
+import argparse
+import datetime
+import json
+import os
+import sys
+import time
+import uuid
+
+SPOOL = os.environ.get("PLASMOD_MEMO_SPOOL", "/var/lib/plasmod-spool/memo")
+TIMEOUT = float(os.environ.get("PLASMOD_MEMO_TIMEOUT", "15"))
+
+
+def call(op, args, as_=None):
+    rid = uuid.uuid4().hex
+    tmp = os.path.join(SPOOL, "in", rid + ".tmp")
+    req = {"op": op, "args": args}
+    if as_:
+        req["as"] = as_
+    # .tmp で書いてから名前を変える（アプリは .json だけを拾う）。
+    # アプリ（別のユーザー）が読めるよう 0644 にする（umask に関係なく）。in は一覧できず、名前はランダムで、すぐ消される
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    os.fchmod(fd, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(req, f, ensure_ascii=False)
+    os.rename(tmp, os.path.join(SPOOL, "in", rid + ".json"))
+    out = os.path.join(SPOOL, "out", rid + ".json")
+    end = time.time() + TIMEOUT
+    while time.time() < end:
+        try:
+            with open(out, encoding="utf-8") as f:
+                reply = json.load(f)
+            break
+        except FileNotFoundError:
+            time.sleep(0.1)
+        except json.JSONDecodeError:
+            time.sleep(0.05)
+    else:
+        sys.exit(f"plasmod-memo: アプリから返事が来ない（{TIMEOUT:.0f}秒）。アプリが止まっているか、このユーザーは使えない")
+    if not reply.get("ok"):
+        sys.exit(f"plasmod-memo: {reply.get('error')}")
+    return reply["result"]
+
+
+def when(ms):
+    return datetime.datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M")
+
+
+def meta(m):
+    parts = []
+    if m.get("project"):
+        parts.append(f"[{m['project']}]")
+    parts += ["#" + t for t in m.get("tags", [])]
+    return " ".join(parts)
+
+
+def stdin_text():
+    return "" if sys.stdin.isatty() else sys.stdin.read()
+
+
+def main():
+    p = argparse.ArgumentParser(prog="plasmod-memo", description="Plasmod のメモを読み書きする")
+    p.add_argument("--json", action="store_true", help="返事を JSON のまま出す")
+    p.add_argument("--as", dest="as_", default=os.environ.get("PLASMOD_MEMO_AS"), help="hermes の中で名乗るプロファイル")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("list", help="一覧・検索")
+    s.add_argument("-q", "--query")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("-p", "--project")
+    g.add_argument("--no-project", action="store_true", help="プロジェクトなしのものだけ")
+    s.add_argument("-t", "--tag")
+    s.add_argument("--archived", action="store_true")
+    s.add_argument("-n", "--limit", type=int, default=50)
+
+    for name in ("show", "history"):
+        s = sub.add_parser(name)
+        s.add_argument("id", type=int)
+
+    s = sub.add_parser("new", help="作る（本文は引数か標準入力）")
+    s.add_argument("--title", default="")
+    s.add_argument("-p", "--project")
+    s.add_argument("-t", "--tag", action="append", default=[])
+    s.add_argument("body", nargs="?")
+
+    s = sub.add_parser("append", help="本文の最後に足す")
+    s.add_argument("id", type=int)
+    s.add_argument("text", nargs="?")
+
+    s = sub.add_parser("edit", help="書き換える（渡したものだけ変わる）")
+    s.add_argument("id", type=int)
+    s.add_argument("--title")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("-p", "--project")
+    g.add_argument("--no-project", action="store_true")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("-t", "--tag", action="append", help="タグを置き換える（何回でも）")
+    g.add_argument("--no-tags", action="store_true")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--body")
+    g.add_argument("--body-stdin", action="store_true")
+
+    a = p.parse_args()
+    if a.cmd == "list":
+        args = {"q": a.query or "", "limit": a.limit, "archived": a.archived}
+        if a.project:
+            args["project"] = a.project
+        if a.no_project:
+            args["project"] = None
+        if a.tag:
+            args["tag"] = a.tag
+        r = call("list", args, a.as_)
+        if a.json:
+            return print(json.dumps(r, ensure_ascii=False, indent=2))
+        for m in r["memos"]:
+            print(f"{m['id']:>5}  {when(m['updatedAt'])}  {m['title']}  {meta(m)}")
+        if not r["memos"]:
+            print("（当てはまるメモは無い）")
+        return
+    if a.cmd in ("show", "history"):
+        r = call("get" if a.cmd == "show" else "history", {"id": a.id}, a.as_)
+        if a.json:
+            return print(json.dumps(r, ensure_ascii=False, indent=2))
+        if a.cmd == "show":
+            print(f"# {r['title']}\n")
+            print(f"id: {r['id']}  更新: {when(r['updatedAt'])}  {meta(r)}{'  （アーカイブ済み）' if r.get('archivedAt') else ''}\n")
+            print(r["body"])
+        else:
+            for e in r:
+                print(f"{when(e['at'])}  {e['kind']:<8} {e['author']:<16} {e['title']}")
+        return
+    if a.cmd == "new":
+        body = a.body if a.body is not None else stdin_text()
+        r = call("create", {"title": a.title, "body": body, "project": a.project, "tags": a.tag}, a.as_)
+    elif a.cmd == "append":
+        r = call("append", {"id": a.id, "text": a.text if a.text is not None else stdin_text()}, a.as_)
+    else:
+        args = {"id": a.id}
+        if a.title is not None:
+            args["title"] = a.title
+        if a.project is not None:
+            args["project"] = a.project
+        if a.no_project:
+            args["project"] = None
+        if a.tag:
+            args["tags"] = a.tag
+        if a.no_tags:
+            args["tags"] = []
+        if a.body is not None:
+            args["body"] = a.body
+        if a.body_stdin:
+            args["body"] = sys.stdin.read()
+        r = call("update", args, a.as_)
+    if a.json:
+        return print(json.dumps(r, ensure_ascii=False, indent=2))
+    print(f"{r['id']}  {r['title']}  {meta(r)}")
+
+
+if __name__ == "__main__":
+    main()

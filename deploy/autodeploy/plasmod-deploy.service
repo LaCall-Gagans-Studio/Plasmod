@@ -1,0 +1,9 @@
+[Unit]
+Description=Plasmod の自動デプロイ（GitHub の main を確かめて /opt に入れる）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/plasmod-deploy
+TimeoutStartSec=900

@@ -1,0 +1,14 @@
+[Unit]
+Description=監察チーム（ITS・戦略立案）の週次データを集める（/var/lib/plasmod-watch）
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/plasmod-watch-collect
+# 読むだけ。書けるのは出力先だけ
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/plasmod-watch
+StateDirectory=plasmod-watch
+StateDirectoryMode=0750
+PrivateTmp=yes
+NoNewPrivileges=yes

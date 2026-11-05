@@ -1,0 +1,9 @@
+[
+  { "id": "default", "name": "アシスタント", "initial": "ア", "color": "#8FB8FF", "role": "WINGMAN" },
+  { "id": "dev", "name": "開発", "initial": "開", "color": "#E8A27C", "role": "DEVELOPER" },
+  { "id": "design", "name": "デザイン", "initial": "デ", "color": "#7FD8C6", "role": "DESIGNER" },
+  { "id": "acct", "name": "経理", "initial": "経", "color": "#F2C98A", "role": "ACCOUNTANT" },
+  { "id": "auditor", "name": "監査", "initial": "監", "color": "#3F4A5A", "avatar": "/avatars/auditor.svg", "team": "watch", "role": "AUDITOR" },
+  { "id": "its", "name": "ITS", "initial": "I", "color": "#2F6E6A", "avatar": "/avatars/its.svg", "team": "watch", "role": "OPTIMIZER" },
+  { "id": "strategy", "name": "戦略立案", "initial": "戦", "color": "#6B4E8C", "avatar": "/avatars/strategy.svg", "team": "watch", "role": "STRATEGIST" }
+]

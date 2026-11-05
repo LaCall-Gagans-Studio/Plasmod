@@ -1,0 +1,431 @@
+#!/usr/bin/python3 -I
+"""監察チーム（ITS・戦略立案）の週次データを作る。root で毎朝実行し、/var/lib/plasmod-watch/ に書く
+（its.md・strategy.md。root:hermes 0640。hermes の its / strategy プロファイルが cron の前処理で読む）。
+
+材料は実働チームが書き換えられない場所から root が集める。
+秘密は出さない（鍵・トークンらしい文字列は伏せる）。メール・Beeper の中身は集めない。
+
+  its.md       アプリの判断の速さ・通知の再送・エラー、カンバンの所要時間・止まり・失敗、
+               エージェントの使用量と費用、cron の結果、自動デプロイ、サービスの再起動・失敗、サーバーの負荷
+  strategy.md  メモ・注釈・判断に書いたコメント、
+               動いた時間帯、チャットの題名（最初の一言だけ）、カンバンで頼んだこと
+
+場所はテストのために環境変数で変えられる（WATCH_*）。
+"""
+import datetime
+import glob
+import json
+import os
+import re
+import sqlite3
+import statistics
+import subprocess
+import time
+import urllib.request
+
+E = os.environ.get
+DAYS = int(E("WATCH_DAYS", "7"))
+NOW = float(E("WATCH_NOW", "0")) or time.time()
+SINCE = NOW - DAYS * 86400
+OUT_DIR = E("WATCH_OUT", "/var/lib/plasmod-watch")
+APP_DB = E("WATCH_APP_DB", "/var/lib/plasmod/plasmod.db")
+APP_ENV = E("WATCH_APP_ENV", "/etc/plasmod/env")
+HERMES_HOME = E("WATCH_HERMES_HOME", "/home/hermes/.hermes")
+BRIDGE_HISTORY = E("WATCH_BRIDGE_HISTORY", "/home/cc/.plasmod-bridge/history")
+DEPLOY_DIR = E("WATCH_DEPLOY_DIR", "/var/lib/plasmod-deploy")
+OUT_GROUP = E("WATCH_GROUP", "hermes")
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+SECRET_RES = [re.compile(p) for p in (
+    r"(?i)(api[_-]?key|token|secret|passw(or)?d|authorization|bearer)\s*[:=]\s*\S+",
+    r"\b(sk|pk|rk|ghp|gho|ghs|github_pat|xox[abpr]|npg|lin_api)_[A-Za-z0-9_-]{8,}",
+    r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}",
+    r"[A-Za-z0-9+/_-]{40,}",
+)]
+
+
+def mask(s, n=200):
+    s = " ".join(str(s or "").split())
+    for r in SECRET_RES:
+        s = r.sub("[伏せ字]", s)
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def jst(ts):
+    return datetime.datetime.fromtimestamp(ts, JST).strftime("%m/%d %H:%M")
+
+
+def ms_to_s(v):
+    return v / 1000 if v and v > 1e11 else v
+
+
+def dur(sec):
+    if sec is None:
+        return "?"
+    sec = int(sec)
+    if sec < 90:
+        return f"{sec}秒"
+    if sec < 5400:
+        return f"{round(sec / 60)}分"
+    if sec < 172800:
+        return f"{sec / 3600:.1f}時間"
+    return f"{sec / 86400:.1f}日"
+
+
+def stats(vals):
+    vals = sorted(v for v in vals if v is not None)
+    if not vals:
+        return "なし"
+    p90 = vals[min(len(vals) - 1, int(len(vals) * 0.9))]
+    return f"{len(vals)}件・中央 {dur(statistics.median(vals))}・90% {dur(p90)}・最長 {dur(vals[-1])}"
+
+
+def ro(path):
+    c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def cols(c, table):
+    return {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+
+
+def section(title, fn):
+    """1つの節。失敗しても他の節は出す"""
+    try:
+        body = fn()
+    except Exception as e:  # noqa: BLE001 — 節ごとに止めない
+        body = [f"（読めなかった: {mask(type(e).__name__ + ': ' + str(e), 160)}）"]
+    return [f"## {title}", *(body or ["なし"]), ""]
+
+
+def run(cmd, timeout=30):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def profiles():
+    out = {"default": HERMES_HOME}
+    for d in sorted(glob.glob(os.path.join(HERMES_HOME, "profiles", "*"))):
+        if os.path.isdir(d) and re.match(r"^[a-z0-9][a-z0-9_-]{0,31}$", os.path.basename(d)):
+            out[os.path.basename(d)] = d
+    return out
+
+
+# ---------------------------------------------------------------- ITS
+
+
+def its_app():
+    if not os.path.exists(APP_DB):
+        return ["アプリの DB が無い"]
+    c = ro(APP_DB)
+    since_ms = SINCE * 1000
+    lines = []
+    rows = c.execute("SELECT key, choice, via, ok, error, card_created_at, decided_at FROM decisions WHERE decided_at >= ?", (since_ms,)).fetchall()
+    kinds = {}
+    for r in rows:
+        kinds.setdefault(r["key"].split(":")[0], []).append(r)
+    lines.append(f"- 判断: {len(rows)} 件（失敗 {sum(1 for r in rows if not r['ok'])} 件）")
+    for k, rs in sorted(kinds.items(), key=lambda x: -len(x[1])):
+        wait = [(r["decided_at"] - r["card_created_at"]) / 1000 for r in rs if r["ok"] and r["card_created_at"]]
+        choices = {}
+        for r in rs:
+            choices[r["choice"]] = choices.get(r["choice"], 0) + 1
+        top = "・".join(f"{ch} {n}" for ch, n in sorted(choices.items(), key=lambda x: -x[1])[:5])
+        lines.append(f"  - {k}: カードができてから判断まで {stats(wait)}（{top}）")
+    via = {}
+    for r in rows:
+        via[r["via"]] = via.get(r["via"], 0) + 1
+    if via:
+        lines.append("  - 判断した場所: " + "・".join(f"{v} {n}" for v, n in via.items()))
+    for r in [r for r in rows if not r["ok"]][:5]:
+        lines.append(f"  - 失敗 {jst(r['decided_at'] / 1000)} {r['key']} {r['choice']}: {mask(r['error'], 120)}")
+    later = sum(1 for r in rows if r["choice"] == "later")
+    if later:
+        lines.append(f"  - 「あとで」: {later} 回")
+    n = c.execute("SELECT COUNT(*) AS n, SUM(attempts > 1) AS re, SUM(escalated) AS esc, SUM(seen_at IS NULL) AS unseen, "
+                  "AVG(CASE WHEN seen_at IS NOT NULL THEN seen_at - first_sent END) AS seen_after FROM notifications WHERE first_sent >= ?",
+                  (since_ms,)).fetchone()
+    lines.append(f"- 通知: {n['n'] or 0} 件・再送あり {n['re'] or 0}・強めた {n['esc'] or 0}・未読のまま {n['unseen'] or 0}"
+                 f"・開くまでの平均 {dur((n['seen_after'] or 0) / 1000) if n['seen_after'] else '?'}")
+    nn = c.execute("SELECT COUNT(*) AS n, SUM(done_at IS NOT NULL) AS done FROM notes WHERE created_at >= ?", (since_ms,)).fetchone()
+    lines.append(f"- メモ: {nn['n'] or 0} 件（済み {nn['done'] or 0}）")
+    c.close()
+    return lines
+
+
+def its_service():
+    lines = []
+    for unit in ("plasmod", "plasmod-bridge", "hermes-gateway-*", "plasmod-deploy"):
+        out = run(["journalctl", "-u", unit, "--since", f"@{int(SINCE)}", "--no-pager", "-o", "cat", "-q"], 60)
+        if not out:
+            continue
+        ls = out.splitlines()
+        starts = sum(1 for l in ls if l.startswith("Started ") or "Started " in l[:40])
+        fails = [l for l in ls if re.search(r"(?i)\b(error|failed|traceback|exception|killed|timeout)\b", l)]
+        lines.append(f"- {unit}: ログ {len(ls)} 行・起動 {starts} 回・エラーらしき行 {len(fails)}")
+        pats = {}
+        for l in fails:
+            k = re.sub(r"\d+", "N", mask(l, 100))
+            pats[k] = pats.get(k, 0) + 1
+        for k, v in sorted(pats.items(), key=lambda x: -x[1])[:4]:
+            lines.append(f"  - ×{v} {k}")
+    failed = run(["systemctl", "list-units", "--failed", "--no-legend", "--plain", "--no-pager"]).strip()
+    lines.append(f"- 失敗中のユニット: {mask(failed, 300) if failed else 'なし'}")
+    return lines
+
+
+def its_kanban():
+    path = os.path.join(HERMES_HOME, "kanban.db")
+    if not os.path.exists(path):
+        return ["kanban.db が無い"]
+    c = ro(path)
+    lines = []
+    done = c.execute("SELECT assignee, started_at, completed_at, created_at FROM tasks WHERE status = 'done' AND completed_at >= ?", (SINCE,)).fetchall()
+    per = {}
+    for r in done:
+        per.setdefault(r["assignee"] or "?", []).append((r["completed_at"] - (r["started_at"] or r["created_at"])) if r["completed_at"] else None)
+    lines.append(f"- 終わったカード: {len(done)} 件")
+    for a, v in sorted(per.items(), key=lambda x: -len(x[1])):
+        lines.append(f"  - {a}: 着手から完了まで {stats(v)}")
+    st = c.execute("SELECT status, COUNT(*) AS n FROM tasks WHERE status NOT IN ('done', 'archived') GROUP BY status").fetchall()
+    lines.append("- いま: " + ("・".join(f"{r['status']} {r['n']}" for r in st) or "なし"))
+    stuck = c.execute("SELECT id, title, assignee, status, created_at FROM tasks WHERE status IN ('blocked', 'ready', 'running') AND created_at < ? ORDER BY created_at LIMIT 6",
+                      (NOW - 3 * 86400,)).fetchall()
+    for r in stuck:
+        lines.append(f"  - 3日以上: {r['id']} {r['status']} {r['assignee']} {mask(r['title'], 60)}（{jst(r['created_at'])}〜）")
+    ev = c.execute("SELECT kind, COUNT(*) AS n FROM task_events WHERE created_at >= ? GROUP BY kind ORDER BY n DESC LIMIT 12", (SINCE,)).fetchall()
+    lines.append("- イベント: " + ("・".join(f"{r['kind']} {r['n']}" for r in ev) or "なし"))
+    if "status" in cols(c, "task_runs"):
+        runs = c.execute("SELECT profile, status, started_at, ended_at FROM task_runs WHERE started_at >= ?", (SINCE,)).fetchall()
+        rs = {}
+        for r in runs:
+            rs.setdefault(r["profile"] or "?", []).append(r)
+        for p, v in rs.items():
+            bad = sum(1 for r in v if r["status"] not in ("done", "completed", "running", "success"))
+            lines.append(f"  - 実行 {p}: {len(v)} 回・うまくいかなかった {bad}・所要 {stats([(r['ended_at'] - r['started_at']) for r in v if r['ended_at']])}")
+    c.close()
+    return lines
+
+
+def its_usage():
+    lines = []
+    for name, home in profiles().items():
+        path = os.path.join(home, "state.db")
+        if not os.path.exists(path):
+            continue
+        c = ro(path)
+        cs = cols(c, "sessions")
+        tok = "input_tokens + output_tokens" + (" + COALESCE(cache_write_tokens, 0)" if "cache_write_tokens" in cs else "")
+        cost = "COALESCE(actual_cost_usd, estimated_cost_usd, 0)" if "actual_cost_usd" in cs else "0"
+        r = c.execute(f"SELECT COUNT(*) AS n, COALESCE(SUM({tok}), 0) AS t, COALESCE(SUM({cost}), 0) AS usd FROM sessions WHERE started_at >= ?", (SINCE,)).fetchone()
+        models = c.execute(f"SELECT COALESCE(model, '?') AS m, COUNT(*) AS n FROM sessions WHERE started_at >= ? GROUP BY m ORDER BY n DESC LIMIT 3", (SINCE,)).fetchall()
+        src = ""
+        if "source" in cs:
+            s = c.execute("SELECT COALESCE(source, '?') AS s, COUNT(*) AS n FROM sessions WHERE started_at >= ? GROUP BY s ORDER BY n DESC LIMIT 4", (SINCE,)).fetchall()
+            src = "・入口 " + "/".join(f"{x['s']} {x['n']}" for x in s)
+        lines.append(f"- {name}: セッション {r['n']}・{r['t']:,} tokens・${r['usd']:.2f}（{', '.join(f'{m['m']} {m['n']}' for m in models) or '-'}）{src}")
+        c.close()
+    return lines
+
+
+def its_cron():
+    lines = []
+    for name, home in profiles().items():
+        try:
+            jobs = json.load(open(os.path.join(home, "cron", "jobs.json"))).get("jobs", [])
+        except (OSError, ValueError):
+            continue
+        for j in jobs:
+            if not isinstance(j, dict):
+                continue
+            lines.append(f"- {name} 「{mask(j.get('name'), 40)}」 {j.get('schedule_display') or ''}・"
+                         f"{'有効' if j.get('enabled', True) else '停止'}・前回 {j.get('last_status') or '-'}"
+                         f"{'（' + mask(j.get('last_error'), 100) + '）' if j.get('last_error') else ''}"
+                         f"{'・連続失敗 ' + str(j.get('failure_streak')) if (j.get('failure_streak') or 0) > 1 else ''}")
+    return lines
+
+
+def its_deploy():
+    lines = []
+    log = os.path.join(DEPLOY_DIR, "build.log")
+    if os.path.exists(log):
+        txt = open(log, errors="replace").read()[-200000:]
+        built = re.findall(r"built in ([\d.]+)s", txt)
+        lines.append(f"- ビルドの時間（最近 {len(built[-10:])} 回）: {', '.join(built[-10:]) or '?'} 秒")
+    notified = glob.glob(os.path.join(DEPLOY_DIR, "notified-*"))
+    recent = [p for p in notified if os.path.getmtime(p) >= SINCE]
+    lines.append(f"- 手作業（apply-held）が要った反映: {len(recent)} 回")
+    return lines
+
+
+def its_host():
+    lines = []
+    sar = run(["sar", "-u", "-s", "00:00:00"]).strip().splitlines()
+    avg = [l for l in sar if l.startswith("Average")]
+    if avg:
+        lines.append(f"- CPU（今日の平均）: {' '.join(avg[-1].split()[1:])}（%user %nice %system %iowait %steal %idle）")
+    mem = run(["free", "-m"]).splitlines()
+    if len(mem) > 1:
+        lines.append(f"- メモリ(MB): {' '.join(mem[1].split()[1:4])}（total used free）")
+    df = run(["df", "-h", "/"]).splitlines()
+    if len(df) > 1:
+        lines.append(f"- ディスク /: {' '.join(df[1].split()[1:5])}（size used avail use%）")
+    load = run(["cat", "/proc/loadavg"]).split()[:3]
+    if load:
+        lines.append(f"- load average: {' '.join(load)}")
+    return lines
+
+
+def build_its():
+    head = [f"# ITS 用の週次データ（{jst(SINCE)}〜{jst(NOW)}、{DAYS}日）", ""]
+    parts = [("アプリ（Plasmod）の使われ方", its_app), ("サービスのログ", its_service), ("カンバン", its_kanban),
+             ("エージェントの使用量と費用", its_usage), ("cron", its_cron), ("自動デプロイ", its_deploy), ("サーバー", its_host)]
+    out = head
+    for t, f in parts:
+        out += section(t, f)
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------- 戦略立案
+
+
+def env_value(name):
+    try:
+        for line in open(APP_ENV):
+            if line.startswith(name + "="):
+                return line.split("=", 1)[1].strip().strip("'\"")
+    except OSError:
+        pass
+    return ""
+
+
+def strategy_app():
+    if not os.path.exists(APP_DB):
+        return ["アプリの DB が無い"]
+    c = ro(APP_DB)
+    since_ms = SINCE * 1000
+    lines = ["### メモ・レポートの注釈"]
+    for r in c.execute("SELECT title, body, source, created_at, done_at FROM notes WHERE created_at >= ? ORDER BY created_at", (since_ms,)):
+        lines.append(f"- {jst(r['created_at'] / 1000)} [{r['source'] or 'メモ'}]{'（済み）' if r['done_at'] else ''} {mask(r['title'], 80)}: {mask(r['body'], 300)}")
+    lines.append("### 判断に添えたコメント")
+    for r in c.execute("SELECT key, choice, text, decided_at FROM decisions WHERE decided_at >= ? AND ok = 1 AND text IS NOT NULL AND text != '' ORDER BY decided_at",
+                       (since_ms,)).fetchall()[:40]:
+        lines.append(f"- {jst(r['decided_at'] / 1000)} {r['choice']}: {mask(r['text'], 200)}")
+    c.close()
+    return lines
+
+
+def chat_threads():
+    """開発エージェントとのスレッド: (最初の一言, 発言時刻のリスト)。オーナーの発言だけ"""
+    out = []
+    for p in glob.glob(os.path.join(BRIDGE_HISTORY, "*.jsonl")):
+        if os.path.getmtime(p) < SINCE:
+            continue
+        first, times = None, []
+        for line in open(p, errors="replace"):
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get("author") in ("dev", None) or not m.get("at"):
+                continue
+            if m["at"] >= SINCE:
+                times.append(m["at"])
+            if first is None:
+                first = re.sub(r"<@!?\d+>\s*", "", m.get("content") or "")
+        if times:
+            out.append((first or "", times))
+    return out
+
+
+def hermes_sessions():
+    out = []
+    for name, home in profiles().items():
+        path = os.path.join(home, "state.db")
+        if not os.path.exists(path):
+            continue
+        c = ro(path)
+        cs = cols(c, "sessions")
+        title = "title" if "title" in cs else "NULL"
+        src = "source" if "source" in cs else "NULL"
+        for r in c.execute(f"SELECT {title} AS title, {src} AS source, started_at FROM sessions WHERE started_at >= ? ORDER BY started_at", (SINCE,)):
+            if r["source"] in ("cron", "kanban"):
+                continue
+            out.append((name, r["title"] or "", r["started_at"]))
+        c.close()
+    return out
+
+
+def strategy_rhythm():
+    times = [t for _, ts in chat_threads() for t in ts]
+    if os.path.exists(APP_DB):
+        c = ro(APP_DB)
+        times += [r[0] / 1000 for r in c.execute("SELECT decided_at FROM decisions WHERE decided_at >= ?", (SINCE * 1000,))]
+        c.close()
+    if not times:
+        return ["記録なし"]
+    hours = [0] * 24
+    days = {}
+    for t in times:
+        d = datetime.datetime.fromtimestamp(t, JST)
+        hours[d.hour] += 1
+        days[d.strftime("%m/%d(%a)")] = days.get(d.strftime("%m/%d(%a)"), 0) + 1
+    late = sum(hours[h] for h in (0, 1, 2, 3, 4))
+    return [
+        "- 時間帯（オーナーの発言・判断の数）: " + " ".join(f"{h}時:{n}" for h, n in enumerate(hours) if n),
+        "- 日ごと: " + "・".join(f"{d} {n}" for d, n in sorted(days.items())),
+        f"- 0〜5時の動き: {late} 回",
+    ]
+
+
+def strategy_topics():
+    lines = ["### 開発エージェントとのスレッド（最初の一言）"]
+    for first, ts in sorted(chat_threads(), key=lambda x: x[1][0]):
+        lines.append(f"- {jst(ts[0])} 発言 {len(ts)}: {mask(first, 100)}")
+    lines.append("### Hermes のセッションの題名")
+    for name, title, at in hermes_sessions()[:60]:
+        lines.append(f"- {jst(at)} {name}: {mask(title, 80) or '（題名なし）'}")
+    path = os.path.join(HERMES_HOME, "kanban.db")
+    if os.path.exists(path):
+        c = ro(path)
+        lines.append("### カンバンで頼んだこと（オーナーが作ったカード）")
+        for r in c.execute("SELECT title, assignee, status, created_at FROM tasks WHERE created_by = 'owner' AND created_at >= ? ORDER BY created_at", (SINCE,)):
+            lines.append(f"- {jst(r['created_at'])} → {r['assignee']}（{r['status']}）: {mask(r['title'], 80)}")
+        c.close()
+    return lines
+
+
+def build_strategy():
+    out = [f"# 戦略立案用の週次データ（{jst(SINCE)}〜{jst(NOW)}、{DAYS}日）", "",
+           "メール・Beeper の中身は入れていない。チャットは題名・最初の一言だけ。", ""]
+    for t, f in [("アプリに残したこと", strategy_app), ("動いた時間帯", strategy_rhythm), ("取り組んだ話題", strategy_topics)]:
+        out += section(t, f)
+    return "\n".join(out)
+
+
+def write(name, text):
+    os.makedirs(OUT_DIR, mode=0o750, exist_ok=True)
+    path = os.path.join(OUT_DIR, name)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text + "\n")
+    os.chmod(tmp, 0o640)
+    if os.geteuid() == 0:
+        import grp
+        gid = grp.getgrnam(OUT_GROUP).gr_gid
+        os.chown(tmp, 0, gid)
+        os.chown(OUT_DIR, 0, gid)
+    os.replace(tmp, path)
+
+
+def main():
+    write("its.md", build_its())
+    write("strategy.md", build_strategy())
+
+
+if __name__ == "__main__":
+    main()

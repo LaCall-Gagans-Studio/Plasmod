@@ -1,0 +1,115 @@
+# Android アプリ（apk/）をビルドする。
+# - PR（apk/ かこのファイルが変わったとき）・手動: 試しの APK を Actions の成果物に置く
+# - タグ apk-v*（例 apk-v0.1.0）: 署名した APK を作り、GitHub Release に置く
+# 鍵が secrets にあれば、試しの APK も同じ鍵で署名する（毎回同じ署名なので、上書きで入れ替えられる）。
+# 鍵が無いときの試しの APK は、Actions がその場で作るデバッグの鍵になる（毎回違うので、入れ替えにアンインストールが要る）
+# 署名の鍵は GitHub secrets（APK_KEYSTORE_B64・APK_KEYSTORE_PASSWORD・APK_KEY_ALIAS・APK_KEY_PASSWORD。値はオーナー）。
+# 既定のサーバーの住所は GitHub の変数 APK_SERVER_URL（秘密ではない。無ければ初回に入力してもらう）
+name: APK
+
+on:
+  push:
+    tags: ["apk-v*"]
+  pull_request:
+    paths: ["apk/**", ".github/workflows/apk.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/apk-v') }}
+      SIGN: ${{ secrets.APK_KEYSTORE_B64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+        with:
+          # 既定の "tools" はもう無いパッケージで失敗する
+          packages: platform-tools
+      - name: Android SDK（35）
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0" >/dev/null
+
+      - name: 依存を入れて、画面（入口）を Android に写す
+        working-directory: apk
+        env:
+          APK_SERVER_URL: ${{ vars.APK_SERVER_URL }}
+        run: |
+          bun install --frozen-lockfile
+          # 既定の住所（無ければ空。JSON の文字列として書くので、値に何が入っていても壊れない）
+          printf 'window.PLASMOD_DEFAULT_SERVER = %s;\n' "$(jq -Rn --arg v "${APK_SERVER_URL:-}" '$v')" > www/config.js
+          bun run sync
+
+      - name: ビルド
+        working-directory: apk/android
+        run: |
+          if [ "$RELEASE" = true ]; then VERSION="${GITHUB_REF_NAME#apk-v}"; else VERSION="0.0.$GITHUB_RUN_NUMBER-dev"; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ "$SIGN" = true ]; then
+            ./gradlew --no-daemon assembleRelease -PversionCode="$GITHUB_RUN_NUMBER" -PversionName="$VERSION"
+          elif [ "$RELEASE" = true ]; then
+            echo "::error::署名の鍵（APK_KEYSTORE_B64 など）が GitHub secrets に無い"; exit 1
+          else
+            echo "::warning::署名の鍵が無いのでデバッグの鍵で作る（前の試しの APK とは上書きできない）"
+            ./gradlew --no-daemon assembleDebug -PversionCode="$GITHUB_RUN_NUMBER" -PversionName="$VERSION"
+          fi
+
+      - name: 署名（鍵があるとき）
+        if: env.SIGN == 'true'
+        env:
+          APK_KEYSTORE_B64: ${{ secrets.APK_KEYSTORE_B64 }}
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+          APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+        run: |
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          KS="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$APK_KEYSTORE_B64" | base64 -d > "$KS"
+          IN=apk/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/zipalign" -p -f 4 "$IN" "$RUNNER_TEMP/aligned.apk"
+          mkdir -p out
+          "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$APK_KEY_ALIAS" \
+            --ks-pass env:APK_KEYSTORE_PASSWORD --key-pass env:APK_KEY_PASSWORD \
+            --out "out/plasmod-v$VERSION.apk" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify --print-certs "out/plasmod-v$VERSION.apk" | grep -i "SHA-256"
+          rm -f "$KS"
+
+      - name: デバッグの鍵の版を置く（鍵が無いとき）
+        if: env.SIGN != 'true'
+        run: |
+          mkdir -p out
+          cp apk/android/app/build/outputs/apk/debug/app-debug.apk "out/plasmod-v$VERSION-debugkey.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/apk-v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+      - name: GitHub Release に置く
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" ./*.apk --title "Plasmod ${GITHUB_REF_NAME#apk-}" \
+            --notes "Android アプリ。スマホの Tailscale をオンにしてから開く。入れ方: この .apk を開いて「提供元不明のアプリ」を許可する。"

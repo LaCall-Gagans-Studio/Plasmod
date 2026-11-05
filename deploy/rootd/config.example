@@ -1,0 +1,5 @@
+# /etc/plasmod-rootd/config（root:root 0600）。無くても既定値で動く（下の値が既定）
+# 依頼してよいユーザー（空白かカンマ区切り）
+REQUESTERS=cc hermes
+# 承認・却下してよいユーザー（Plasmod のサーバー）。REQUESTERS と重なっていたら plasmod-rootd は起動しない
+APPROVER=plasmod

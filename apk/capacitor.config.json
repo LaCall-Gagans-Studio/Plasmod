@@ -1,0 +1,15 @@
+{
+  "appId": "dev.plasmod.app",
+  "appName": "Plasmod",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "*.ts.net",
+      "*.*.ts.net"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

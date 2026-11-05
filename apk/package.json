@@ -1,0 +1,14 @@
+{
+  "name": "plasmod-apk",
+  "private": true,
+  "description": "Plasmod の Android アプリ（Capacitor）。画面は VPS から Tailscale 越しに読む",
+  "scripts": {
+    "sync": "bun node_modules/@capacitor/cli/bin/capacitor sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "7.4.4",
+    "@capacitor/app": "7.1.0",
+    "@capacitor/cli": "7.4.4",
+    "@capacitor/core": "7.4.4"
+  }
+}

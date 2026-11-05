@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知の小さなアイコン（白一色）。目玉のアメーバを単純にした形 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2.5C16.9,2.5 21.5,5.6 21.5,11.2C21.5,16.6 17.6,21.5 12.2,21.5C6.6,21.5 2.5,17.3 2.5,12C2.5,6.4 7,2.5 12,2.5ZM12,7.5A4.5,4.5 0,1 0,12 16.5A4.5,4.5 0,1 0,12 7.5ZM13.2,10.4A1.8,1.8 0,1 0,13.2 14A1.8,1.8 0,1 0,13.2 10.4Z" />
+</vector>

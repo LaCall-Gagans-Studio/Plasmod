@@ -1,0 +1,3 @@
+# 専用ユーザー plasmod（Plasmod のサーバー）だけが、hermes ユーザーとしてカンバンの仲介を呼べる。
+# cc（Claude Code が動くユーザー）には許可しない。開発エージェントが自分の操作を自分で承認できないようにするため。
+plasmod ALL=(hermes) NOPASSWD: /usr/local/bin/plasmod-broker

@@ -1,0 +1,129 @@
+#!/bin/bash
+# Plasmod の自動デプロイ（root の systemd timer から2分おきに呼ばれる）。
+#
+# 入れてよいのは「GitHub の画面で、許可したアカウントがマージした commit」だけ:
+#   - main の先頭が GitHub（web-flow）の鍵で署名されている
+#   - author が ALLOWED_AUTHORS のどれか
+# 開発エージェント（cc）の ~/work は使わない。GitHub から root 所有の場所に取ってくる。
+# ビルドとテストは権限の無い BUILD_USER で行い、通ったら /opt に入れて restart → 動作確認。
+# だめなら前の版に戻す。root の作業が要る変更（仲介・bridge・sudoers など）は自動では入れない。
+set -euo pipefail
+# plasmod-rootd（UMask=0077）から apply-held 経由で呼ばれても、/opt を plasmod が読める権限で作る
+umask 022
+
+CONF=${PLASMOD_DEPLOY_CONF:-/etc/plasmod-deploy/deploy.conf}
+# shellcheck source=/dev/null
+. "$CONF"
+
+: "${REPO_URL:?}" "${ALLOWED_AUTHORS:?}" "${WEBFLOW_FPR:?}"
+STATE=${STATE:-/var/lib/plasmod-deploy}
+APP=${APP:-/opt/plasmod}
+SERVICE=${SERVICE:-plasmod}
+BUILD_USER=${BUILD_USER:-plasmod-build}
+BUN=${BUN:-/usr/local/bin/bun}
+HEALTH_URL=${HEALTH_URL:-http://127.0.0.1:8790/api/health}
+APP_ENV=${APP_ENV:-/etc/plasmod/env}
+GNUPGHOME=${GNUPGHOME:-/etc/plasmod-deploy/gnupg}
+export GNUPGHOME
+# 自動で入れない場所（root の手作業が要る）
+HOLD_RE=${HOLD_RE:-'^(broker/|bridge/|rootd/|deploy/(sudoers|systemd|tmpfiles|autodeploy|rootd)/)'}
+# テスト用: ビルドを別ユーザーで動かすコマンド（既定は runuser）
+AS_BUILD=${AS_BUILD-runuser -u "$BUILD_USER" --}
+
+REPO=$STATE/repo
+BUILD=$STATE/build
+LAST_FILE=$STATE/deployed
+
+log() { echo "$(date '+%F %T') $*"; }
+
+notify() { # notify TITLE MESSAGE [priority]
+  log "$1: $2"
+  [ -r "$APP_ENV" ] || return 0
+  local url token
+  url=$(sed -n 's/^PLASMOD_NOTIFY_URL=//p' "$APP_ENV" | tail -1)
+  token=$(sed -n 's/^PLASMOD_NOTIFY_TOKEN=//p' "$APP_ENV" | tail -1)
+  [ -n "$url" ] || return 0
+  curl -sS -m 10 -o /dev/null ${token:+-H "Authorization: Bearer $token"} -H "Title: $1" -H "Priority: ${3:-3}" \
+    -H "Tags: rocket" --data-binary "$2" "$url" || true
+}
+
+# 同じ commit について、同じ通知を何度も出さない
+once() { local f=$STATE/notified-$1; [ -e "$f" ] && return 1; : >"$f"; }
+
+mkdir -p "$STATE"
+exec 9>"$STATE/lock"
+flock -n 9 || exit 0
+
+export GIT_SSH_COMMAND=${GIT_SSH_COMMAND:-"ssh -i /etc/plasmod-deploy/deploy_key -o IdentitiesOnly=yes -o UserKnownHostsFile=/etc/plasmod-deploy/known_hosts -o StrictHostKeyChecking=yes"}
+if [ ! -d "$REPO/.git" ]; then
+  git clone -q --no-checkout "$REPO_URL" "$REPO"
+fi
+git -C "$REPO" fetch -q origin main
+NEW=$(git -C "$REPO" rev-parse origin/main)
+LAST=$(cat "$LAST_FILE" 2>/dev/null || true)
+[ "$NEW" = "$LAST" ] && exit 0
+SUBJECT=$(git -C "$REPO" log -1 --format=%s "$NEW")
+SHORT=${NEW:0:7}
+
+# ---- 1. だれがマージしたか ----
+AUTHOR=$(git -C "$REPO" log -1 --format=%ae "$NEW")
+COMMITTER=$(git -C "$REPO" log -1 --format=%ce "$NEW")
+SIG=$(git -C "$REPO" verify-commit --raw "$NEW" 2>&1 || true)
+FPR=$(printf '%s\n' "$SIG" | awk '$2=="VALIDSIG"{print $3; exit}')
+ok_author=0
+for a in $ALLOWED_AUTHORS; do [ "$AUTHOR" = "$a" ] && ok_author=1; done
+if [ "$FPR" != "$WEBFLOW_FPR" ] || [ "$COMMITTER" != "noreply@github.com" ] || [ "$ok_author" != 1 ]; then
+  once "$NEW" && notify "自動デプロイを止めた" "$SHORT $SUBJECT
+GitHub の画面でオーナーがマージした commit ではないので、入れなかった（author=$AUTHOR, 署名=${FPR:-なし}）。" 4
+  exit 0
+fi
+
+# ---- 2. root の作業が要る変更は、自動では入れない ----
+if [ -z "$LAST" ]; then
+  once "$NEW" && notify "自動デプロイの準備が要る" "$STATE/deployed に、今 /opt に入っている commit を書いてから動かす（docs/INSTALL.md ）。リポジトリは private なので、deploy key 付きで:
+git -C $REPO rev-parse origin/main > $STATE/deployed   # /opt が最新のとき
+（まだ $SHORT に追いついていないなら、/opt に入っている commit を直接書く）" 4
+  exit 0
+fi
+HELD=$(git -C "$REPO" diff --name-only "$LAST" "$NEW" | grep -E "$HOLD_RE" || true)
+if [ -n "$HELD" ]; then
+  once "$NEW" && notify "手作業が要るデプロイ" "$SHORT $SUBJECT
+root の作業が要る変更があるので、自動では入れなかった。開発エージェントが rootreq で依頼する（docs/INSTALL.md ）。承認はアプリの「root 作業の承認」:
+$HELD" 4
+  exit 0
+fi
+
+# ---- 3. ビルドとテスト（権限の無いユーザーで）----
+rm -rf "$BUILD"
+mkdir -p "$BUILD/src"
+git -C "$REPO" archive "$NEW" | tar -x -C "$BUILD/src"
+chown -R "$BUILD_USER:" "$BUILD" 2>/dev/null || true
+if ! $AS_BUILD env HOME="$BUILD" PATH="$(dirname "$BUN"):/usr/bin:/bin" sh -c \
+  "cd '$BUILD/src' && '$BUN' install --frozen-lockfile --ignore-scripts && '$BUN' test && '$BUN' run build" >"$STATE/build.log" 2>&1; then
+  once "$NEW" && notify "自動デプロイ: テストかビルドが失敗" "$SHORT $SUBJECT
+本番はそのまま。ログ: $STATE/build.log
+$(tail -n 15 "$STATE/build.log")" 4
+  exit 0
+fi
+
+# ---- 4. 入れ替え → 動作確認 → だめなら戻す ----
+mkdir -p "$APP" "$APP.prev"
+rsync -a --delete "$APP/" "$APP.prev/"
+# ビルドは plasmod-build の umask で作られるので、権限はここで揃える（グループ・他は読むだけ）
+rsync -a --delete --chown=root:root --chmod=u+rwX,go+rX,go-w "$BUILD/src/" "$APP/"
+systemctl restart "$SERVICE"
+healthy=0
+for _ in $(seq 1 15); do
+  sleep 2
+  if curl -fsS -m 3 "$HEALTH_URL" >/dev/null 2>&1; then healthy=1; break; fi
+done
+if [ "$healthy" != 1 ]; then
+  rsync -a --delete "$APP.prev/" "$APP/"
+  systemctl restart "$SERVICE"
+  once "$NEW" && notify "自動デプロイ: 動かなかったので戻した" "$SHORT $SUBJECT
+入れ替えたあと $HEALTH_URL が応答しなかったので、前の版に戻した。journalctl -u $SERVICE を見て。" 5
+  exit 1
+fi
+echo "$NEW" >"$LAST_FILE"
+rm -f "$STATE"/notified-*
+notify "反映した" "$SHORT $SUBJECT" 2

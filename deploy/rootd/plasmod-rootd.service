@@ -1,0 +1,24 @@
+[Unit]
+Description=plasmod-rootd (root 作業を、パスワード承認のあとにだけ実行する)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/local/sbin/plasmod-rootd serve
+# /run/plasmod-rootd（ソケット）・/var/lib/plasmod-rootd（依頼のコピーと状態）・/var/log/plasmod-rootd（実行ログ）。
+# 状態とログは root だけが読める。ソケットの入れ物は誰でも通れるが、ソケット自体は uid（SO_PEERCRED）で選別する
+RuntimeDirectory=plasmod-rootd
+RuntimeDirectoryMode=0755
+StateDirectory=plasmod-rootd
+StateDirectoryMode=0700
+LogsDirectory=plasmod-rootd
+LogsDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+# 実行するスクリプトは root で何でもできる必要があるので、サンドボックス（ProtectSystem など）は付けない。
+# 守りは「承認されたものだけ実行する」ことにある。
+
+[Install]
+WantedBy=multi-user.target
