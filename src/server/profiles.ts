@@ -9,6 +9,8 @@ export interface ProfileOverride {
   color?: string;
   avatar?: string | null;
   hidden?: boolean;
+  /** チームの id */
+  team?: string;
   /** 空にすると役割なし */
   role?: string;
 }
@@ -37,6 +39,7 @@ export function mergeProfiles(base: AgentProfile[], discovered: string[], overri
       const name = o.name?.trim() || p.name;
       const merged: ManagedProfile = { ...p, name, initial: o.name?.trim() ? ([...name][0] ?? "?") : p.initial, color: o.color ?? p.color, hidden: !!o.hidden };
       if (o.avatar !== undefined) merged.avatar = o.avatar ?? undefined;
+      if (o.team !== undefined) merged.team = o.team;
       if (o.role !== undefined) merged.role = o.role || undefined;
       return merged;
     });

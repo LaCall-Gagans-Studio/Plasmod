@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type AgentProfile, CLAUDE_AGENT } from "../shared/types";
+import { type AgentProfile, CLAUDE_AGENT, DEFAULT_TEAMS, type Team } from "../shared/types";
 
 const env = (k: string, d = "") => process.env[k] ?? d;
 
@@ -67,6 +67,8 @@ export const config = {
   /** 「あとで」で隠す時間（分） */
   snoozeMin: Number(env("PLASMOD_SNOOZE_MIN", "180")),
   profiles: profiles(),
+  /** チーム。TeamStore が保存した内容に入れ替える */
+  teams: [...DEFAULT_TEAMS] as Team[],
   /** Hermes の API サーバー（プロファイルごとの URL とキー）。JSON。例は deploy/env.example */
   hermesApi: env("PLASMOD_HERMES_API"),
   /** Dev ページ: GitHub の読み取り専用トークン、対象の org、デプロイの状況を見るリポジトリ（カンマ区切り） */

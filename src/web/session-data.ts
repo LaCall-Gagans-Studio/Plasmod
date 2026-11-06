@@ -257,4 +257,3 @@ export function useChatUnread(agents: AgentEntry[], active: string | null): Set<
 
 export const CHAT_TEAM = "gh-chat-team";
 
-export type Team = "work" | "watch";

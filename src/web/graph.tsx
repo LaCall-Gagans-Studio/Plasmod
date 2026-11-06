@@ -1,7 +1,8 @@
 // オーケストレーションの図（Obsidian のグラフビュー風）: オーナー・ハブ・エージェント・監察チーム・カンバンのカードを点と線にして、
-// 監察チームはハブを通さず、オーナーから直接（点線）。
+// ハブを通さないチームは、オーナーから直接（点線）。
 // ばね（線）と反発（点どうし）でゆらゆら動かす。点はつまんで引っぱれる。押すと、その点とつながる点だけを濃く出す。
 // 毎フレームの位置は React を通さず、ref で DOM を直接動かす（点は 30 個くらいまで）。
+import { DEFAULT_TEAMS, type Team, teamOfProfile } from "../shared/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentNode, KanbanTask } from "../shared/types";
 import { Avatar } from "./ui";
@@ -17,7 +18,7 @@ type GNode = { id: string; kind: "me" | "hub" | "agent" | "task"; r: number; cha
 type GEdge = { a: string; b: string; len: number; live: boolean; watch?: boolean };
 type Body = { x: number; y: number; vx: number; vy: number; phase: number; pinned: boolean };
 
-function build(agents: AgentNode[], tasks: KanbanTask[]): { nodes: GNode[]; edges: GEdge[] } {
+function build(agents: AgentNode[], tasks: KanbanTask[], teams: Team[]): { nodes: GNode[]; edges: GEdge[] } {
   const hub = agents.find((a) => a.hub);
   const nodes: GNode[] = [{ id: "me", kind: "me", r: 17, charge: 1 }];
   const edges: GEdge[] = [];
@@ -26,7 +27,7 @@ function build(agents: AgentNode[], tasks: KanbanTask[]): { nodes: GNode[]; edge
     edges.push({ a: "me", b: `a:${hub.id}`, len: 86, live: false });
   }
   for (const a of agents.filter((x) => !x.hub)) {
-    const watch = a.team === "watch";
+    const watch = !teamOfProfile(a, teams).viaHub;
     nodes.push({ id: `a:${a.id}`, kind: "agent", r: watch ? 15 : 17, charge: 1, agent: a });
     edges.push({ a: watch || !hub ? "me" : `a:${hub.id}`, b: `a:${a.id}`, len: watch ? 84 : 92, live: a.state === "running", watch });
   }
@@ -42,8 +43,8 @@ function build(agents: AgentNode[], tasks: KanbanTask[]): { nodes: GNode[]; edge
   return { nodes, edges };
 }
 
-export function OrchestrationGraph({ agents, tasks }: { agents: AgentNode[]; tasks: KanbanTask[] }) {
-  const { nodes, edges } = useMemo(() => build(agents, tasks), [agents, tasks]);
+export function OrchestrationGraph({ agents, tasks, teams = DEFAULT_TEAMS }: { agents: AgentNode[]; tasks: KanbanTask[]; teams?: Team[] }) {
+  const { nodes, edges } = useMemo(() => build(agents, tasks, teams), [agents, tasks, teams]);
   const box = useRef<HTMLDivElement>(null);
   const bodies = useRef(new Map<string, Body>());
   const nodeEls = useRef(new Map<string, HTMLDivElement>());
@@ -294,7 +295,7 @@ export function OrchestrationGraph({ agents, tasks }: { agents: AgentNode[]; tas
             <span className="flex items-center gap-1 whitespace-nowrap"><span className="size-2 rounded-full" style={{ background: TASK_DOT.running }} />実行中</span>
             <span className="flex items-center gap-1 whitespace-nowrap"><span className="size-2 rounded-full" style={{ background: TASK_DOT.blocked }} />停止</span>
             <span className="flex items-center gap-1 whitespace-nowrap"><span className="size-2 rounded-full bg-line-2" />待ち</span>
-            <span className="flex items-center gap-1 whitespace-nowrap"><span className="w-3 border-t-2 border-dotted" style={{ borderColor: "#B8A1FF" }} />監察</span>
+            <span className="flex items-center gap-1 whitespace-nowrap"><span className="w-3 border-t-2 border-dotted" style={{ borderColor: "#B8A1FF" }} />ハブを通さない</span>
             <span className="ml-auto hidden truncate sm:inline">点を押すと、つながりだけ出す</span>
           </>
         )}

@@ -5,7 +5,8 @@ import { capsOfAgent } from "../shared/types";
 import { submit, useOutgoing } from "./outbox";
 import { PinMark, SessionRow } from "./sessionmenu";
 import { Avatar, Icon, ago, profileOf } from "./ui";
-import { useAgents, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM, type Team } from "./session-data";
+import { DEFAULT_TEAM, DEFAULT_TEAMS, teamOfProfile } from "../shared/types";
+import { useAgents, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
 import { CreditsLine, ViewBody } from "./SessionBody";
 import { Composer } from "./Composer";
 import { Skeleton } from "./loading";
@@ -25,9 +26,12 @@ function CronToggle({ className = "" }: { className?: string }) {
 
 export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const all = useAgents();
-  /** 実働（ハブ・開発エージェント・アオ・経理エージェント）と監察（監査・ITS・戦略立案）を、並びの右端のアイコンで切り替える */
-  const [team, setTeamState] = useState<Team>(() => (recall(CHAT_TEAM) === "watch" ? "watch" : "work"));
-  const teamOf = (id: string): Team => (snap ? (profileOf(snap.agents, id).team ?? "work") : "work");
+  /** チームごとに切り替える。メンバーがいるチームだけ順に回す */
+  const teams = snap?.teams ?? DEFAULT_TEAMS;
+  const teamOf = (id: string) => teamOfProfile(snap ? profileOf(snap.agents, id) : undefined, teams).id;
+  const liveTeams = teams.filter((t) => all.some((a) => teamOf(a.id) === t.id));
+  const [teamPick, setTeamState] = useState<string>(() => recall(CHAT_TEAM) ?? DEFAULT_TEAM);
+  const team = liveTeams.some((t) => t.id === teamPick) ? teamPick : (liveTeams[0]?.id ?? DEFAULT_TEAM);
   const agents = all.filter((a) => teamOf(a.id) === team);
   const [agent, setAgentState] = useState<string | null>(null);
   const setAgent = (a: string) => {
@@ -65,7 +69,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
     const last = recall(LAST_AGENT);
     setAgentState(agentIds.split(",").includes(last ?? "") ? last : agentIds.split(",")[0]);
   }, [agentIds, agent]);
-  const setTeam = (t: Team) => {
+  const setTeam = (t: string) => {
     setTeamState(t);
     remember(CHAT_TEAM, t);
     setFresh(false);
@@ -78,8 +82,9 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const { view } = useView(agent, latest?.id ?? null, 3000);
   const outgoing = useOutgoing(agent ?? "", latest?.id ?? null);
   const unread = useChatUnread(all, agent);
-  const other: Team = team === "work" ? "watch" : "work";
-  const otherUnread = all.some((a) => teamOf(a.id) === other && unread.has(a.id));
+  /** 次のチーム（チームが3つ以上なら順に回る） */
+  const other = liveTeams.length > 1 ? liveTeams[(liveTeams.findIndex((t) => t.id === team) + 1) % liveTeams.length] : null;
+  const otherUnread = all.some((a) => teamOf(a.id) !== team && unread.has(a.id));
 
   return (
     <section className="mx-3.5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-panel font-mono" aria-label="セッション">
@@ -107,18 +112,18 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
             {NAME(snap, a.id)}
           </button>
         ))}
-        {snap?.agents.some((a) => a.team === "watch") || team === "watch" ? (
+        {other ? (
           <button
-            onClick={() => setTeam(other)}
-            aria-label={other === "watch" ? "監察チームに切り替える" : "実働チームに切り替える"}
-            title={other === "watch" ? "監察チーム" : "実働チーム"}
+            onClick={() => setTeam(other.id)}
+            aria-label={`${other.name}チームに切り替える`}
+            title={`${other.name}チーム`}
             className="sticky right-0 ml-auto flex min-h-8 flex-none items-center gap-1 rounded-md border border-line-2 bg-panel px-2 text-[11px] font-semibold text-ink-2"
           >
             <span className="relative">
-              <Icon name={other === "watch" ? "watch" : "team"} size={16} />
+              <Icon name="team" size={16} />
               {otherUnread && <span className="absolute -right-1 -top-1 size-2 rounded-full border border-panel bg-orange" aria-label="未読あり" />}
             </span>
-            {other === "watch" ? "監察" : "実働"}
+            {other.name}
           </button>
         ) : null}
       </div>

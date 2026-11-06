@@ -58,7 +58,7 @@ describe("監察チーム", () => {
     expect(all.errors).toEqual([]);
     // cron が読めないときは、設定のプロファイル（開発くんを除く）を全部読む
     expect(calls.filter((c) => c[0] === "cron-output").map((c) => c[1]).sort()).toEqual(["acct", "auditor", "default", "design", "its", "strategy"]);
-    const latest = await w.latest(NOW);
+    const latest = await w.latest("watch", NOW);
     expect(latest.items.map((r) => r.agent)).toEqual(["auditor"]);
     expect(latest.items[0].at).toBe((S - 3600) * 1000);
   });
@@ -90,6 +90,6 @@ describe("監察チーム", () => {
       { agent: "its", name: "改善提案", reason: "予定の時刻を過ぎても動いていない" },
     ]);
     // 監察の1枚には実働の報告を混ぜない
-    expect((await w.latest(NOW)).items.map((r) => r.agent)).toEqual(["auditor"]);
+    expect((await w.latest("watch", NOW)).items.map((r) => r.agent)).toEqual(["auditor"]);
   });
 });

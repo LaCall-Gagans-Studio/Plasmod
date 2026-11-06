@@ -61,7 +61,7 @@ export function Watching({ snap }: { snap: Snapshot | null }) {
     >
       <DevTabs current="kanban" />
       {snap?.boardError && <div className="mx-4 mt-2 rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink">{snap.boardError}</div>}
-      {snap && <OrchestrationGraph agents={snap.agents} tasks={tasks} />}
+      {snap && <OrchestrationGraph agents={snap.agents} tasks={tasks} teams={snap.teams} />}
       <h2 className="m-0 px-5 pb-2.5 pt-5 text-[15px] font-bold">カンバン</h2>
       <div className="flex gap-2.5 overflow-x-auto px-4 pb-4">
         {COLUMNS.map((col) => {

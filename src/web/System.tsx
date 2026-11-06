@@ -1,7 +1,7 @@
 // 設定: 一般（表示・呼び名・このアプリ） / エージェント（名前と顔・モデル・スキル・定期実行） / 使用量 / VPS（状態・root 作業・ファイル）
 import { useEffect, useState } from "react";
 import type { AgentInfo, FsList, FsRead, ModelEntry, NousCredits, PerfName, PerfRow, Snapshot, UsageSnapshot, VpsService, VpsStatus } from "../shared/types";
-import { type ManagedAgent, useAgentSettings, PlayerCard, ProfileEditor } from "./AgentSquad";
+import { type ManagedAgent, useAgentSettings, PlayerCard, ProfileEditor, TeamsEditor } from "./AgentSquad";
 import { Connections } from "./Connections";
 import { RichText } from "./markdown";
 import { Schedules } from "./Schedules";
@@ -9,7 +9,7 @@ import { creditsUsed } from "./session-data";
 import { type ThemePref, useTheme } from "./theme";
 import { Avatar, COL, Page, ago, profileOf } from "./ui";
 import { claudeName, getAbout, saveOwner } from "./identity";
-import { RUNTIME_CAPS } from "../shared/types";
+import { DEFAULT_TEAMS, RUNTIME_CAPS, teamOfProfile } from "../shared/types";
 import { toast } from "./touch";
 import { lang, setLang, t, t as tr } from "./i18n";
 import { VpsChart } from "./VpsChart";
@@ -237,17 +237,18 @@ function Agents({ snap }: { snap: Snapshot | null }) {
       {listError && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{listError}</div>}
       {settings.error && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{settings.error}</div>}
       {msg && <div className={`rounded-xl px-3 py-2 text-xs lg:col-span-2 ${msg.ok ? "bg-lime-soft text-lime-ink" : "bg-orange/10 text-orange-ink"}`}>{msg.text}</div>}
+      {settings.teams.length > 0 && <TeamsEditor teams={settings.teams} onChange={() => void settings.loadTeams()} />}
       {players.map((p, n) => {
         const a = (list ?? []).find((i) => i.id === p.id);
         const isOpen = open === p.id;
         const cats = a ? [...new Set(a.skills.map((s) => s.category))] : [];
         return (
           <div key={p.id} className={`overflow-hidden rounded-2xl border bg-panel ${isOpen ? "border-lime-line" : "border-line"}`}>
-            <PlayerCard a={p} info={a} no={n + 1} open={isOpen} onToggle={() => setOpen(isOpen ? null : p.id)} />
+            <PlayerCard a={p} info={a} no={n + 1} open={isOpen} teamName={teamOfProfile(p, settings.teams.length ? settings.teams : DEFAULT_TEAMS).name} onToggle={() => setOpen(isOpen ? null : p.id)} />
             {a?.error && <div className="px-3 pt-2 text-[11px] text-orange-ink">{a.error}</div>}
             {isOpen && (
               <div className="flex flex-col gap-3 p-3">
-                {settings.agents && <ProfileEditor a={p} patch={settings.patch} upload={settings.upload} />}
+                {settings.agents && <ProfileEditor a={p} patch={settings.patch} upload={settings.upload} teams={settings.teams} />}
                 {a && <>
                 {/* モデル（許可リストの中から変えられる） */}
                 <div className="flex flex-col gap-1">

@@ -1,6 +1,6 @@
 // 定期報告: 各プロファイルの cron の出力を仲介（cron-output）で読む。
-// 監察チーム（team: "watch"）は週1回の報告、実働チーム（ハブの見回り・ops の朝の運用レポートなど）は日々の報告として、レポートに1枚ずつ出す
-import { type AgentProfile, CLAUDE_AGENT, findProfile, type CronJob, type WatchReport } from "../shared/types";
+// 週次のチーム（例: 監察）は週1回の報告、毎日のチーム（ハブの見回り・ops の朝の運用レポートなど）は日々の報告として、レポートに1枚ずつ出す
+import { type AgentProfile, CLAUDE_AGENT, DEFAULT_TEAMS, findProfile, teamOfProfile, type CronJob, type Team, type WatchReport } from "../shared/types";
 import type { BrokerCall } from "./system";
 
 const DAY = 86400_000;
@@ -25,6 +25,7 @@ export class WatchService {
   constructor(
     private broker: BrokerCall | null,
     private profiles: AgentProfile[],
+    private teams: Team[] = DEFAULT_TEAMS,
   ) {}
 
   get configured(): boolean {
@@ -32,7 +33,7 @@ export class WatchService {
   }
 
   private teamOf(id: string) {
-    return findProfile(this.profiles, id)?.team ?? "work";
+    return teamOfProfile(findProfile(this.profiles, id), this.teams);
   }
 
   /**
@@ -83,25 +84,25 @@ export class WatchService {
     return value;
   }
 
-  private errorOf(errors: All["errors"], team: "work" | "watch") {
-    const mine = errors.filter((e) => this.teamOf(e.agent) === team);
+  private errorOf(errors: All["errors"], match: (t: Team) => boolean) {
+    const mine = errors.filter((e) => match(this.teamOf(e.agent)));
     return mine.length ? { error: mine.map((e) => `${e.agent}: ${e.error}`).join(" / ") } : {};
   }
 
-  /** レポートの「今週の監察」: 監察のプロファイルごとに、この8日の最新の1件 */
-  async latest(now = Date.now()): Promise<{ items: WatchReport[]; error?: string }> {
+  /** レポートの週次のチームの1枚: そのチームのプロファイルごとに、この8日の最新の1件 */
+  async latest(teamId = "watch", now = Date.now()): Promise<{ items: WatchReport[]; error?: string }> {
     const { reports, errors } = await this.all(false, now);
     const seen = new Set<string>();
-    const items = reports.filter((r) => this.teamOf(r.agent) === "watch" && r.at >= now - 8 * DAY && !seen.has(r.agent) && seen.add(r.agent));
-    return { items, ...this.errorOf(errors, "watch") };
+    const items = reports.filter((r) => this.teamOf(r.agent).id === teamId && r.at >= now - 8 * DAY && !seen.has(r.agent) && seen.add(r.agent));
+    return { items, ...this.errorOf(errors, (t) => t.id === teamId) };
   }
 
-  /** レポートの「今日の定期報告」: 実働のジョブごとに、この26時間の最新の1件と、動いていないジョブ（監察のものも含む） */
+  /** レポートの「今日の定期報告」: 毎日のチームのジョブごとに、この26時間の最新の1件と、動いていないジョブ */
   async routine(now = Date.now()): Promise<{ items: WatchReport[]; late: LateJob[]; error?: string }> {
     const { reports, errors, late } = await this.all(false, now);
     const seen = new Set<string>();
-    const items = reports.filter((r) => this.teamOf(r.agent) !== "watch" && r.at >= now - 26 * 3600_000 && !seen.has(`${r.agent}:${r.job}`) && seen.add(`${r.agent}:${r.job}`));
-    return { items, late, ...this.errorOf(errors, "work") };
+    const items = reports.filter((r) => this.teamOf(r.agent).cadence === "daily" && r.at >= now - 26 * 3600_000 && !seen.has(`${r.agent}:${r.job}`) && seen.add(`${r.agent}:${r.job}`));
+    return { items, late, ...this.errorOf(errors, (t) => t.cadence === "daily") };
   }
 }
 
