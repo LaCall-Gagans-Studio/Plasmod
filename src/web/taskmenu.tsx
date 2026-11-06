@@ -5,6 +5,7 @@ import type { AppTask } from "../shared/types";
 import { ConfirmDelete, DangerButton, Glyph, Sheet, SheetCard, TileButton, TileLink, Tiles } from "./sheet";
 import { patchTask } from "./task-db";
 import { CopyRef, haptic, writeClipboard } from "./touch";
+import { localDay } from "../shared/time";
 
 type Open = { t: AppTask; onChanged?: () => void } | null;
 let current: Open = null;
@@ -28,7 +29,7 @@ const useMenu = () =>
 
 export { useLongPress } from "./touch";
 
-const jst = (days: number) => new Date(Date.now() + 9 * 3600_000 + days * 86_400_000).toISOString().slice(0, 10);
+const dayAfter = (days: number) => localDay(Date.now() + days * 86_400_000);
 
 export function TaskMenu() {
   const m = useMenu();
@@ -79,7 +80,7 @@ export function TaskMenu() {
       return r;
     });
 
-  const DUES: [string, string | null][] = [["今日", jst(0)], ["明日", jst(1)], ["来週", jst(7)], ["なし", null]];
+  const DUES: [string, string | null][] = [["今日", dayAfter(0)], ["明日", dayAfter(1)], ["来週", dayAfter(7)], ["なし", null]];
   return (
     <Sheet label={`「${t.title}」のメニュー`} onClose={close}>
       <SheetCard>

@@ -61,9 +61,8 @@ const SCOPES: { id: Scope; label: string }[] = [
 
 export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | null }) {
   const params = hashParams();
-  // 前の「済み」「不要」「返事待ち」のリンクは完了へ
   const raw = params.get("s");
-  const scope: Scope = raw === "dismissed" || raw === "waiting" ? "done" : SCOPES.some((x) => x.id === raw) ? (raw as Scope) : "open";
+  const scope: Scope = SCOPES.some((x) => x.id === raw) ? (raw as Scope) : "open";
   const project = params.get("project");
   const tag = params.get("tag");
   const byDue = params.get("sort") === "due";

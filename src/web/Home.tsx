@@ -4,6 +4,7 @@ import { SessionPanel } from "./Session";
 import { fetchTaskList } from "./task-db";
 import { Avatar, COL, Icon, Nav, RAIL, profileOf } from "./ui";
 import { getAbout } from "./identity";
+import { localDay } from "../shared/time";
 
 const RING = { permission: "var(--color-ring-orange)", blocked: "var(--color-ring-orange)", review: "var(--color-ring-lime)", triage: "#8FB8FF", note: "#8FB8FF", confirm: "#B8A1FF", reply: "#B8A1FF", todo: "#B8A1FF" } as const;
 
@@ -38,7 +39,7 @@ function HomeAside({ snap }: { snap: Snapshot }) {
       .catch(() => {});
   }, []);
   // 今日まで・期限切れのタスク（やる・任せ中）。一覧が変わるたび（snap）に取り直す
-  const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+  const today = localDay();
   useEffect(() => {
     fetchTaskList(new URLSearchParams({ status: "todo,doing" }))
       .then((l: AppTaskList) => setDue(l.tasks.filter((t) => t.due && t.due <= today)))

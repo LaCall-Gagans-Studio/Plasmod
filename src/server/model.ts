@@ -5,6 +5,7 @@ import type {
 import { findProfile, staleHours } from "../shared/types";
 import type { MirrorInput, Task } from "./tasks";
 import { config } from "./config";
+import { tzOffsetMs } from "../shared/time";
 
 // ボタンの言葉（2026-10-29）: 押すとタスクがどの状態に移るかで揃える。状態は 判断待ち・やる・任せ中・完了 の4つ。
 // hint は「→ 移る先。起きること」の形
@@ -133,14 +134,14 @@ export function hermesApprovalCard(a: HermesApproval): Card {
   };
 }
 
-/** 伏せる期限。朝は JST の 8 時。morning＝次の朝、week＝次の月曜の朝 */
+/** 伏せる期限。朝は 8 時。morning＝次の朝、week＝次の月曜の朝 */
 export function snoozeUntil(kind: SnoozeKind, now = Date.now()): number {
   if (kind === "3h") return now + 3 * 3_600_000;
-  const JST = 9 * 3_600_000;
+  const off = tzOffsetMs(now);
   const day = 86_400_000;
-  const today8 = Math.floor((now + JST) / day) * day + 8 * 3_600_000 - JST; // 今日（JST）の 8 時
+  const today8 = Math.floor((now + off) / day) * day + 8 * 3_600_000 - off; // 今日の 8 時
   if (kind === "morning") return today8 > now ? today8 : today8 + day;
-  const weekday = new Date(now + JST).getUTCDay(); // 0=日
+  const weekday = new Date(now + off).getUTCDay(); // 0=日
   const days = ((8 - weekday) % 7) || 7; // 次の月曜（今日が月曜なら来週）
   return today8 + days * day;
 }

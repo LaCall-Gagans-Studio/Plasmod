@@ -36,7 +36,7 @@ export function timerText(schedule: string): string {
     .map((part) => {
       const [k, v = ""] = [part.slice(0, part.indexOf("=")), part.slice(part.indexOf("=") + 1)];
       if (k === "OnCalendar") {
-        // タイムゾーンが無いものは VPS の時刻（JST）
+        // タイムゾーンが無いものは VPS の時刻
         const m = v.match(/^(?:([A-Z][a-z]{2}) )?\*-\*-\* (\d{2}):(\d{2}):\d{2}(?: Asia\/Tokyo)?$/);
         if (m && /^\d+$/.test(m[2])) {
           const days = m[1] ? `毎週${DOW[["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(m[1])] ?? m[1]}` : "毎日";

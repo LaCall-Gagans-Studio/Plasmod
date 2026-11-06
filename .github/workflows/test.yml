@@ -1,0 +1,43 @@
+# PR と main で、テスト・型・ビルド・秘密の検査を動かす
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: テスト
+        run: bun test
+      - name: 型
+        run: bunx tsc --noEmit
+      - name: ビルド
+        run: bun run build
+      - name: root の窓口のテスト
+        run: python3 -I rootd/test_plasmod_rootd.py
+      - name: 仲介のテスト
+        run: python3 -I -m unittest discover -s tests -p 'test_broker.py'
+      - name: 監察の集計のテスト
+        run: python3 -I deploy/watch/test_watch_collect.py
+      - name: 自動デプロイのテスト
+        run: bash deploy/autodeploy/test_autodeploy.sh
+
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 秘密の検査（gitleaks）
+        run: docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.21.2 detect --source . --no-git --redact --verbose --config .gitleaks.toml

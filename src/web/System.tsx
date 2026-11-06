@@ -10,6 +10,7 @@ import { type ThemePref, useTheme } from "./theme";
 import { Avatar, COL, Page, ago, profileOf } from "./ui";
 import { devAgentName, getAbout, saveOwner } from "./identity";
 import { toast } from "./touch";
+import { lang, setLang, t, t as tr } from "./i18n";
 import { VpsChart } from "./VpsChart";
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
@@ -506,16 +507,31 @@ const THEMES: { id: ThemePref; label: string }[] = [
   { id: "dark", label: "黒" },
 ];
 
+function LangPicker() {
+  return (
+    <div className="mx-4 mb-3 flex min-h-11 items-center gap-2 rounded-xl border border-line bg-panel px-3.5 text-[13px]">
+      <span>{t("言語")}</span>
+      <div className="ml-auto flex gap-1" role="radiogroup" aria-label={t("言語")}>
+        {(["ja", "en"] as const).map((l) => (
+          <button key={l} role="radio" aria-checked={lang === l} onClick={() => lang !== l && setLang(l)} className={`min-h-8 rounded-full px-3 text-[12px] ${lang === l ? "bg-ink font-bold text-paper" : "border border-line-2 text-ink-2"}`}>
+            {l === "ja" ? "日本語" : "English"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ThemePicker() {
   const [pref, setPref] = useTheme();
   return (
     <div className="mx-4 mb-3 flex min-h-11 items-center gap-2 rounded-xl border border-line bg-panel px-3.5 text-[13px]">
-      <span>表示</span>
-      <span className="text-[11px] text-mute">{pref === "auto" ? "スマホの設定に合わせる" : ""}</span>
+      <span>{t("表示")}</span>
+      <span className="text-[11px] text-mute">{pref === "auto" ? t("スマホの設定に合わせる") : ""}</span>
       <div className="ml-auto flex gap-1" role="radiogroup" aria-label="表示の色">
         {THEMES.map((t) => (
           <button key={t.id} role="radio" aria-checked={pref === t.id} onClick={() => setPref(t.id)} className={`min-h-8 rounded-full px-3 text-xs ${pref === t.id ? "bg-ink font-bold text-paper" : "border border-line-2 text-ink-2"}`}>
-            {t.label}
+            {tr(t.label)}
           </button>
         ))}
       </div>
@@ -531,8 +547,6 @@ export const SETTINGS_TABS: { id: Tab; label: string }[] = [
   { id: "usage", label: "使用量" },
   { id: "vps", label: "VPS" },
 ];
-/** 前のタブのリンクは、移った先へ */
-const OLD_TABS: Record<string, Tab> = { schedules: "agents", files: "vps" };
 
 /** このアプリについて: 版・開発者・ライセンス */
 function AboutApp() {
@@ -593,6 +607,7 @@ function General() {
   return (
     <div className="flex flex-col gap-3 pb-6 pt-2.5">
       <ThemePicker />
+      <LangPicker />
       <OwnerName />
       <AboutApp />
     </div>
@@ -626,7 +641,7 @@ export function System({ snap }: { snap: Snapshot | null }) {
   // 左のメニューから #/settings?tab=agents のように直接開ける
   const fromHash = (): Tab => {
     const t = new URLSearchParams(location.hash.split("?")[1] ?? "").get("tab");
-    return t && OLD_TABS[t] ? OLD_TABS[t] : SETTINGS_TABS.some((x) => x.id === t) ? (t as Tab) : "general";
+    return SETTINGS_TABS.some((x) => x.id === t) ? (t as Tab) : "general";
   };
   const [tab, setTab] = useState<Tab>(fromHash);
   useEffect(() => {
@@ -639,11 +654,11 @@ export function System({ snap }: { snap: Snapshot | null }) {
     history.replaceState(null, "", t === "general" ? "#/settings" : `#/settings?tab=${t}`);
   };
   return (
-    <Page title="設定" current="#/settings" right={<span className="font-mono text-[11px] text-mute">my-vps</span>}>
+    <Page title={t("設定")} current="#/settings">
       <div className="flex gap-1.5 overflow-x-auto px-4 pt-2.5 [scrollbar-width:none]" role="tablist">
         {SETTINGS_TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => go(t.id)} className={`min-h-9 flex-none rounded-full px-3.5 text-xs ${tab === t.id ? "bg-ink font-bold text-paper" : "border border-line-2 text-ink-2"}`}>
-            {t.label}
+            {tr(t.label)}
           </button>
         ))}
       </div>

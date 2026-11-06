@@ -10,6 +10,7 @@ import { normalizeTags } from "./memos";
 import { SearchIndex } from "./search";
 import { type TaskStatus, TASK_STATUSES, OPEN, type Task, type TaskEvent, TaskError, type TaskInput, type MirrorInput, GONE, type UpsertResult, NAME_RE, STATUS_LABEL, KINDS, clean, LOOSE_KEY_SOURCES, keyParts, sameLooseKey, titleScore, TITLE_WINDOW_MS, TAGS, OPEN_CHILDREN, type Row, toTask } from "./task-model";
 import { config } from "./config";
+import { localDay, tzOffsetMs } from "../shared/time";
 
 export * from "./task-model";
 
@@ -512,15 +513,16 @@ export class TaskStore {
 
   /**
    * レポート用: 今日（期限が今日まで・期限切れ）、今週（明日〜日曜）、進行中（任せた・期限なし）、今週終えた（月曜から）。
-   * 日付は日本時間（id は番号、url はタスクの画面）
+   * 日付はアプリのタイムゾーン（id は番号、url はタスクの画面）
    */
   summary(now = Date.now()): { today: TaskSummaryItem[]; week: TaskSummaryItem[]; doing: TaskSummaryItem[]; done: TaskSummaryItem[] } {
-    const j = new Date(now + 9 * 3600_000);
+    const off = tzOffsetMs(now);
+    const j = new Date(now + off);
     const today = j.toISOString().slice(0, 10);
     const dow = (j.getUTCDay() + 6) % 7;
     const monday = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate() - dow);
     const weekEnd = new Date(monday + 6 * 86_400_000).toISOString().slice(0, 10);
-    const weekStartMs = monday - 9 * 3600_000;
+    const weekStartMs = monday - off;
     const row = (t: Task, due: string | null): TaskSummaryItem => ({
       id: t.ref ?? `#${t.id}`,
       title: t.title,
@@ -540,7 +542,7 @@ export class TaskStore {
       today: open.filter((t) => t.due && t.due <= today).map((t) => row(t, t.due)).sort(byDue),
       week: open.filter((t) => t.due && t.due > today && t.due <= weekEnd).map((t) => row(t, t.due)).sort(byDue),
       doing: open.filter((t) => !t.due && t.status === "doing").map((t) => row(t, null)),
-      done: done.map((t) => row(t, new Date((t.decidedAt ?? t.updatedAt) + 9 * 3600_000).toISOString().slice(0, 10))),
+      done: done.map((t) => row(t, localDay(t.decidedAt ?? t.updatedAt))),
     };
   }
 

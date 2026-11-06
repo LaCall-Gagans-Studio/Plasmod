@@ -21,10 +21,6 @@ const STATUS: Record<ProjectStatus, { label: string; cls: string }> = {
   done: { label: "完了", cls: "bg-chip text-mute" },
 };
 
-function hashView(): "projects" | "due" {
-  return new URLSearchParams(location.hash.split("?")[1] ?? "").get("v") === "due" ? "due" : "projects";
-}
-
 const toggleDone = async (t: AppTask) => {
   const done = t.status === "done" || t.status === "dismissed";
   await patchTask(t.id, { status: done ? "todo" : "done" });
@@ -211,10 +207,6 @@ function Masonry({ items }: { items: { key: string | number; weight: number; nod
 const weightOf = (urgent: number) => 60 + urgent * 44;
 
 export function PjScreen({ snap }: { snap: Snapshot | null }) {
-  // 前の「期日順」のリンクは、タスクの期限順へ
-  useEffect(() => {
-    if (hashView() === "due") location.replace("#/todos?sort=due");
-  }, []);
   const [ov, setOv] = useState<ProjectOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bump, setBump] = useState(0);

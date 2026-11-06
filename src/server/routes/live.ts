@@ -5,6 +5,7 @@ import { fromTailscale } from "../auth";
 import { parseRelay, relayNotice, tokenOk } from "../notify-relay";
 import type { RouteContext } from "./context";
 import pkg from "../../../package.json";
+import { getTimeZone } from "../../shared/time";
 
 export function liveRoutes({ app, cfg, hub, rootd, feed }: RouteContext) {
   app.get("/api/health", (c) => c.json({ ok: true }));
@@ -18,6 +19,7 @@ export function liveRoutes({ app, cfg, hub, rootd, feed }: RouteContext) {
       developer: cfg.developer,
       repoUrl: cfg.repoUrl,
       license: "MIT",
+      timeZone: getTimeZone(),
     }),
   );
   app.get("/api/snapshot", (c) => c.json(hub.snapshot()));

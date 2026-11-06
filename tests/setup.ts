@@ -1,4 +1,5 @@
 // テストは決まった名前で動かす（本番の名前は PLASMOD_PROFILES・PLASMOD_OWNER_NAME で決める）
+process.env.PLASMOD_TIMEZONE ??= "Asia/Tokyo";
 process.env.PLASMOD_OWNER_NAME ??= "オーナーさん";
 process.env.PLASMOD_TASK_PREFIX ??= "TASK";
 process.env.PLASMOD_EXTRA_UNITS ??= "my-*.service";
