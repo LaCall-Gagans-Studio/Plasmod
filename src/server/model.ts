@@ -2,7 +2,7 @@
 import type {
   AgentNode, AgentProfile, Board, Card, CardOption, HermesApproval, InboxKind, KanbanTask, PermissionRequest, SnoozeKind,
 } from "../shared/types";
-import { findProfile, staleHours } from "../shared/types";
+import { CLAUDE_AGENT, findProfile, staleHours } from "../shared/types";
 import type { MirrorInput, Task } from "./tasks";
 import { config } from "./config";
 import { tzOffsetMs } from "../shared/time";
@@ -108,7 +108,7 @@ export function permissionCard(p: PermissionRequest): Card {
   return {
     key: `perm:${p.thread}:${p.request_id}`,
     kind: "permission",
-    agent: "dev",
+    agent: CLAUDE_AGENT,
     title: `承認が必要: ${p.tool_name}`,
     body: [p.description, p.input_preview].filter(Boolean).join("\n\n").slice(0, 4000),
     statusLabel: "承認",

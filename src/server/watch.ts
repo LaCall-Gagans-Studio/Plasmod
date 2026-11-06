@@ -1,6 +1,6 @@
 // 定期報告: 各プロファイルの cron の出力を仲介（cron-output）で読む。
 // 監察チーム（team: "watch"）は週1回の報告、実働チーム（ハブの見回り・ops の朝の運用レポートなど）は日々の報告として、レポートに1枚ずつ出す
-import { type AgentProfile, findProfile, type CronJob, type WatchReport } from "../shared/types";
+import { type AgentProfile, CLAUDE_AGENT, findProfile, type CronJob, type WatchReport } from "../shared/types";
 import type { BrokerCall } from "./system";
 
 const DAY = 86400_000;
@@ -51,7 +51,7 @@ export class WatchService {
       }
       return { ids, jobs };
     } catch {
-      return { ids: this.profiles.filter((p) => p.id !== "dev").map((p) => p.id), jobs: [] };
+      return { ids: this.profiles.filter((p) => p.id !== CLAUDE_AGENT).map((p) => p.id), jobs: [] };
     }
   }
 

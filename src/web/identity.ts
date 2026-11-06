@@ -6,7 +6,12 @@ export interface About {
   version: string;
   owner: string;
   ownerIsDefault: boolean;
+  /** PR の依頼先の名前 */
   devAgent: string;
+  /** Claude Code のエージェントの名前（入れていなければ null） */
+  claudeAgent?: string | null;
+  /** GitHub を設定しているか（開発の画面を出すか） */
+  github?: boolean;
   developer: string;
   repoUrl: string;
   license: string;
@@ -29,6 +34,7 @@ setTimeZone(about.timeZone);
 export const getAbout = () => about;
 export const ownerName = () => about.owner;
 export const devAgentName = () => about.devAgent;
+export const claudeName = () => about.claudeAgent ?? "Claude Code";
 
 export async function loadAbout() {
   try {

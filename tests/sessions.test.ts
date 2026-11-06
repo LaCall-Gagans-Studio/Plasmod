@@ -336,7 +336,7 @@ describe("開発くん（plasmod-bridge）", () => {
     bridge.start();
     for (let i = 0; i < 100 && !bridge.connected; i++) await Bun.sleep(10);
     const svc = new SessionService(bridge, new Map());
-    expect(svc.agents()).toEqual([{ id: "dev", available: true }]);
+    expect(svc.agents()).toEqual([{ id: "dev", available: true, runtime: "claude-code" }]);
     expect((await svc.list("dev"))[0]).toMatchObject({ id: "42", working: true, last: 1_700_000_000_000 });
     expect(await svc.view("dev", "42")).toMatchObject({ kind: "terminal", text: "❯ hi", alive: true, working: false });
     await expect(svc.view("dev", "99")).rejects.toThrow("知らないセッション");
@@ -344,7 +344,7 @@ describe("開発くん（plasmod-bridge）", () => {
     expect(await svc.send("dev", "42", "続き")).toBe("42");
     await expect(svc.send("dev", "42", "  ")).rejects.toThrow("空");
     await svc.stop("dev", "42");
-    await expect(svc.stop("default", "s1")).rejects.toThrow("開発エージェント");
+    await expect(svc.stop("default", "s1")).rejects.toThrow("止められない");
     const ops = seen.map((m) => m.type).filter((t) => t !== "history");
     expect(ops).toEqual(["list_sessions", "pane", "pane", "send", "send", "stop"]);
     expect(seen.filter((m) => m.type === "history").length).toBe(1); // 古い bridge には一度聞いたら、もう聞かない
@@ -486,5 +486,22 @@ describe("開発くんの会話（history と chat）", () => {
     expect(v3.kind === "terminal" && v3.chatError).toContain("知らない操作");
     bridge.stop();
     listener.stop(true);
+  });
+});
+
+describe("動かす仕組み", () => {
+  test("Claude Code なしでも Hermes だけで動き、止められないものは断る", async () => {
+    const svc = new SessionService(null, new Map(), () => {}, () => 0, null, () => false);
+    expect(svc.agents()).toEqual([]);
+    await expect(svc.list("dev")).rejects.toThrow("plasmod-bridge");
+    await expect(svc.stop("default", "1")).rejects.toThrow("止められない");
+    await expect(svc.list("default")).rejects.toThrow("つながっていない");
+  });
+
+  test("できることの表は、仕組みごとに引ける", async () => {
+    const { capsOfAgent, RUNTIME_CAPS, runtimeOf } = await import("../src/shared/types");
+    expect(capsOfAgent("dev")).toBe(RUNTIME_CAPS["claude-code"]);
+    expect(capsOfAgent("acct").stop).toBe(false);
+    expect(runtimeOf(undefined)).toBe("hermes");
   });
 });

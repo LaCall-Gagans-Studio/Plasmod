@@ -13,7 +13,8 @@ import { Skeleton } from "./loading";
 import { memoList, memoSync } from "./memo-db";
 import { CopyRef, toast } from "./touch";
 import { lookupIssue } from "./badges";
-import { devAgentName, ownerName } from "./identity";
+import { claudeName, ownerName } from "./identity";
+import { CLAUDE_AGENT } from "../shared/types";
 
 /** 広い画面（lg 以上）でメモの左に出す一覧。同じプロジェクトのメモに切り替えられる（「すべて」にも） */
 function MemoSidePane({ current, project }: { current: number | null; project: string | null }) {
@@ -400,7 +401,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
   };
 
   const KIND: Record<MemoEvent["kind"], string> = { create: "作成", edit: "編集", archive: "アーカイブ", restore: "戻した" };
-  const who = (a: string) => (a === "app" ? ownerName() : a === "dev" ? devAgentName() : a.startsWith("hermes/") ? a.slice("hermes/".length) : a);
+  const who = (a: string) => (a === "app" ? ownerName() : a === CLAUDE_AGENT ? claudeName() : a.startsWith("hermes/") ? a.slice("hermes/".length) : a);
   const crumbs = draft?.project?.trim();
   const ref = id === null ? null : memoRef(id);
 

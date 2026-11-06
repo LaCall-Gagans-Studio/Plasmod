@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AmoebaBurst } from "./amoeba";
 import { type AgentProfile, findProfile, type NavBadges } from "../shared/types";
-import { ownerName } from "./identity";
+import { getAbout, ownerName } from "./identity";
 import { t as tr } from "./i18n";
 
 export const ME: AgentProfile = {
@@ -245,6 +245,10 @@ const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges
   },
 ];
 
+/** 開発の画面（PR）は GitHub を設定しているときだけ。カンバンはメニューから開ける */
+const showDevPage = () => getAbout().github !== false;
+const menuItems = () => (showDevPage() ? MENU : MENU.map((m) => (m.href === "#/dev" ? { ...m, href: "#/watching", label: "カンバン", match: ["#/task/"], sub: undefined } : m)));
+
 // 2026-10-29: 既定を「畳む」に変えたので、覚えるものも「開いたもの」にした（前の gh-menu-folded は使わない）
 const OPEN_KEY = "gh-menu-open";
 function readOpened(): string[] {
@@ -350,7 +354,7 @@ export function Drawer() {
           <button onClick={() => setDrawer(false)} aria-label="メニューを閉じる" tabIndex={open ? 0 : -1} className="ml-auto flex size-10 items-center justify-center text-ink-2"><Icon name="close" size={20} /></button>
         </div>
         <nav className="relative z-10 flex flex-col px-2">
-          {MENU.map((m) => {
+          {menuItems().map((m) => {
             const on = inSection(hash, m);
             const n = m.badge === "dev" ? b.dev + b.watching : m.badge ? b[m.badge] : 0;
             return (
@@ -392,7 +396,7 @@ export function Nav({ current }: { current: string }) {
   const b = useBadges();
   return (
     <nav className="flex justify-around border-t border-line/60 pb-[max(env(safe-area-inset-bottom),14px)] pt-3 text-[11px] text-mute lg:fixed lg:inset-y-0 lg:left-0 lg:z-10 lg:w-[88px] lg:flex-col lg:justify-start lg:gap-7 lg:border-r lg:border-t-0 lg:bg-ground lg:pt-[max(env(safe-area-inset-top),28px)]">
-      {TABS.map((t) => {
+      {TABS.filter((t) => t.href !== "#/dev" || showDevPage()).map((t) => {
         const n = badgeOf(b, t.href) + (t.href === "#/" ? b.system : 0); // スマホではメニューのボタンが無いので、設定の数もチャットに足す
         return (
           <a

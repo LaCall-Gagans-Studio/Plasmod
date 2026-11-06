@@ -8,7 +8,8 @@ import { Schedules } from "./Schedules";
 import { creditsUsed } from "./session-data";
 import { type ThemePref, useTheme } from "./theme";
 import { Avatar, COL, Page, ago, profileOf } from "./ui";
-import { devAgentName, getAbout, saveOwner } from "./identity";
+import { claudeName, getAbout, saveOwner } from "./identity";
+import { RUNTIME_CAPS } from "../shared/types";
 import { toast } from "./touch";
 import { lang, setLang, t, t as tr } from "./i18n";
 import { VpsChart } from "./VpsChart";
@@ -105,7 +106,7 @@ function Usage({ snap }: { snap: Snapshot | null }) {
           claude ? (
             <UsageBox
               title="Claude"
-              sub={`${devAgentName()} · 直近5時間`}
+              sub={`${claudeName()} · 直近5時間`}
               color="#C8F25A"
               rows={[
                 {
@@ -125,8 +126,8 @@ function Usage({ snap }: { snap: Snapshot | null }) {
                   : { label: "金額（API 換算）", value: "—", ratio: null, note: "bridge の更新（app-usage-cost.patch）待ち" },
               ]}
             />
-          ) : (
-            <Meter title="Claude" sub={devAgentName()} value="?" ratio={null} note={"error" in usage.claude ? usage.claude.error : ""} color="#FF8A3D" />
+          ) : getAbout().claudeAgent === null ? null : (
+            <Meter title="Claude" sub={claudeName()} value="?" ratio={null} note={"error" in usage.claude ? usage.claude.error : ""} color="#FF8A3D" />
           )
         )}
         {credits && <CreditsMeter c={credits} />}
@@ -214,7 +215,7 @@ function Agents({ snap }: { snap: Snapshot | null }) {
     });
     get<ModelEntry[]>("/api/system/models").then(setModels).catch(() => setModels([]));
   }, []);
-  const modelsOf = (a: AgentInfo) => (models ?? []).filter((m) => (a.kind === "dev" ? m.key.startsWith("dev:") : m.key === `hermes:${a.id}`));
+  const modelsOf = (a: AgentInfo) => (models ?? []).filter((m) => (a.kind === "claude-code" ? m.key.startsWith("dev:") : m.key === `hermes:${a.id}`));
   const choose = async (m: ModelEntry, choice: string, label: string) => {
     setMsg(null);
     const r = await fetch("/api/system/models", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: m.key, choice }) });
@@ -275,7 +276,7 @@ function Agents({ snap }: { snap: Snapshot | null }) {
                 </div>
                 {a.soul && (
                   <div className="flex flex-col gap-1">
-                    <div className="text-[11px] text-mute">{a.kind === "dev" ? "CLAUDE.md（指示）" : "SOUL.md（人格）"}</div>
+                    <div className="text-[11px] text-mute">{RUNTIME_CAPS[a.kind].soulFile}</div>
                     <div className={`relative overflow-hidden text-[12.5px] leading-6 text-ink-2 ${soulOpen === a.id ? "" : "max-h-40"}`}>
                       <RichText text={a.soul} />
                       {soulOpen !== a.id && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-panel" />}
@@ -292,7 +293,7 @@ function Agents({ snap }: { snap: Snapshot | null }) {
                 )}
                 <div className="flex flex-col gap-1">
                   <div className="text-[11px] text-mute">スキル</div>
-                  {a.skills.length === 0 && <div className="text-[12px] text-mute">{a.kind === "dev" ? "Claude Code のスキルは ~/work の外にあるので、ここには出ない" : "スキルは無い"}</div>}
+                  {a.skills.length === 0 && <div className="text-[12px] text-mute">{a.kind === "claude-code" ? "Claude Code のスキルは ~/work の外にあるので、ここには出ない" : "スキルは無い"}</div>}
                   {cats.map((cat) => (
                     <div key={cat} className="flex flex-col">
                       {cat && <div className="pt-1.5 font-mono text-[10.5px] text-mute">{cat}/</div>}
@@ -496,7 +497,7 @@ function Vps() {
         {v.services.length === 0 && <div className="p-3 text-[12px] text-mute">サービスを読めなかった</div>}
       </div>
       {v.errors.length > 0 && <div className="rounded-xl bg-orange/10 px-3 py-2 text-[11.5px] text-orange-ink">{v.errors.map((e) => `${e.source}: ${e.error}`).join(" / ")}</div>}
-      <p className="text-[11px] text-mute">読むだけ（グラフは5秒、ほかは15秒ごとに更新）。止まっているサービスを動かすときは、{devAgentName()}に頼む</p>
+      <p className="text-[11px] text-mute">読むだけ（グラフは5秒、ほかは15秒ごとに更新）。止まっているサービスを動かすときは、エージェントに頼む</p>
     </div>
   );
 }
@@ -627,7 +628,7 @@ function VpsTab() {
       <a href="#/root" className="mx-4 mt-2 flex min-h-11 items-center justify-between rounded-xl border border-line bg-panel px-3.5 text-[13px] text-ink no-underline">
         <span className="flex flex-col">
           <span>root 作業の承認</span>
-          <span className="text-[11px] text-mute">{devAgentName()}が頼んだ VPS の root 作業を見て、パスワードで通す</span>
+          <span className="text-[11px] text-mute">エージェントが頼んだ VPS の root 作業を見て、パスワードで通す</span>
         </span>
         <span className="text-mute">›</span>
       </a>

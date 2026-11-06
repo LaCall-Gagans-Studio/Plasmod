@@ -154,7 +154,7 @@ export interface VpsSample {
 /** システム画面の「エージェント」。Hermes は仲介の agents、開発エージェントは bridge で CLAUDE.md を読む */
 export interface AgentInfo {
   id: string;
-  kind: "hermes" | "dev";
+  kind: RuntimeKind;
   model: string;
   /** 人格（SOUL.md / CLAUDE.md）の先頭 */
   soul: string | null;
@@ -278,7 +278,24 @@ export interface AgentProfile {
   team?: "work" | "watch";
   /** 役割（図・設定で名前の下に出す短い説明） */
   role?: string;
+  /** 動かす仕組み（省略は hermes） */
+  runtime?: RuntimeKind;
+  /** このエージェントが動く OS のユーザー（root 作業の依頼に顔を出すため） */
+  osUser?: string;
 }
+
+/** エージェントを動かす仕組み。Hermes は必須の土台で、Claude Code は任意の追加（1つだけ） */
+export type RuntimeKind = "hermes" | "claude-code";
+/** Claude Code のエージェントの id（bridge が1つを前提） */
+export const CLAUDE_AGENT = "dev";
+
+/** 仕組みごとにできること。画面はこれを見て出し分ける */
+export const RUNTIME_CAPS: Record<RuntimeKind, { stop: boolean; credits: boolean; pollMs: number; soulFile: string; titleOwner: string; historyName: string }> = {
+  hermes: { stop: false, credits: true, pollMs: 1500, soulFile: "SOUL.md（人格）", titleOwner: "Hermes の題名", historyName: "Hermes の会話の記録" },
+  "claude-code": { stop: true, credits: false, pollMs: 2000, soulFile: "CLAUDE.md（指示）", titleOwner: "元の題名", historyName: "会話の記録" },
+};
+export const runtimeOf = (p: { runtime?: RuntimeKind } | undefined | null): RuntimeKind => p?.runtime ?? "hermes";
+export const capsOfAgent = (id: string) => RUNTIME_CAPS[id === CLAUDE_AGENT ? "claude-code" : "hermes"];
 
 /** id か別名で、プロファイルを探す */
 export function findProfile<T extends AgentProfile>(profiles: T[], id: string): T | undefined {

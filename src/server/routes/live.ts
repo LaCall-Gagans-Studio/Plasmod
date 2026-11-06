@@ -4,10 +4,14 @@ import { streamSSE } from "hono/streaming";
 import { fromTailscale } from "../auth";
 import { parseRelay, relayNotice, tokenOk } from "../notify-relay";
 import type { RouteContext } from "./context";
+import { devTarget } from "./dev";
+import { CLAUDE_AGENT } from "../../shared/types";
 import pkg from "../../../package.json";
 import { getTimeZone } from "../../shared/time";
 
-export function liveRoutes({ app, cfg, hub, rootd, feed }: RouteContext) {
+export function liveRoutes(ctx: RouteContext) {
+  const { app, cfg, hub, rootd, feed } = ctx;
+  const nameOf = (id: string) => cfg.profiles.find((p) => p.id === id)?.name ?? id;
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.get("/api/about", (c) =>
     c.json({
@@ -15,7 +19,9 @@ export function liveRoutes({ app, cfg, hub, rootd, feed }: RouteContext) {
       version: pkg.version,
       owner: cfg.ownerName,
       ownerIsDefault: cfg.ownerName === "オーナー",
-      devAgent: cfg.profiles.find((p) => p.id === "dev")?.name ?? "開発",
+      devAgent: nameOf(devTarget(ctx)),
+      claudeAgent: ctx.sessions?.agents().some((a) => a.runtime === "claude-code") ? nameOf(CLAUDE_AGENT) : null,
+      github: !!cfg.githubToken,
       developer: cfg.developer,
       repoUrl: cfg.repoUrl,
       license: "MIT",

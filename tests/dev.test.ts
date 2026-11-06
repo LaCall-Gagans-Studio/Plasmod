@@ -75,11 +75,14 @@ describe("Dev の依頼 API", () => {
     const { createApp } = await import("../src/server/app");
     const { config } = await import("../src/server/config");
     const sent: { agent: string; id: string | null; text: string }[] = [];
-    const sessions = { send: async (agent: string, id: string | null, text: string) => (sent.push({ agent, id, text }), "777"), agents: () => [] };
+    const { Store } = await import("../src/server/store");
+    const store = new Store(":memory:");
+    const agentList = [{ id: "dev", available: true, runtime: "claude-code" }, { id: "default", available: true, runtime: "hermes" }];
+    const sessions = { send: async (agent: string, id: string | null, text: string) => (sent.push({ agent, id, text }), "777"), agents: () => agentList };
     const dev = new DevService(null, "o");
     (dev as unknown as { cache: unknown }).cache = { prs: [{ repo: "o/r", number: 1, url: "u1" }], fetchedAt: 1, error: null };
     (dev as unknown as { gh: unknown }).gh = {};
-    const app = createApp({ ...config, devNoAuth: true }, {} as never, {} as never, ".", { sessions: sessions as never, dev });
+    const app = createApp({ ...config, devNoAuth: true }, {} as never, store, ".", { sessions: sessions as never, dev });
     const post = (body: unknown) => app.request("/api/dev/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     expect((await post({ action: "merge", prs: [{ repo: "o/r", number: 1 }] })).status).toBe(200);
     expect(sent[0]).toMatchObject({ agent: "dev", id: null });
@@ -87,6 +90,13 @@ describe("Dev の依頼 API", () => {
     expect((await post({ action: "merge", prs: [{ repo: "evil/x", number: 9 }] })).status).toBe(400);
     expect((await post({ action: "revise", prs: [{ repo: "o/r", number: 1 }], note: " " })).status).toBe(400);
     expect((await post({ action: "delete", prs: [{ repo: "o/r", number: 1 }] })).status).toBe(400);
-    expect(sent.length).toBe(1);
+    // 依頼先は設定で変えられる。いないエージェントは断る
+    const patch = (agent: unknown) => app.request("/api/dev-settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent }) });
+    expect((await patch("nobody")).status).toBe(400);
+    expect((await patch("default")).status).toBe(200);
+    expect(((await (await app.request("/api/dev-settings")).json()) as { agent: string }).agent).toBe("default");
+    expect((await post({ action: "merge", prs: [{ repo: "o/r", number: 1 }] })).status).toBe(200);
+    expect(sent.at(-1)).toMatchObject({ agent: "default" });
+    expect(sent.length).toBe(2); // 断ったものは送っていない
   });
 });

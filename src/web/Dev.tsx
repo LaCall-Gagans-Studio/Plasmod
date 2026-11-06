@@ -3,7 +3,6 @@ import type { DevPr, DevSnapshot } from "../shared/types";
 import { TaskBadges } from "./badges";
 import { MicButton } from "./speech";
 import { Page, ago } from "./ui";
-import { devAgentName } from "./identity";
 
 /** 開発（Dev とウォッチングをまとめたもの）の上の切り替え: PR｜カンバン */
 export function DevTabs({ current }: { current: "pr" | "kanban" }) {
@@ -33,7 +32,17 @@ export function Dev() {
   const [mode, setMode] = useState<"merge" | "revise" | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string; session?: string } | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string; session?: string; agent?: string } | null>(null);
+  // PR の依頼先（設定で選べる）
+  const [target, setTarget] = useState<{ agent: string; agents: { id: string; name: string }[] } | null>(null);
+  useEffect(() => {
+    fetch("/api/dev-settings").then((r) => r.json()).then(setTarget).catch(() => {});
+  }, []);
+  const targetName = target?.agents.find((a) => a.id === target.agent)?.name ?? "エージェント";
+  const pickTarget = (agent: string) => {
+    setTarget((x) => (x ? { ...x, agent } : x));
+    void fetch("/api/dev-settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent }) });
+  };
 
   useEffect(() => {
     let alive = true;
@@ -60,10 +69,10 @@ export function Dev() {
     setMsg(null);
     const prs = snap.prs.filter((p) => sel.has(key(p))).map((p) => ({ repo: p.repo, number: p.number }));
     const r = await fetch("/api/dev/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: mode, prs, note }) });
-    const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; session?: string };
+    const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; agent?: string; session?: string };
     setBusy(false);
     if (b.ok) {
-      setMsg({ ok: true, text: mode === "merge" ? `${devAgentName()}にマージを頼んだ。承認依頼のカードが来たら許可してね` : `${devAgentName()}に差し戻しを送った`, session: b.session });
+      setMsg({ ok: true, text: mode === "merge" ? `${targetName}にマージを頼んだ。承認依頼のカードが来たら許可してね` : `${targetName}に差し戻しを送った`, agent: b.agent, session: b.session });
       setSel(new Set());
       setMode(null);
       setNote("");
@@ -74,6 +83,14 @@ export function Dev() {
   return (
     <Page title="開発" current="#/dev" right={<span className="font-mono text-[11px] text-mute">{snap?.fetchedAt ? `更新 ${ago(snap.fetchedAt)}` : ""}</span>}>
       <DevTabs current="pr" />
+      {target && target.agents.length > 1 && (
+        <label className="mx-4 mt-2 flex items-center gap-2 text-[12px] text-mute">
+          マージ・差し戻しの依頼先
+          <select value={target.agent} onChange={(e) => pickTarget(e.target.value)} className="min-h-8 rounded-lg border border-line-2 bg-panel px-2 text-[12.5px] text-ink">
+            {target.agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </label>
+      )}
       {snap?.error && <div className="mx-4 mt-2 rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink">{snap.error}</div>}
       <div className="flex flex-col gap-3.5 px-4 pb-4 pt-1.5">
         {snap && snap.prs.length === 0 && !snap.error && <div className="text-sm text-mute">開いている PR はありません</div>}
@@ -116,7 +133,7 @@ export function Dev() {
         {msg && (
           <div className={`rounded-xl px-3 py-2 text-xs ${msg.ok ? "bg-lime-soft text-lime-ink" : "bg-orange/10 text-orange-ink"}`} role="status">
             {msg.text}
-            {msg.session && <a href={`#/session/dev/${msg.session}`} className="ml-2 underline">セッションを見る</a>}
+            {msg.session && <a href={`#/session/${msg.agent ?? target?.agent}/${msg.session}`} className="ml-2 underline">セッションを見る</a>}
           </div>
         )}
         {mode && (
@@ -131,7 +148,7 @@ export function Dev() {
             {mode ? (
               <>
                 <button disabled={busy || (mode === "revise" && !note.trim())} onClick={send} className="min-h-12 flex-[2] rounded-full bg-lime text-sm font-bold text-on disabled:opacity-40">
-                  {mode === "merge" ? `${sel.size}件のマージを${devAgentName()}に頼む` : `${sel.size}件を差し戻す`}
+                  {mode === "merge" ? `${sel.size}件のマージを${targetName}に頼む` : `${sel.size}件を差し戻す`}
                 </button>
                 <button onClick={() => setMode(null)} className="min-h-12 flex-1 rounded-full border border-line-2 text-sm">やめる</button>
               </>

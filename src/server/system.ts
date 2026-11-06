@@ -1,6 +1,7 @@
 // システム（TASK-165・166）: 使用量・モデルの切り替え・VPS のファイル閲覧。
 // 開発エージェント側（cc）は plasmod-bridge、Hermes 側（hermes）は仲介を通す。どちらも鍵・.env などは向こう側で拒否する。
 import type { AgentInfo, CronJob, FsList, FsRead, ModelEntry, NousCredits, Schedules, TimerInfo, UsageSnapshot, VpsStatus } from "../shared/types";
+import { CLAUDE_AGENT } from "../shared/types";
 import type { BridgeClient } from "./bridge";
 import { type HostReader, readVps, realHost } from "./vps";
 import { SERIES_EVERY_MS, VpsSeries } from "./vps-series";
@@ -157,11 +158,11 @@ export class SystemService {
         const choices = (r.choices as string[]) ?? [];
         const label = (m: string) => `claude · ${m}`;
         out.push(
-          { key: "dev:chat", name: `${this.names("dev")}（会話）`, current: label(cur.chat ?? "既定"), choices: choices.map((c) => ({ id: c, label: label(c), note: "Claude サブスク" })) },
-          { key: "dev:worker", name: `${this.names("dev")}（カンバン）`, current: label(cur.worker ?? "sonnet"), choices: choices.map((c) => ({ id: c, label: label(c), note: c === "opus" ? "枠を多く使う" : "Claude サブスク" })) },
+          { key: "dev:chat", name: `${this.names(CLAUDE_AGENT)}（会話）`, current: label(cur.chat ?? "既定"), choices: choices.map((c) => ({ id: c, label: label(c), note: "Claude サブスク" })) },
+          { key: "dev:worker", name: `${this.names(CLAUDE_AGENT)}（カンバン）`, current: label(cur.worker ?? "sonnet"), choices: choices.map((c) => ({ id: c, label: label(c), note: c === "opus" ? "枠を多く使う" : "Claude サブスク" })) },
         );
       } catch (e) {
-        out.push({ key: "dev:chat", name: this.names("dev"), current: "?", choices: [], error: e instanceof Error ? e.message : String(e) });
+        out.push({ key: "dev:chat", name: this.names(CLAUDE_AGENT), current: "?", choices: [], error: e instanceof Error ? e.message : String(e) });
       }
     }
     if (this.broker) {
@@ -186,7 +187,7 @@ export class SystemService {
   async agents(): Promise<AgentInfo[]> {
     const out: AgentInfo[] = [];
     if (this.bridge) {
-      const base: AgentInfo = { id: "dev", kind: "dev", model: "?", soul: null, files: [{ label: "CLAUDE.md", root: "work", path: "CLAUDE.md" }], skills: [] };
+      const base: AgentInfo = { id: CLAUDE_AGENT, kind: "claude-code", model: "?", soul: null, files: [{ label: "CLAUDE.md", root: "work", path: "CLAUDE.md" }], skills: [] };
       try {
         const [m, f] = await Promise.all([this.bridge.request({ type: "get_models" }), this.bridge.request({ type: "fs_read", path: "CLAUDE.md" })]);
         const cur = m.models as Record<string, string | null>;

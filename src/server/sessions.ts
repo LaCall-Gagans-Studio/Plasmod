@@ -1,5 +1,6 @@
-// セッション（TASK-157）。開発エージェントは plasmod-bridge、Hermes のエージェント（ハブ・経理エージェント…）は Hermes の API サーバーにつなぐ。
+// セッション。Claude Code は plasmod-bridge、Hermes のエージェント（ハブ・経理エージェント…）は Hermes の API サーバーにつなぐ。
 import type { ChatMessage, HermesApproval, HermesMessage, HistoryCursor, MediaItem, OlderPage, SessionInfo, SessionView } from "../shared/types";
+import { CLAUDE_AGENT, type RuntimeKind } from "../shared/types";
 import type { BridgeClient } from "./bridge";
 import type { SessionMark } from "./store";
 import { hermesUrl, mediaKind, mediaName, devUrl } from "./media";
@@ -330,37 +331,40 @@ const toChat = (m: Record<string, unknown>, thread = ""): ChatMessage => ({
   at: toMs(m.at),
 });
 
-export class SessionService {
-  private live = new Map<string, LiveTurn>();
-  /** 開発エージェントのスレッドごとの会話。最初に開いたときに履歴を取り、あとは bridge が流す発言を足す */
+/** エージェントを動かす仕組み。できることの違いは RUNTIME_CAPS（shared/types）で宣言する */
+export interface AgentRuntime {
+  readonly kind: RuntimeKind;
+  list(agent: string): Promise<SessionInfo[]>;
+  view(agent: string, id: string): Promise<SessionView>;
+  transcript(agent: string, id: string): Promise<string>;
+  older(agent: string, id: string, before: string, offset?: number): Promise<OlderPage>;
+  /** body は空でない本文 */
+  send(agent: string, id: string | null, body: string, files: { name: string; data: Uint8Array }[]): Promise<string>;
+  stop?(agent: string, id: string): Promise<void>;
+}
+
+/** Claude Code（plasmod-bridge 経由。セッションは端末のまま見せる） */
+export class ClaudeCodeRuntime implements AgentRuntime {
+  readonly kind = "claude-code" as const;
+  /** スレッドごとの会話。最初に開いたときに履歴を取り、あとは bridge が流す発言を足す */
   private chats = new Map<string, ChatMessage[]>();
   /** 今の bridge が history に答えない（古い）とき。つなぎ直すまで聞かない */
   private noHistory: string | null = null;
-  /** Hermes の承認待ち。ターンが終わる・答える・時間切れで消える */
-  private approvals = new Map<string, HermesApproval>();
-  private approvalSeq = 0;
 
   constructor(
-    private bridge: BridgeClient | null,
-    private hermes: Map<string, HermesApi>,
-    private onChange: () => void = () => {},
-    /** 並べる順（小さいほど先）。プロファイルの設定順を渡す */
-    private order: (id: string) => number = () => 0,
-    /** Hermes のエージェントに渡すファイルを置いて、置いた先のパスを返す（仲介の put-file）。無ければ Hermes には送れない */
-    private putFiles: ((files: { name: string; data: Uint8Array }[]) => Promise<string[]>) | null = null,
-    /** 開発エージェントの bridge を入れているか。入れていなければ一覧に出さない */
-    private devEnabled: () => boolean = () => true,
+    private bridge: BridgeClient,
+    private reply: (agent: string, session: string, text: string) => void,
   ) {
-    bridge?.onChat((thread, m) => {
+    bridge.onChat((thread, m) => {
       const msg = toChat(m, thread);
-      if (msg.author === "dev" && msg.content.trim()) this.replyListener("dev", thread, msg.content);
+      if (msg.author === "dev" && msg.content.trim()) this.reply(CLAUDE_AGENT, thread, msg.content);
       const list = this.chats.get(thread);
       if (!list) return; // まだ開いていないスレッドは、開いたときに履歴を取る
       if (!list.some((x) => x.id === msg.id)) list.push(msg);
       if (list.length > 200) list.splice(0, list.length - 200);
     });
     // つなぎ直したら、取りこぼしがあるかもしれないので履歴から取り直す
-    bridge?.onChange(() => {
+    bridge.onChange(() => {
       if (!bridge.connected) {
         this.chats.clear();
         this.noHistory = null;
@@ -368,18 +372,12 @@ export class SessionService {
     });
   }
 
-  /** エージェントが返事をしたとき（開発エージェントは発言ごと、Hermes はターンの終わり）。通知に使う */
-  private replyListener: (agent: string, session: string, text: string) => void = () => {};
-  onReply(fn: (agent: string, session: string, text: string) => void) {
-    this.replyListener = fn;
-  }
-
   private async chat(thread: string): Promise<{ messages?: ChatMessage[]; chatError?: string }> {
     const cached = this.chats.get(thread);
     if (cached) return { messages: cached };
     if (this.noHistory) return { chatError: this.noHistory };
     try {
-      const r = await this.bridge!.request({ type: "history", thread, limit: BRIDGE_FIRST }, 4000);
+      const r = await this.bridge.request({ type: "history", thread, limit: BRIDGE_FIRST }, 4000);
       const list = ((r.messages as Record<string, unknown>[]) ?? []).map((m) => toChat(m, thread));
       this.chats.set(thread, list);
       return { messages: list };
@@ -391,31 +389,81 @@ export class SessionService {
     }
   }
 
-  agents(): { id: string; available: boolean }[] {
-    return [
-      ...(this.devEnabled() ? [{ id: "dev", available: !!this.bridge?.connected }] : []),
-      ...[...this.hermes.keys()].map((id) => ({ id, available: true })),
-    ]
-      .map((a, i) => ({ a, i }))
-      .sort((x, y) => this.order(x.a.id) - this.order(y.a.id) || x.i - y.i)
-      .map((x) => x.a);
-  }
-
-  async list(agent: string): Promise<SessionInfo[]> {
-    if (agent === "dev") {
-      if (!this.bridge) throw new Error("plasmod-bridge が設定されていない");
+  async list(): Promise<SessionInfo[]> {
       const r = await this.bridge.request({ type: "list_sessions" });
       return ((r.sessions as Record<string, unknown>[]) ?? []).map((s) => ({
-        agent: "dev",
+        agent: CLAUDE_AGENT,
         id: String(s.thread),
         title: cleanTitle(String(s.title ?? "")),
         last: toMs(s.last),
         alive: !!s.alive,
         working: !!s.working,
       }));
+      }
+
+  async view(_agent: string, id: string): Promise<SessionView> {
+      const [r, chat] = await Promise.all([this.bridge.request({ type: "pane", thread: id }), this.chat(id)]);
+      const first = chat.messages?.[0];
+      const cursor: HistoryCursor | undefined = first ? { before: first.id, more: chat.messages!.length >= BRIDGE_FIRST } : undefined;
+      return { kind: "terminal", text: String(r.text ?? ""), alive: !!r.alive, working: !!r.working, ...chat, ...(cursor ? { cursor } : {}) };
+      }
+
+  async transcript(_agent: string, id: string): Promise<string> {
+    let lines: string[];
+      const r = await this.bridge.request({ type: "history", thread: id, limit: BRIDGE_MAX }, 8000);
+      lines = ((r.messages as Record<string, unknown>[]) ?? []).filter((m) => m.author !== "system").map((m) => String(m.content ?? ""));
+    
+    return lines.filter(Boolean).join("\n").slice(-TRANSCRIPT_MAX);
     }
-    return this.api(agent).list();
+
+  async older(_agent: string, id: string, before: string): Promise<OlderPage> {
+      const r = await this.bridge.request({ type: "history", thread: id, limit: BRIDGE_MAX }, 8000);
+      const list = ((r.messages as Record<string, unknown>[]) ?? []).map((m) => toChat(m, id));
+      const at = list.findIndex((m) => m.id === before);
+      if (at < 0) return { messages: [], cursor: { before, more: false, capped: list.length >= BRIDGE_MAX } };
+      const start = Math.max(0, at - OLDER_PAGE);
+      const page = list.slice(start, at);
+      return { messages: page, cursor: { before: page[0]?.id ?? before, more: start > 0, ...(start === 0 && list.length >= BRIDGE_MAX ? { capped: true } : {}) } };
+      }
+
+  async send(_agent: string, id: string | null, body: string, files: { name: string; data: Uint8Array }[]): Promise<string> {
+      const att = files.map((f) => ({ name: f.name, data: Buffer.from(f.data).toString("base64") }));
+      const r = await this.bridge.request({ type: "send", text: body, ...(id ? { thread: id } : {}), ...(att.length ? { files: att } : {}) }, 60_000);
+      return String(r.thread);
+      }
+
+  async stop(_agent: string, id: string) {
+    await this.bridge.request({ type: "stop", thread: id });
   }
+}
+
+/** Hermes（HTTP の API。ターンはストリームで受ける） */
+export class HermesRuntime implements AgentRuntime {
+  readonly kind = "hermes" as const;
+  private live = new Map<string, LiveTurn>();
+  /** 承認待ち。ターンが終わる・答える・時間切れで消える */
+  private approvals = new Map<string, HermesApproval>();
+  private approvalSeq = 0;
+
+  constructor(
+    private hermes: Map<string, HermesApi>,
+    private onChange: () => void,
+    private reply: (agent: string, session: string, text: string) => void,
+    /** エージェントに渡すファイルを置いて、置いた先のパスを返す（仲介の put-file）。無ければ送れない */
+    private putFiles: ((files: { name: string; data: Uint8Array }[]) => Promise<string[]>) | null,
+  ) {}
+
+  has(agent: string) {
+    return this.hermes.has(agent);
+  }
+
+  ids() {
+    return [...this.hermes.keys()];
+  }
+
+  async list(agent: string): Promise<SessionInfo[]> {
+    return this.api(agent).list();
+    }
 
   /** 今答えられる承認待ち（時間切れのものは Hermes 側で拒否になっているので出さない） */
   pendingApprovals(now = Date.now()): HermesApproval[] {
@@ -449,7 +497,7 @@ export class SessionService {
       if (!this.approvals.has(a.id)) return;
       this.approvals.delete(a.id);
       this.onChange();
-      this.replyListener(agent, session, `⏱ 承認の期限が切れたので、実行していない: ${a.description || a.command}`.slice(0, 300));
+      this.reply(agent, session, `⏱ 承認の期限が切れたので、実行していない: ${a.description || a.command}`.slice(0, 300));
     }, APPROVAL_TTL_MS + 1000).unref?.();
   }
 
@@ -464,13 +512,6 @@ export class SessionService {
   }
 
   async view(agent: string, id: string): Promise<SessionView> {
-    if (agent === "dev") {
-      if (!this.bridge) throw new Error("plasmod-bridge が設定されていない");
-      const [r, chat] = await Promise.all([this.bridge.request({ type: "pane", thread: id }), this.chat(id)]);
-      const first = chat.messages?.[0];
-      const cursor: HistoryCursor | undefined = first ? { before: first.id, more: chat.messages!.length >= BRIDGE_FIRST } : undefined;
-      return { kind: "terminal", text: String(r.text ?? ""), alive: !!r.alive, working: !!r.working, ...chat, ...(cursor ? { cursor } : {}) };
-    }
     const pg = await this.api(agent).page(id);
     const messages = pg.messages;
     const cursor: HistoryCursor | undefined = pg.oldest !== null ? { before: String(pg.oldest), offset: pg.raw, more: pg.raw >= HERMES_FIRST } : undefined;
@@ -498,50 +539,24 @@ export class SessionService {
     }
     const approval = this.pendingApprovals().find((a) => a.agent === agent && a.session === id);
     return { kind: "chat", messages, alive: true, working: live?.status === "running" || (!live && busy), error: live?.error, ...(cursor ? { cursor } : {}), ...(approval ? { approvalCard: `hperm:${approval.id}` } : {}) };
-  }
+    }
 
-  /** 検索の索引に入れる本文（発言だけ。途中経過と知らせは入れない）。長い会話は新しい方を残す */
   async transcript(agent: string, id: string): Promise<string> {
     let lines: string[];
-    if (agent === "dev") {
-      if (!this.bridge) throw new Error("plasmod-bridge が設定されていない");
-      const r = await this.bridge.request({ type: "history", thread: id, limit: BRIDGE_MAX }, 8000);
-      lines = ((r.messages as Record<string, unknown>[]) ?? []).filter((m) => m.author !== "system").map((m) => String(m.content ?? ""));
-    } else {
       const pg = await this.api(agent).page(id, { limit: HERMES_FIRST });
       lines = pg.messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => m.text);
-    }
+    
     return lines.filter(Boolean).join("\n").slice(-TRANSCRIPT_MAX);
-  }
-
-  /** 上にスクロールしたときの、前の会話。開発エージェントは bridge の記録（最新の500件まで）、Hermes は100件ずつ */
-  async older(agent: string, id: string, before: string, offset = 0): Promise<OlderPage> {
-    if (agent === "dev") {
-      if (!this.bridge) throw new Error("plasmod-bridge が設定されていない");
-      const r = await this.bridge.request({ type: "history", thread: id, limit: BRIDGE_MAX }, 8000);
-      const list = ((r.messages as Record<string, unknown>[]) ?? []).map((m) => toChat(m, id));
-      const at = list.findIndex((m) => m.id === before);
-      if (at < 0) return { messages: [], cursor: { before, more: false, capped: list.length >= BRIDGE_MAX } };
-      const start = Math.max(0, at - OLDER_PAGE);
-      const page = list.slice(start, at);
-      return { messages: page, cursor: { before: page[0]?.id ?? before, more: start > 0, ...(start === 0 && list.length >= BRIDGE_MAX ? { capped: true } : {}) } };
     }
+
+  async older(agent: string, id: string, before: string, offset = 0): Promise<OlderPage> {
     const b = Number(before);
     if (!Number.isFinite(b)) throw new Error("before が数でない");
     const pg = await this.api(agent).page(id, { limit: OLDER_PAGE, offset, before: b });
     return { messages: pg.messages, cursor: { before: String(pg.oldest ?? b), offset: offset + pg.raw, more: pg.raw >= OLDER_PAGE } };
-  }
-
-  async send(agent: string, id: string | null, text: string, files: { name: string; data: Uint8Array }[] = []): Promise<string> {
-    let body = text.trim();
-    if (!body && !files.length) throw new Error("本文が空");
-    if (!body) body = "（添付を送ります）";
-    if (agent === "dev") {
-      if (!this.bridge) throw new Error("plasmod-bridge が設定されていない");
-      const att = files.map((f) => ({ name: f.name, data: Buffer.from(f.data).toString("base64") }));
-      const r = await this.bridge.request({ type: "send", text: body, ...(id ? { thread: id } : {}), ...(att.length ? { files: att } : {}) }, 60_000);
-      return String(r.thread);
     }
+
+  async send(agent: string, id: string | null, body: string, files: { name: string; data: Uint8Array }[]): Promise<string> {
     const api = this.api(agent);
     if (files.length) {
       if (!this.putFiles) throw new Error("Hermes のエージェントにファイルを送る仲介が設定されていない");
@@ -574,16 +589,89 @@ export class SessionService {
         turn.at = Date.now();
         this.clearApprovals(agent, sid);
         this.onChange();
-        if (turn.status === "failed") this.replyListener(agent, sid, `⚠ うまくいかなかった: ${turn.error ?? ""}`);
-        else if (turn.text.trim()) this.replyListener(agent, sid, extractMedia(turn.text).text);
+        if (turn.status === "failed") this.reply(agent, sid, `⚠ うまくいかなかった: ${turn.error ?? ""}`);
+        else if (turn.text.trim()) this.reply(agent, sid, extractMedia(turn.text).text);
       });
     return sid;
+    }
+}
+
+/** エージェントの動かし方ごとの窓口。エージェントの id を見て、hermes か claude-code に振り分ける */
+export class SessionService {
+  private hermesRt: HermesRuntime;
+  private claude: ClaudeCodeRuntime | null;
+  /** エージェントが返事をしたとき（Claude Code は発言ごと、Hermes はターンの終わり）。通知に使う */
+  private replyListener: (agent: string, session: string, text: string) => void = () => {};
+
+  constructor(
+    private bridge: BridgeClient | null,
+    hermes: Map<string, HermesApi>,
+    onChange: () => void = () => {},
+    /** 並べる順（小さいほど先）。プロファイルの設定順を渡す */
+    private order: (id: string) => number = () => 0,
+    putFiles: ((files: { name: string; data: Uint8Array }[]) => Promise<string[]>) | null = null,
+    /** Claude Code の bridge を入れているか。入れていなければ一覧に出さない */
+    private claudeEnabled: () => boolean = () => true,
+  ) {
+    const reply = (agent: string, session: string, text: string) => this.replyListener(agent, session, text);
+    this.hermesRt = new HermesRuntime(hermes, onChange, reply, putFiles);
+    this.claude = bridge ? new ClaudeCodeRuntime(bridge, reply) : null;
+  }
+
+  onReply(fn: (agent: string, session: string, text: string) => void) {
+    this.replyListener = fn;
+  }
+
+  private rt(agent: string): AgentRuntime {
+    if (agent !== CLAUDE_AGENT) return this.hermesRt;
+    if (!this.claude) throw new Error("plasmod-bridge が設定されていない");
+    return this.claude;
+  }
+
+  agents(): { id: string; available: boolean; runtime: RuntimeKind }[] {
+    return [
+      ...(this.claudeEnabled() ? [{ id: CLAUDE_AGENT, available: !!this.bridge?.connected, runtime: "claude-code" as const }] : []),
+      ...this.hermesRt.ids().map((id) => ({ id, available: true, runtime: "hermes" as const })),
+    ]
+      .map((a, i) => ({ a, i }))
+      .sort((x, y) => this.order(x.a.id) - this.order(y.a.id) || x.i - y.i)
+      .map((x) => x.a);
+  }
+
+  async list(agent: string) {
+    return this.rt(agent).list(agent);
+  }
+  async view(agent: string, id: string) {
+    return this.rt(agent).view(agent, id);
+  }
+  /** 検索の索引に入れる本文（発言だけ。途中経過と知らせは入れない）。長い会話は新しい方を残す */
+  async transcript(agent: string, id: string) {
+    return this.rt(agent).transcript(agent, id);
+  }
+  /** 上にスクロールしたときの、前の会話。Claude Code は bridge の記録（最新の500件まで）、Hermes は100件ずつ */
+  async older(agent: string, id: string, before: string, offset = 0) {
+    return this.rt(agent).older(agent, id, before, offset);
+  }
+
+  async send(agent: string, id: string | null, text: string, files: { name: string; data: Uint8Array }[] = []): Promise<string> {
+    let body = text.trim();
+    if (!body && !files.length) throw new Error("本文が空");
+    if (!body) body = "（添付を送ります）";
+    return this.rt(agent).send(agent, id, body, files);
   }
 
   async stop(agent: string, id: string) {
-    if (agent !== "dev") throw new Error("止められるのは開発エージェントのセッションだけ");
-    if (!this.bridge) throw new Error("plasmod-bridge が設定されていない");
-    await this.bridge.request({ type: "stop", thread: id });
+    const r = this.rt(agent);
+    if (!r.stop) throw new Error("このエージェントのセッションは止められない");
+    await r.stop(agent, id);
+  }
+
+  /** 今答えられる承認待ち（時間切れのものは Hermes 側で拒否になっているので出さない） */
+  pendingApprovals(now = Date.now()) {
+    return this.hermesRt.pendingApprovals(now);
+  }
+  answerApproval(id: string, choice: "once" | "deny") {
+    return this.hermesRt.answerApproval(id, choice);
   }
 }
 
