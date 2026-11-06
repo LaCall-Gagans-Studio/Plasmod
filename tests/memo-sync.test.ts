@@ -30,7 +30,7 @@ function fakeServer() {
   };
   const fail = (status: number) => Object.assign(new Error(`HTTP ${status}`), { status });
   const write = (id: number, f: MemoFields, createdAt: number): Memo => {
-    const m: Memo = { id, ...f, author: "app", createdAt, updatedAt: ++clock, archivedAt: null };
+    const m: Memo = { id, ...f, parentId: f.parentId ?? null, author: "app", createdAt, updatedAt: ++clock, archivedAt: null };
     memos.set(id, m);
     return m;
   };
@@ -173,7 +173,7 @@ describe("メモのオフライン", () => {
 });
 
 describe("端末の一覧", () => {
-  const memo = (p: Partial<Memo> & { id: number }): Memo => ({ title: "t", body: "b", project: null, tags: [], author: "app", createdAt: 1, updatedAt: 1, archivedAt: null, ...p });
+  const memo = (p: Partial<Memo> & { id: number }): Memo => ({ title: "t", body: "b", project: null, tags: [], parentId: null, author: "app", createdAt: 1, updatedAt: 1, archivedAt: null, ...p });
   const all = [
     memo({ id: 1, title: "古い", project: "A", tags: ["x"], updatedAt: 1 }),
     memo({ id: 2, title: "新しい", body: "東京の話", updatedAt: 9 }),
@@ -187,5 +187,43 @@ describe("端末の一覧", () => {
     expect(localList(all, { tag: "x" }).memos.map((m) => m.id)).toEqual([1]);
     expect(localList(all, { archived: true }).memos.map((m) => m.id)).toEqual([3]);
     expect(localList(all).projects).toEqual([{ name: "A", count: 1 }]);
+  });
+});
+
+describe("アーカイブは端末に置かない", () => {
+  const memo = (id: number, archivedAt: number | null): Memo => ({ id, title: "t", body: "b", project: null, tags: [], parentId: null, author: "app", createdAt: 1, updatedAt: 1, archivedAt });
+  const fakeDb = (seed: Memo[], pendingIds: number[] = []) => {
+    const m = new Map(seed.map((x) => [x.id, x]));
+    const p = new Map(pendingIds.map((id) => [id, { id, base: 1 } as PendingChange]));
+    const db: MemoDb = {
+      allMemos: async () => [...m.values()],
+      getMemo: async (id) => m.get(id),
+      putMemo: async (x) => void m.set(x.id, x),
+      deleteMemo: async (id) => void m.delete(id),
+      allPending: async () => [...p.values()],
+      putPending: async (x) => void p.set(x.id, x),
+      deletePending: async (id) => void p.delete(id),
+      getLastSync: async () => 0,
+      setLastSync: async () => {},
+    };
+    return { db, m };
+  };
+  const noApi = {} as MemoApi;
+
+  test("取ってきたアーカイブは写さない。写しがあれば消す。戻したら入る", async () => {
+    const { db, m } = fakeDb([memo(1, null)]);
+    const s = new MemoSync(db, noApi);
+    expect(await s.adopt(memo(1, 5))).toBe(true);
+    expect(m.has(1)).toBe(false);
+    await s.adopt(memo(2, 5));
+    expect(m.has(2)).toBe(false);
+    await s.adopt(memo(1, null));
+    expect(m.has(1)).toBe(true);
+  });
+
+  test("前の版で入れたアーカイブを片付ける。送っていない変更があるものは残す", async () => {
+    const { db, m } = fakeDb([memo(1, 5), memo(2, 5), memo(3, null)], [2]);
+    await new MemoSync(db, noApi).purgeArchived();
+    expect([...m.keys()]).toEqual([2, 3]);
   });
 });

@@ -51,6 +51,8 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith("/api/") || url.pathname === "/share" || url.pathname === "/sw.js") return;
   if (url.pathname.startsWith("/assets/")) return e.respondWith(cacheFirst(req));
+  // メモの html の箱は index.html にしない（オフラインでも開けるように覚える）
+  if (url.pathname === "/memo-box") return e.respondWith(networkFirst(req, "/memo-box"));
   // 画面の移動はどの URL でも同じ index.html（?launch= などが付いていても）
   if (req.mode === "navigate") return e.respondWith(networkFirst(req, "/index.html"));
   e.respondWith(networkFirst(req, req));

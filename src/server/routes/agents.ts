@@ -38,14 +38,15 @@ export function agentsRoutes({ app, cfg, hub, store }: RouteContext, registry?: 
 
   app.patch("/api/agents-settings/:id", async (c) => {
     if (!registry) return c.json({ ok: false, error: "使えない" }, 404);
-    const b = await c.req.json<{ name?: unknown; color?: unknown; hidden?: unknown; avatar?: unknown }>().catch(() => ({}) as Record<string, unknown>);
-    const patch: { name?: string; color?: string; hidden?: boolean; avatar?: null } = {};
+    const b = await c.req.json<{ name?: unknown; color?: unknown; hidden?: unknown; avatar?: unknown; role?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+    const patch: { name?: string; color?: string; hidden?: boolean; avatar?: null; role?: string } = {};
     if (typeof b.name === "string") patch.name = b.name.trim().slice(0, 40);
     if (typeof b.color === "string") {
       if (!COLOR.test(b.color)) return c.json({ ok: false, error: "色が不正" }, 400);
       patch.color = b.color;
     }
     if (typeof b.hidden === "boolean") patch.hidden = b.hidden;
+    if (typeof b.role === "string") patch.role = b.role.trim().slice(0, 40);
     if (b.avatar === null) patch.avatar = null;
     try {
       registry.setOverride(c.req.param("id"), patch);

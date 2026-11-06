@@ -11,6 +11,7 @@ import { NotifyFeed } from "./notify-feed";
 import { DevService, GitHub } from "./dev";
 import { HermesApi, parseHermesApi, SessionService } from "./sessions";
 import { SessionIndexer } from "./session-index";
+import { ConnectionWatch } from "./connections";
 import { UsageAlert } from "./usage-alert";
 import { AppSettings, ProfileRegistry } from "./profiles";
 import { ShareStore } from "./share";
@@ -81,6 +82,7 @@ const system = new SystemService(
   parsePlans(config.plans),
   (id) => config.profiles.find((p) => p.id === id)?.name ?? id,
 );
+system.startSeries();
 const media = new MediaService({ bridge, hermesRead: source instanceof BrokerSource ? (p) => source.readFile(p) : null });
 const rootd = new RootClient(config.rootdSock);
 const watch = new WatchService(source instanceof BrokerSource ? source.call : null, config.profiles);
@@ -101,7 +103,9 @@ const taskSync = new TaskSync(tasks, config.githubToken ? new GitHub(config.gith
 });
 taskSync.start(() => hub.changed());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, taskSync, projects, feed });
+const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
+connections.start();
+const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,

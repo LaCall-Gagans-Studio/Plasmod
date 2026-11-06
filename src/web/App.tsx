@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useSnapshot } from "./api";
 import { SessionMenu } from "./sessionmenu";
 import { TaskMenu } from "./taskmenu";
+import { MemoMenu, ProjectMenu } from "./pjmenus";
 import { Drawer } from "./ui";
 import { useStale } from "./version";
 import { CardView } from "./CardView";
@@ -60,6 +61,8 @@ export function App() {
       <Routes />
       <Drawer />
       <TaskMenu />
+      <MemoMenu />
+      <ProjectMenu />
       <SessionMenu />
     </>
   );
@@ -86,7 +89,7 @@ function Routes() {
   const pj = hash.match(/^#\/pj\/([0-9]{1,15})(?:\?|$)/);
   if (pj) return <Suspense fallback={loading}><ProjectPage key={pj[1]} snap={snap} id={Number(pj[1])} /></Suspense>;
   if (hash === "#/todos" || hash.startsWith("#/todos?")) return <Suspense fallback={loading}><PjShell snap={snap} view="tasks" taskId={null} /></Suspense>;
-  const todo = hash.match(/^#\/todo\/([0-9]{1,15})(?:\?|$)/);
+  const todo = hash.match(/^#\/todo\/(-?[0-9]{1,18})(?:\?|$)/);
   if (todo) return <Suspense fallback={loading}><PjShell snap={snap} view="tasks" taskId={Number(todo[1])} /></Suspense>;
   if (hash === "#/memos" || hash.startsWith("#/memos?")) return <Suspense fallback={loading}><PjShell snap={snap} view="memos" /></Suspense>;
   if (hash.startsWith("#/memo/voice")) return <Suspense fallback={loading}><VoiceMemo /></Suspense>;

@@ -1,12 +1,15 @@
 // メモ（TASK-174）。Obsidian に寄せた見た目: 一覧は静かな行の並び（広い画面では左にプロジェクトとタグ）、
 // 1件は開いたらそのまま書ける（ライブプレビュー・自動保存）。題は大きく、プロジェクトとタグはプロパティ欄に。
 import { useEffect, useState } from "react";
+import { memoRef } from "../shared/memo-ref";
 import type { MemoList, MemoSummary } from "../shared/types";
 import { PjTabs } from "./pjtabs";
 import { Icon, Nav, RAIL, ago } from "./ui";
 import { json, FolderIcon, TagIcon } from "./memo-fields";
 import { Skeleton } from "./loading";
+import { MemoLink } from "./pjmenus";
 import { localMemoList, memoList, SyncBadge, useMemoSyncStatus } from "./memo-db";
+import { CopyRef } from "./touch";
 
 /** #/memos?project=..&tag=..&archived=1 の絞り込み */
 export function hashQuery(): URLSearchParams {
@@ -29,6 +32,40 @@ function bucket(ms: number, now = Date.now()): string {
   if (ms >= today.getTime() - 6 * day) return "この1週間";
   if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()) return "今月";
   return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+}
+
+/** メモの1行。子があれば右に数を出し、押すと下に開く */
+function MemoNode({ m, kids, onChanged, depth = 0 }: { m: MemoSummary; kids: Map<number, MemoSummary[]>; onChanged: () => void; depth?: number }) {
+  const [open, setOpen] = useState(false);
+  const children = kids.get(m.id) ?? [];
+  return (
+    <>
+      <div className="flex items-start" style={depth ? { paddingLeft: Math.min(depth, 4) * 16 } : undefined}>
+        <MemoLink m={m} onChanged={onChanged} className="mx-2 flex min-w-0 flex-1 flex-col gap-0.5 rounded-lg px-3 py-2.5 text-ink no-underline hover:bg-chip/70 active:bg-chip">
+          <span className="flex items-baseline gap-3">
+            <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{m.title}</span>
+            {memoRef(m.id) && <CopyRef text={memoRef(m.id)!} className="flex-none font-mono text-[10.5px] text-mute" />}
+            <span className="flex-none text-[11px] tabular-nums text-mute">{ago(m.updatedAt)}</span>
+          </span>
+          {m.excerpt && m.excerpt !== m.title && <span className="line-clamp-2 text-[12px] leading-relaxed text-mute">{m.excerpt}</span>}
+          {(m.project || m.tags.length > 0) && (
+            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 pt-0.5 text-[11.5px] text-mute">
+              {m.project && (
+                <span className="flex items-center gap-1"><FolderIcon size={12} />{m.project}</span>
+              )}
+              {m.tags.map((t) => <span key={t} className="text-blue">#{t}</span>)}
+            </span>
+          )}
+        </MemoLink>
+        {children.length > 0 && (
+          <button onClick={() => setOpen(!open)} aria-expanded={open} aria-label={`子のメモ ${children.length} 件を${open ? "たたむ" : "開く"}`} className="mr-2 mt-1 flex min-h-10 min-w-10 flex-none items-center justify-center gap-0.5 rounded-lg text-[12px] font-semibold tabular-nums text-ink-2 hover:bg-chip">
+            {children.length}<span aria-hidden="true">{open ? "▴" : "▾"}</span>
+          </button>
+        )}
+      </div>
+      {open && children.map((c) => <MemoNode key={c.id} m={c} kids={kids} onChanged={onChanged} depth={depth + 1} />)}
+    </>
+  );
 }
 
 function groupByDate(memos: MemoSummary[]): [string, MemoSummary[]][] {
@@ -99,6 +136,7 @@ export function MemoListPage() {
   const [q, setQ] = useState("");
   const [list, setList] = useState<MemoList | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bump, setBump] = useState(0);
 
   useEffect(() => {
     const p = new URLSearchParams();
@@ -120,7 +158,7 @@ export function MemoListPage() {
       q ? 200 : 0,
     );
     return () => clearTimeout(t);
-  }, [q, project, tag, archived, sync.pending]);
+  }, [q, project, tag, archived, sync.pending, bump]);
 
   const toggle = (key: string, value: string | null) => {
     const p = hashQuery();
@@ -137,6 +175,12 @@ export function MemoListPage() {
     const s = p.toString();
     return s ? `#/memo/new?${s}` : "#/memo/new";
   })();
+
+  // 親が一覧にあるメモは親の下にたたむ。探しているときは全部そのまま並べる
+  const kids = new Map<number, MemoSummary[]>();
+  const shown = new Set(list?.memos.map((m) => m.id));
+  for (const m of list?.memos ?? []) if (!q.trim() && m.parentId && shown.has(m.parentId)) kids.set(m.parentId, [...(kids.get(m.parentId) ?? []), m]);
+  const tops = (list?.memos ?? []).filter((m) => q.trim() || !m.parentId || !shown.has(m.parentId));
 
   const heading = archived ? "アーカイブ" : project === "" ? "プロジェクトなし" : project ?? (tag ? `#${tag}` : "すべてのメモ");
 
@@ -182,32 +226,18 @@ export function MemoListPage() {
               {list?.memos.length === 0 && (
                 <div className="flex flex-col items-center gap-3 px-6 pt-16 text-center">
                   <div className="text-mute"><Icon name="memo" size={32} /></div>
-                  <div className="text-sm text-mute">{q || project !== null || tag ? "当てはまるメモはありません" : archived ? "アーカイブしたメモはありません" : "まだメモがありません"}</div>
+                  <div className="text-sm text-mute">{archived && sync.offline ? "アーカイブしたメモは、つながっているときに見られます" : q || project !== null || tag ? "当てはまるメモはありません" : archived ? "アーカイブしたメモはありません" : "まだメモがありません"}</div>
                   {!q && !archived && <a href={newHref} className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper no-underline">書きはじめる</a>}
                 </div>
               )}
               {list &&
-                groupByDate(list.memos).map(([label, items]) => (
+                groupByDate(tops).map(([label, items]) => (
                   <section key={label} className="pt-3">
                     <div className="px-5 pb-1 text-[11px] font-semibold tracking-wide text-mute">{label}</div>
                     <ul className="m-0 list-none p-0 lg:grid lg:grid-cols-2 2xl:grid-cols-3">
                       {items.map((m) => (
                         <li key={m.id}>
-                          <a href={`#/memo/${m.id}`} className="mx-2 flex flex-col gap-0.5 rounded-lg px-3 py-2.5 text-ink no-underline hover:bg-chip/70 active:bg-chip">
-                            <span className="flex items-baseline gap-3">
-                              <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{m.title}</span>
-                              <span className="flex-none text-[11px] tabular-nums text-mute">{ago(m.updatedAt)}</span>
-                            </span>
-                            {m.excerpt && m.excerpt !== m.title && <span className="line-clamp-2 text-[12px] leading-relaxed text-mute">{m.excerpt}</span>}
-                            {(m.project || m.tags.length > 0) && (
-                              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 pt-0.5 text-[11.5px] text-mute">
-                                {m.project && (
-                                  <span className="flex items-center gap-1"><FolderIcon size={12} />{m.project}</span>
-                                )}
-                                {m.tags.map((t) => <span key={t} className="text-blue">#{t}</span>)}
-                              </span>
-                            )}
-                          </a>
+                          <MemoNode m={m} kids={kids} onChanged={() => setBump((x) => x + 1)} />
                         </li>
                       ))}
                     </ul>

@@ -4,7 +4,7 @@ import { PerfLog } from "../perf";
 import type { RouteContext } from "./context";
 
 export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch, tasks, memos, habits }: RouteContext) {
-  // レポート: 今日のタスク → メモ → 習慣 → 判断待ち → 定期報告 → 監察 → まとめ（実績はここに1枚）
+  // レポート: 今日のタスク → メモ → ルーティーン → 判断待ち → 定期報告 → 監察 → まとめ（実績はここに1枚）
   app.get("/api/report", async (c) => {
     const r = hub.report();
     // 定期報告（実働の cron）と監察チームの報告は、最後のまとめの前に、この順で

@@ -39,6 +39,21 @@ async def main():
     u = m["usage"]
     assert u["h5"] == {"claude-opus": 16} and u["d7"] == {"claude-opus": 16, "claude-sonnet": 100}, u
     assert u["messages_h5"] == 1 and "秘密" not in json.dumps(m), m
+    # ログイン: 有無と期限だけ。メールと組織は渡さない
+    bin_ = os.path.join(d, "bin"); os.makedirs(bin_, exist_ok=True)
+    fake = os.path.join(bin_, "claude")
+    with open(fake, "w") as f:
+        f.write('#!/bin/sh\necho \'{"loggedIn": true, "authMethod": "claude.ai", "loginExpiresAt": "2026-12-05T22:50:08Z", "email": "me@example.com", "orgName": "秘密の組織"}\'\n')
+    os.chmod(fake, 0o755)
+    keep_path = os.environ["PATH"]
+    os.environ["PATH"] = bin_
+    m = await ask({"type": "auth_status", "id": 90})
+    assert m["ok"] and m["claude"] == {"available": True, "loggedIn": True, "authMethod": "claude.ai", "loginExpiresAt": "2026-12-05T22:50:08Z"}, m
+    assert "example.com" not in json.dumps(m) and "秘密" not in json.dumps(m), m
+    os.remove(fake)
+    m = await ask({"type": "auth_status", "id": 91})
+    assert m["claude"] == {"available": False}, m
+    os.environ["PATH"] = keep_path
     # モデル: 選べるものだけ。ファイルに書き、読み戻せる
     m = await ask({"type": "get_models", "id": 2})
     assert m["models"] == {"chat": None, "worker": None} and m["choices"] == ["opus", "sonnet"], m

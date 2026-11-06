@@ -9,6 +9,9 @@ import { TaskNode, topLevel } from "./TaskRow";
 import { BodyEditor, FolderIcon, json } from "./memo-fields";
 import { MemoListPage } from "./Memos";
 import { PjTabs } from "./pjtabs";
+import { MemoLink, openProjectMenu } from "./pjmenus";
+import { createTask, patchTask } from "./task-db";
+import { useLongPress } from "./touch";
 import { Icon, Nav, RAIL, ago } from "./ui";
 import { Skeleton } from "./loading";
 
@@ -24,7 +27,7 @@ function hashView(): "projects" | "due" {
 
 const toggleDone = async (t: AppTask) => {
   const done = t.status === "done" || t.status === "dismissed";
-  await fetch(`/api/apptasks/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: done ? "todo" : "done" }) });
+  await patchTask(t.id, { status: done ? "todo" : "done" });
 };
 
 /** タスクをすぐ足す欄（プロジェクトを付ける） */
@@ -33,7 +36,7 @@ function QuickAdd({ project, onAdded, placeholder }: { project: string | null; o
   const add = async () => {
     const title = v.trim();
     if (!title) return;
-    await fetch("/api/apptasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, project }) });
+    await createTask({ title, project });
     setV("");
     onAdded();
   };
@@ -95,11 +98,12 @@ function Urgent({ tasks, ...rest }: { tasks: AppTask[]; snap: Snapshot | null; h
 
 function ProjectCard({ p, snap, reload }: { p: ProjectOverview["projects"][number]; snap: Snapshot | null; reload: () => void }) {
   const [open, toggle] = useOpen(String(p.id));
+  const press = useLongPress(() => openProjectMenu({ p, onChanged: reload }));
   const onToggle = (x: AppTask) => void toggleDone(x).then(reload);
   return (
     <section className="flex min-w-0 flex-col rounded-2xl border border-line bg-panel pb-1" aria-label={p.name}>
       <div className="flex min-w-0 items-center gap-1 py-1 pl-3.5 pr-1.5">
-        <a href={`#/pj/${p.id}`} className="flex min-w-0 flex-1 flex-col text-ink no-underline">
+        <a href={`#/pj/${p.id}`} {...press} className="flex min-w-0 flex-1 select-none flex-col text-ink no-underline [-webkit-touch-callout:none]">
           <span className="flex min-w-0 items-center gap-2">
             <span className="text-[15px] leading-none">{p.emoji ?? "📁"}</span>
             <span className="min-w-0 truncate text-[14px] font-bold">{p.name}</span>
@@ -124,11 +128,11 @@ function ProjectCard({ p, snap, reload }: { p: ProjectOverview["projects"][numbe
           {p.recentMemos.length > 0 && (
             <div className="mx-3.5 mt-1 flex min-w-0 flex-col gap-0.5 border-t border-line pt-1.5">
               {p.recentMemos.map((m) => (
-                <a key={m.id} href={`#/memo/${m.id}`} className="flex min-w-0 items-center gap-2 py-1 text-[12.5px] text-ink-2 no-underline hover:text-ink">
+                <MemoLink key={m.id} m={{ id: m.id, title: m.title, project: p.name, archived: false }} onChanged={reload} className="flex min-w-0 items-center gap-2 py-1 text-[12.5px] text-ink-2 no-underline hover:text-ink">
                   <Icon name="memo" size={13} />
                   <span className="min-w-0 flex-1 truncate">{m.title}</span>
                   <span className="flex-none text-[11px] text-mute">{ago(m.updatedAt)}</span>
-                </a>
+                </MemoLink>
               ))}
             </div>
           )}
@@ -411,13 +415,13 @@ export function ProjectPage({ snap, id }: { snap: Snapshot | null; id: number })
                   <div className="rounded-xl border border-line bg-panel py-1">
                     {d.memos.length === 0 && <div className="px-4 py-3 text-[13px] text-mute">まだありません</div>}
                     {d.memos.map((m) => (
-                      <a key={m.id} href={`#/memo/${m.id}`} className="mx-2 flex flex-col rounded-lg px-3 py-2 text-ink no-underline hover:bg-chip/60">
+                      <MemoLink key={m.id} m={{ id: m.id, title: m.title, project: p.name, archived: false }} onChanged={reload} className="mx-2 flex flex-col rounded-lg px-3 py-2 text-ink no-underline hover:bg-chip/60">
                         <span className="flex items-baseline gap-2">
                           <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{m.title}</span>
                           <span className="flex-none text-[11px] text-mute">{ago(m.updatedAt)}</span>
                         </span>
                         {m.excerpt && m.excerpt !== m.title && <span className="truncate text-[12px] text-mute">{m.excerpt}</span>}
-                      </a>
+                      </MemoLink>
                     ))}
                   </div>
                 </section>

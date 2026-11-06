@@ -403,6 +403,8 @@ class Bridge:
             return {"thread": str(thread.id)}
         if t == "usage":
             return {"usage": claude_usage()}
+        if t == "auth_status":
+            return {"claude": await asyncio.to_thread(claude_auth_status)}
         if t == "get_models":
             return {"models": {k: read_model(k) for k in MODEL_FILES}, "choices": MODEL_CHOICES}
         if t == "set_model":
@@ -458,7 +460,7 @@ class Bridge:
                     tid, rid = str(m.get("thread")), str(m.get("request_id"))
                     if (tid, rid) in self.pending_perms:
                         await self.send_verdict(tid, rid, m["behavior"])
-                elif m.get("type") in ("list_sessions", "pane", "send", "stop", "usage", "get_models", "set_model", "fs_list", "fs_read", "history", "file"):
+                elif m.get("type") in ("list_sessions", "pane", "send", "stop", "usage", "auth_status", "get_models", "set_model", "fs_list", "fs_read", "history", "file"):
                     try:
                         res = await self.app_request(m)
                         res.update({"type": "result", "id": m.get("id"), "ok": True})
@@ -580,6 +582,19 @@ CLAUDE_PRICES = [
 def claude_price(model):
     m = model.lower()
     return next((p for k, p in CLAUDE_PRICES if k in m), None)
+
+
+def claude_auth_status():
+    """ログインの有無と期限だけをアプリに返す。メールアドレスや組織は渡さない"""
+    import shutil
+    path = shutil.which("claude")
+    if not path:
+        return {"available": False}
+    r = subprocess.run([path, "auth", "status"], capture_output=True, text=True, timeout=30)
+    # ログインしていないときは終了コードが 0 でないが、JSON は出る
+    st = json.loads(r.stdout)
+    return {"available": True, "loggedIn": bool(st.get("loggedIn")), "authMethod": st.get("authMethod"),
+            "loginExpiresAt": st.get("loginExpiresAt")}
 
 
 def claude_usage(now=None):

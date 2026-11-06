@@ -2,6 +2,7 @@
 import { type Context } from "hono";
 import { STATUS_LABEL, TASK_STATUSES, TaskError, type TaskStatus } from "../tasks";
 import type { RouteContext } from "./context";
+import { memoIdOf } from "../../shared/memo-ref";
 
 export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteContext) {
   // ---- 番号のバッジ（TASK-123）: 状態とリンク ----
@@ -11,6 +12,11 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
     return c.json({
       issues: Object.fromEntries(
         ids.map((id) => {
+          const memoId = memoIdOf(id);
+          if (memoId !== null) {
+            const m = memos?.get(memoId);
+            return [id, m ? { id, title: m.title, url: `#/memo/${m.id}`, state: m.archivedAt ? "アーカイブ" : "メモ", stateType: m.archivedAt ? "canceled" : "backlog" } : null];
+          }
           const t = tasks?.byRef(id);
           return [id, t ? { id, title: t.title, url: `#/todo/${t.id}`, state: STATUS_LABEL[t.status], stateType: STATE_TYPE[t.status] } : null];
         }),

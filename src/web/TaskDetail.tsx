@@ -5,6 +5,7 @@ import type { AppTask, AppTaskEvent, AppTaskLinks, AppTaskList, AppTaskStatus, M
 import { BodyEditor, FolderIcon, json, TagField } from "./memo-fields";
 import { Icon, ago, profileOf } from "./ui";
 import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, dueLabel, DUE_CLS, TaskRow } from "./TaskRow";
+import { createTask, fetchTask, patchTask } from "./task-db";
 import { CopyRef } from "./touch";
 import { Skeleton } from "./loading";
 import { ownerName } from "./identity";
@@ -102,13 +103,13 @@ function LinksSection({ id, task, links, snap, onChanged }: { id: number; task: 
     }
   };
   const refresh = async () => {
-    const r = await json<{ links: AppTaskLinks; events: AppTaskEvent[] }>(await fetch(`/api/apptasks/${id}`));
+    const r = await fetchTask(id);
     onChanged(r.links, r.events);
   };
   const addSub = async () => {
     const title = sub.trim();
     if (!title) return;
-    await fetch("/api/apptasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, parentId: id }) });
+    await createTask({ title, parentId: id });
     setSub("");
     await refresh();
   };
@@ -220,13 +221,15 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
   const [saving, setSaving] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
   const [comment, setComment] = useState("");
   const viewRef = useRef<EditorView | null>(null);
+  const [offlineView, setOfflineView] = useState(false);
   const base = useRef<number | undefined>(undefined);
   const pending = useRef<{ title?: string; body?: string; project?: string | null; due?: string | null; tags?: string[] }>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await json<{ task: AppTask; events: AppTaskEvent[]; links: AppTaskLinks; memos?: MemoSummary[]; card: string | null }>(await fetch(`/api/apptasks/${id}`));
+      const r = await fetchTask(id);
+      setOfflineView(!!r.local);
       setTask(r.task);
       setEvents(r.events);
       setLinks(r.links);
@@ -245,17 +248,17 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
     async (body: Record<string, unknown>) => {
       setSaving("saving");
       try {
-        const t = await json<AppTask>(
-          await fetch(`/api/apptasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, baseUpdatedAt: base.current }) }),
-        );
+        const t = await patchTask(id, { ...body, baseUpdatedAt: base.current });
         base.current = t.updatedAt;
         setTask(t);
         setSaving("saved");
         setError(null);
         onChanged();
-        const r = await json<{ events: AppTaskEvent[]; card: string | null }>(await fetch(`/api/apptasks/${id}`));
-        setEvents(r.events);
-        setCard(r.card);
+        const r = await fetchTask(id);
+        if (!r.local) {
+          setEvents(r.events);
+          setCard(r.card);
+        }
       } catch (e) {
         setSaving("error");
         setError(String(e instanceof Error ? e.message : e));
@@ -327,6 +330,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
       <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-10 [overflow-wrap:anywhere] md:px-10">
         <div className="mx-auto w-full max-w-[860px]">
           {error && <div className="mb-3 rounded-lg bg-orange-soft px-3 py-2 text-xs text-orange-ink" role="alert">{error}</div>}
+          {offlineView && <div className="mb-3 rounded-lg bg-chip px-3 py-2 text-xs text-ink-2">オフラインです。題・本文・期日・状態は端末に残して、つながったら送ります。記録・コメント・つながりはオンラインのときだけ使えます。</div>}
           {!task && !error && <Skeleton />}
           {task && (
             <>

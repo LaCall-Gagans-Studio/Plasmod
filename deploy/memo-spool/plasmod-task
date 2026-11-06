@@ -100,7 +100,7 @@ def main():
     p.add_argument("--as", dest="as_", default=os.environ.get("PLASMOD_MEMO_AS"))
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("habits", help="習慣と今日のチェックを読む（読むだけ）")
+    s = sub.add_parser("habits", help="ルーティーンと今日のチェックを読む（読むだけ）")
     s = sub.add_parser("add", help="登録（同じ元は1件にまとまる）")
     s.add_argument("--source", required=True, help="mail / beeper / ops など")
     s.add_argument("--key", required=True, help="元の ID（メールのスレッド ID・Beeper のチャット+メッセージ ID・TASK-123・ops の項目+日付）")
@@ -162,7 +162,7 @@ def main():
         for h in r["habits"]:
             print(f"[{'x' if h['doneToday'] else ' '}] {h['name']}（{h['streak']} 日連続・計 {h['total']} 回）")
         if not r["habits"]:
-            print("（習慣は無い）")
+            print("（ルーティーンは無い）")
         return
     if a.cmd == "add":
         body = a.body if a.body is not None else ("" if sys.stdin.isatty() else sys.stdin.read())

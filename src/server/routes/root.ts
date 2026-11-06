@@ -66,6 +66,24 @@ export function rootRoutes({ app, cfg, store, rootd }: RouteContext) {
     }
   });
   // オーナーが打ったコマンド: 依頼を作って、同じパスワードで承認する（照合は plasmod-rootd）。本文はログに出さない
+  // Nous のログイン・MCP の有効無効（設定の「接続」）。どちらも毎回パスワード。MCP のログインはダッシュボードで行う
+  app.post("/api/root/connections/:action", async (c) => {
+    if (!rootd) return c.json({ ok: false, error: "plasmod-rootd は使えない" }, 404);
+    const action = c.req.param("action");
+    if (action !== "reconnect" && action !== "toggle") return c.json({ ok: false, error: "知らない操作" }, 404);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+    if (typeof body.password !== "string" || !body.password) return c.json({ ok: false, error: "パスワードが要る" }, 400);
+    const by = String(c.get("loginName" as never) ?? "");
+    try {
+      const r =
+        action === "reconnect"
+          ? await rootd.call({ op: "nous_login", password: body.password, by })
+          : await rootd.call({ op: "mcp_toggle", profile: body.profile, name: body.name, enable: body.enable, password: body.password, by });
+      return c.json(r, r.ok ? 200 : rootStatus(r));
+    } catch (e) {
+      return rootFail(c, e);
+    }
+  });
   app.post("/api/root/run", async (c) => {
     if (!rootd) return c.json({ ok: false, error: "plasmod-rootd は使えない" }, 404);
     const body = await c.req.json<{ command?: unknown; password?: unknown }>().catch(() => ({}) as { command?: unknown; password?: unknown });

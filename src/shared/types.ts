@@ -142,6 +142,15 @@ export interface VpsStatus {
   errors: { source: string; error: string }[];
 }
 
+/** 設定の VPS のグラフの1点。CPU・メモリ・ディスクは %、ネットはバイト/秒。測れなかったら null */
+export interface VpsSample {
+  at: number;
+  cpu: number | null;
+  mem: number | null;
+  disk: number | null;
+  net: number | null;
+}
+
 /** システム画面の「エージェント」。Hermes は仲介の agents、開発エージェントは bridge で CLAUDE.md を読む */
 export interface AgentInfo {
   id: string;
@@ -305,7 +314,7 @@ export type ReportSlide =
   | { kind: "watch"; items: WatchReport[]; error?: string }
   | { kind: "routine"; items: WatchReport[]; late: { agent: string; name: string; reason: string }[]; error?: string };
 
-/** 習慣 */
+/** ルーティーン */
 export interface Habit {
   id: number;
   name: string;
@@ -376,6 +385,8 @@ export interface Memo {
   body: string;
   project: string | null;
   tags: string[];
+  /** 親のメモ（無ければ一番上） */
+  parentId: number | null;
   /** 最初に書いた人（app=オーナー） */
   author: string;
   createdAt: number;
@@ -389,6 +400,7 @@ export interface MemoSummary {
   excerpt: string;
   project: string | null;
   tags: string[];
+  parentId: number | null;
   updatedAt: number;
   archived: boolean;
 }
@@ -611,6 +623,39 @@ export interface UsageWindow {
   tokens: number;
   cost: number;
   sessions: number;
+}
+
+export type ConnectionState = "ok" | "soon" | "needs" | "off" | "unknown";
+
+/** 接続1つの状況。トークンの値は持たない */
+export interface Connection {
+  id: string;
+  kind: "claude" | "nous" | "mcp";
+  name: string;
+  profile: string | null;
+  state: ConnectionState;
+  reason: string | null;
+  /** アプリからログインし直せるか */
+  canLogin: boolean;
+  lastRefreshAt: number | null;
+  expiresAt: number | null;
+}
+
+export interface ConnectionEvent {
+  id: number;
+  at: number;
+  connId: string;
+  name: string;
+  fromState: ConnectionState | null;
+  toState: ConnectionState;
+  reason: string | null;
+}
+
+export interface ConnectionsView {
+  at: number;
+  connections: Connection[];
+  events: ConnectionEvent[];
+  errors: string[];
 }
 
 export interface UsageSnapshot {

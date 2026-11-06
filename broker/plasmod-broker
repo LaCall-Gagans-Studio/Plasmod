@@ -23,11 +23,13 @@
   task ID                    カードの詳細（本文・コメント・イベント・実行・親子・添付の一覧）。JSON
   agents                     プロファイルごとの人格（SOUL.md）・スキルの一覧・設定ファイルの場所・モデル。JSON
   cron-output PROFILE        そのプロファイルの cron の最近の出力（監察チームの報告）。返答の部分だけ、新しい順に 8 件。JSON
+  connections                Nous と MCP の接続の状況。有無と時刻だけで、トークンの値は出さない。更新もかけない
   cron                       プロファイルごとの定期実行（cron/jobs.json）。スケジュール・状態・前回の結果だけで、送り先の ID などは出さない。JSON
 
 読み取りは kanban.db を読み取り専用で開く。書き込みは hermes の CLI を通す（Hermes 側の整合性チェックを使うため）。
 """
 import contextlib
+import datetime
 import json
 import os
 import re
@@ -304,6 +306,123 @@ def hermes_exec(code, extra_env=None, what="Hermes の中の処理"):
         return json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         die(f"{what}の返事が読めない")
+
+
+LOG_TAIL = 2 * 1024 * 1024
+LOG_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)")
+LOG_LEVEL_RE = re.compile(r"\b(WARNING|ERROR|CRITICAL)\b")
+MCP_FAIL_RE = re.compile(r"(?i)(invalid_grant|refresh failed|recovery attempt failed|needs[_ ]re-?auth)")
+NOUS_DEAD = "Nous OAuth state quarantined"
+
+
+def log_lines(home):
+    """gateway.log と agent.log の末尾。出さずに、判定にだけ使う"""
+    out = []
+    for name in ("gateway.log", "agent.log"):
+        try:
+            with open(os.path.join(home, "logs", name), "rb") as f:
+                f.seek(0, 2)
+                f.seek(max(0, f.tell() - LOG_TAIL))
+                out += f.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            pass
+    return out
+
+
+def log_time(line):
+    m = LOG_TIME_RE.match(line)
+    if not m:
+        return None
+    try:
+        return int(time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")))
+    except ValueError:
+        return None
+
+
+def mcp_log_error(lines, name):
+    """その MCP の更新に失敗した最後の記録。ログの行は返さず、時刻と種類だけ"""
+    word = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])")
+    for line in reversed(lines):
+        m = MCP_FAIL_RE.search(line)
+        if m and LOG_LEVEL_RE.search(line) and word.search(line):
+            at = log_time(line)
+            if at:
+                return {"at": at, "reason": m.group(1).lower()}
+    return None
+
+
+def mcp_status(home, servers, lines):
+    tdir = os.path.join(home, "mcp-tokens")
+    out = {}
+    for name, s in servers.items():
+        s = s if isinstance(s, dict) else {}
+        r = {"enabled": s.get("enabled"), "oauth": "oauth" in s and s.get("oauth") is not False, "token": {"exists": False}}
+        p = os.path.join(tdir, str(name) + ".json")
+        # hermes の権限で動くので、リンクは辿らない
+        with contextlib.suppress(OSError, ValueError):
+            st = os.lstat(p)
+            r["token"] = {"exists": True, "updated_at": int(st.st_mtime)}
+            if not os.path.islink(p):
+                with open(p, encoding="utf-8") as f:
+                    t = json.load(f)
+                exp = t.get("expires_at")
+                r["token"].update({"access": bool(t.get("access_token")), "refresh": bool(t.get("refresh_token")),
+                                   "expires_at": int(exp) if isinstance(exp, (int, float)) else None})
+        r["log_error"] = mcp_log_error(lines, str(name))
+        out[str(name)] = r
+    return out
+
+
+def nous_status(home, config, lines):
+    """auth.json を読むだけ。更新トークンは1回限りなので、ここからは絶対に更新しない"""
+    try:
+        with open(os.path.join(home, "auth.json"), encoding="utf-8") as f:
+            state = ((json.load(f).get("providers") or {}).get("nous")) or None
+    except (OSError, ValueError):
+        state = None
+    model = config.get("model")
+    uses_nous = isinstance(model, dict) and model.get("provider") == "nous"
+    if not isinstance(state, dict):
+        return {"logged_in": False, "error": "ログインしていない"} if uses_nous else None
+    logged_in = bool(state.get("refresh_token"))
+    if not logged_in and state.get("access_token"):
+        exp = state.get("expires_at")
+        try:
+            logged_in = datetime.datetime.fromisoformat(str(exp)).timestamp() > time.time()
+        except ValueError:
+            logged_in = False
+    r = {"logged_in": logged_in, "obtained_at": state.get("obtained_at") if isinstance(state.get("obtained_at"), str) else None}
+    if not logged_in:
+        err = state.get("last_auth_error")
+        code = err.get("code") if isinstance(err, dict) else None
+        r["error"] = str(code)[:60] if code else "ログインしていない"
+        for line in reversed(lines):
+            if NOUS_DEAD in line:
+                r["error_at"] = log_time(line)
+                break
+    return r
+
+
+def connections():
+    import yaml
+
+    out = {"nous": None, "mcp": {}}
+    for name, home in profiles().items():
+        try:
+            with open(os.path.join(home, "config.yaml"), encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(config, dict):
+            continue
+        lines = log_lines(home)
+        # Nous のログインは default に1つで、プロファイルが共有する
+        if name == "default":
+            out["nous"] = nous_status(home, config, lines)
+        servers = config.get("mcp_servers")
+        if isinstance(servers, dict) and servers:
+            out["mcp"][name] = mcp_status(home, servers, lines)
+    print(json.dumps(out, ensure_ascii=False))
 
 
 def credits():
@@ -726,6 +845,8 @@ def main(argv):
         endpoints()
     elif op == "usage" and not rest:
         usage()
+    elif op == "connections" and not rest:
+        connections()
     elif op == "credits" and not rest:
         with contextlib.suppress(OSError):
             os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)

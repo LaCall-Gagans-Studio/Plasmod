@@ -6,6 +6,7 @@ import { plainSummary } from "./WatchPage";
 import { HabitRow } from "./Habits";
 import { Skeleton } from "./loading";
 import { ownerName } from "./identity";
+import { useHoldSwipe } from "./touch";
 
 /** 1枚を見せる時間。上のバーがこの時間で 100% になったら次へ。中身が多いタスクの枚は長め */
 const slideMs = (s: ReportSlide) => (s.kind === "digest" || s.kind === "watch" || s.kind === "routine" ? 9000 : 5000);
@@ -110,7 +111,7 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
       return (
         <div className="mt-3 flex flex-col gap-3">
           <Badge name="habit" />
-          <div className="gh-rise mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>今日の習慣</div>
+          <div className="gh-rise mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>今日のルーティーン</div>
           {habits.map((h, k) => (
             <div key={h.id} className="gh-rise" style={delay(k + 1)}>
               <HabitRow h={h} light onChange={(next) => setHabits((x) => x.map((y) => (y.id === next.id ? next : y)))} />
@@ -222,7 +223,7 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
 }
 
 function slideTitle(s: ReportSlide): string {
-  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日の習慣", waiting: "判断待ち", tasks: "今日と今週のタスク", watch: "今週の監察", routine: "今日の定期報告" }[s.kind];
+  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日のルーティーン", waiting: "判断待ち", tasks: "今日と今週のタスク", watch: "今週の監察", routine: "今日の定期報告" }[s.kind];
 }
 
 export function Report({ snap }: { snap: Snapshot | null }) {
@@ -243,7 +244,11 @@ export function Report({ snap }: { snap: Snapshot | null }) {
 
   const n = report?.slides.length ?? 0;
   const go = useCallback((d: number) => setI((x) => Math.min(Math.max(x + d, 0), Math.max(n - 1, 0))), [n]);
-
+  // 長押ししてから左右に引っ張ると、前後の枚へ（下の ‹ › を押さなくても動ける）
+  const hold = useHoldSwipe(go);
+  // 端の枚では、引っ張っても少ししか動かない
+  const canMove = hold.dx > 0 ? i > 0 : i < n - 1;
+  const holdDx = hold.held ? (canMove ? hold.dx : hold.dx * 0.2) : 0;
 
   const save = async () => {
     if (!report || !note.trim()) return;
@@ -272,7 +277,7 @@ export function Report({ snap }: { snap: Snapshot | null }) {
               <div
                 key={`fill${i}`}
                 className="gh-fill h-full bg-on"
-                style={{ animationDuration: `${slideMs(report.slides[i])}ms`, animationPlayState: paused || noting || isHands(report.slides[i]) ? "paused" : "running" }}
+                style={{ animationDuration: `${slideMs(report.slides[i])}ms`, animationPlayState: paused || hold.held || noting || isHands(report.slides[i]) ? "paused" : "running" }}
                 onAnimationEnd={() => i < n - 1 && go(1)}
               />
             )}
@@ -286,10 +291,14 @@ export function Report({ snap }: { snap: Snapshot | null }) {
         <a href="#/" aria-label="閉じる" className="ml-auto flex size-11 items-center justify-center"><Icon name="close" /></a>
       </div>
 
-      <div className={`relative flex-1 px-6 pt-2 ${isHands(report?.slides[i]) ? "overflow-y-auto" : "overflow-hidden"}`}>
+      <div {...(noting ? {} : hold.bind)} data-noswipe="1" className={`gh-nocallout relative flex-1 select-none px-6 pt-2 ${isHands(report?.slides[i]) && !hold.held ? "overflow-y-auto" : "overflow-hidden"}`}>
         {error && <div className="rounded-xl bg-on/10 p-3 text-sm">{error}</div>}
         {!report && !error && <Skeleton />}
-        {report && <Slide key={i} s={report.slides[i]} snap={snap} />}
+        {report && (
+          <div style={hold.held ? { transform: `translateX(${holdDx}px) scale(0.97)`, transition: hold.dx === 0 ? "transform 160ms ease-out" : "none" } : { transition: "transform 160ms ease-out" }}>
+            <Slide key={i} s={report.slides[i]} snap={snap} />
+          </div>
+        )}
         {!noting && report && !isHands(report.slides[i]) && (
           <div className="absolute inset-x-0 top-0 bottom-0 flex" aria-hidden="true">
             <button tabIndex={-1} className="flex-1 bg-transparent" onClick={() => go(-1)} onPointerDown={() => setPaused(true)} onPointerUp={() => setPaused(false)} />

@@ -522,6 +522,76 @@ class HermesFixture(Base):
                                  systemctl=f"{bin_}/systemctl", journalctl=f"{bin_}/journalctl")
 
 
+class NousLogin(HermesFixture):
+    """Nous のログイン: アプリの受け口とパスワードだけ。CLI は承認まで待つので切り離す"""
+
+    def setUp(self):
+        super().setUp()
+        self.fake = f"{self.tmp.name}/bin/fake-hermes"
+        self.marker = f"{self.tmp.name}/called"
+        with open(self.fake, "w") as f:
+            f.write(f"""#!/bin/sh
+echo "$*" > {self.marker}
+echo
+echo "To continue:"
+echo "  1. Open: https://portal/verify?code=ABCD"
+echo "  2. If prompted, enter code: ABCD-1234"
+echo "Waiting for approval (polling every 5s)..."
+sleep 3
+echo "token {FAKE_SECRET}"
+""")
+        os.chmod(self.fake, 0o755)
+
+    def login(self, password=PW, sock=None):
+        self.cfg.__dict__["hermes_bin"] = self.fake
+        return call(sock or self.as_, {"op": "nous_login", "password": password, "by": "owner"})
+
+    def done(self, r):
+        self.assertTrue(r["ok"], r)
+        self.engine.wait_idle()
+        return call(self.as_, {"op": "get", "id": r["id"]})
+
+    def result(self, got):
+        line = next(l for l in got["stdout"].splitlines() if l.startswith("PLASMOD_RESULT "))
+        return json.loads(line.split(" ", 1)[1])
+
+    def test_returns_link_and_code_without_waiting_for_approval(self):
+        start = time.time()
+        got = self.done(self.login())
+        self.assertLess(time.time() - start, 20)
+        self.assertEqual(got["status"], "done", got)
+        self.assertEqual(self.result(got), {"ok": True, "kind": "nous", "url": "https://portal/verify?code=ABCD", "code": "ABCD-1234"})
+        self.assertNotIn(FAKE_SECRET, got["stdout"])
+        with open(self.marker) as f:
+            self.assertEqual(f.read().strip(), "auth add nous --type oauth --no-browser")
+
+    def test_only_from_app_socket_and_with_password(self):
+        self.assertEqual(self.login(sock=self.rs)["code"], "bad_op")
+        self.assertFalse(self.login(password="wrong")["ok"])
+        self.engine.wait_idle()
+        self.assertFalse(os.path.exists(self.marker))
+        self.assertEqual([x for x in call(self.as_, {"op": "list"})["requests"] if x["status"] == "pending"], [])
+
+    def test_failure_is_reported(self):
+        with open(self.fake, "w") as f:
+            f.write("#!/bin/sh\necho 失敗\nexit 1\n")
+        got = self.done(self.login())
+        self.assertEqual(got["status"], "failed", got)
+        self.assertFalse(self.result(got)["ok"])
+
+    def test_toggle_needs_password_and_changes_config(self):
+        ask = lambda sock=None, pw=PW: call(sock or self.as_, {"op": "mcp_toggle", "profile": "default", "name": "plain", "enable": True, "password": pw, "by": "o"})
+        self.assertEqual(ask(self.rs)["code"], "bad_op")
+        self.assertFalse(ask(pw="wrong")["ok"])
+        self.engine.wait_idle()
+        with open(f"{self.home}/config.yaml") as f:
+            self.assertIn("enabled: false", f.read())
+        got = self.done(ask())
+        self.assertEqual(got["status"], "done", got)
+        with open(f"{self.home}/config.yaml") as f:
+            self.assertNotIn("enabled: false", f.read())
+
+
 class Action(HermesFixture):
     """部品: スクリプトは plasmod-rootd が組み立てる。下見は digest に入る。控え・差分・元に戻す"""
 

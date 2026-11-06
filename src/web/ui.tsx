@@ -157,11 +157,11 @@ export const COL = "mx-auto w-full max-w-[520px] md:max-w-none md:px-2 lg:px-4 2
 /** 広い画面（lg 以上）では、下のメニューを左の縦並びにする。その幅だけ中身を右にずらす */
 export const RAIL = "lg:pl-[88px]";
 
-// 下のメニューは4つ（チャット・プロジェクト・習慣・開発）と「メニュー」。ほかの画面は左から出るメニューから開く
+// 下のメニューは4つ（チャット・プロジェクト・ルーティーン・開発）と「メニュー」。ほかの画面は左から出るメニューから開く
 const TABS = [
   { href: "#/", label: "チャット", icon: "chat" },
   { href: "#/pj", label: "プロジェクト", icon: "pj" },
-  { href: "#/habits", label: "習慣", icon: "habit" },
+  { href: "#/habits", label: "ルーティーン", icon: "habit" },
   { href: "#/dev", label: "開発", icon: "dev" },
 ] as const;
 
@@ -225,7 +225,7 @@ const useDrawerOpen = () =>
 const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges; match?: string[]; sub?: { href: string; label: string }[] }[] = [
   { href: "#/", label: "チャット", icon: "chat", badge: "home", sub: [{ href: "#/search", label: "検索" }] },
   { href: "#/pj", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo"], sub: [{ href: "#/memos", label: "メモ" }, { href: "#/todos", label: "タスク" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }] },
-  { href: "#/habits", label: "習慣", icon: "habit" },
+  { href: "#/habits", label: "ルーティーン", icon: "habit" },
   { href: "#/dev", label: "開発", icon: "dev", badge: "dev", match: ["#/watching", "#/task/"], sub: [{ href: "#/dev", label: "PR" }, { href: "#/watching", label: "カンバン" }] },
   { href: "#/report", label: "レポート", icon: "insights", match: ["#/watch"], sub: [{ href: "#/report", label: "今日のレポート" }, { href: "#/watch", label: "定期報告" }] },
   {
@@ -237,6 +237,7 @@ const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges
     sub: [
       { href: "#/settings", label: "一般" },
       { href: "#/settings?tab=agents", label: "エージェント" },
+      { href: "#/settings?tab=connections", label: "接続" },
       { href: "#/settings?tab=usage", label: "使用量" },
       { href: "#/settings?tab=vps", label: "VPS" },
     ],

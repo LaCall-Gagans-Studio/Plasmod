@@ -3,6 +3,7 @@
 import type { Database } from "bun:sqlite";
 import type { Memo, MemoEvent, MemoList, MemoSummary } from "../shared/types";
 import { SearchIndex } from "./search";
+import { memoIdOf } from "../shared/memo-ref";
 
 export const MEMO_LIMITS = { title: 200, body: 100_000, project: 60, tag: 40, tags: 20 } as const;
 
@@ -20,6 +21,8 @@ export interface MemoInput {
   body?: string;
   project?: string | null;
   tags?: string[];
+  /** 作るときの親。変えるのは setParent */
+  parentId?: number | null;
 }
 
 interface MemoRow {
@@ -27,6 +30,7 @@ interface MemoRow {
   title: string;
   body: string;
   project: string | null;
+  parent_id: number | null;
   author: string;
   created_at: number;
   updated_at: number;
@@ -52,6 +56,8 @@ export function normalizeTags(tags: unknown): string[] {
 export function excerptOf(body: string): string {
   return clean(
     body
+      // html の箱の中身は一覧に出さない
+      .replace(/^\s*```html\s*$[\s\S]*?^\s*```\s*$/gm, "")
       .replace(/^\s*```.*$/gm, "")
       .replace(/^\s*(#+|[-*+>]|\d+\.)\s+/gm, "")
       .replace(/^\s*\[[ xX]\]\s+/gm, "")
@@ -112,6 +118,10 @@ export class MemoStore {
       );
       CREATE INDEX IF NOT EXISTS memo_events_memo ON memo_events(memo_id);
     `);
+    // ネスト（親のメモ）。前の版の DB には列が無い
+    const cols = (db.query("PRAGMA table_info(memos)").all() as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("parent_id")) db.exec("ALTER TABLE memos ADD COLUMN parent_id INTEGER REFERENCES memos(id)");
+    db.exec("CREATE INDEX IF NOT EXISTS memos_parent ON memos(parent_id)");
     // 起動時に索引を合わせる（中身が同じなら upsert は何もしない）
     const ids = this.db.query("SELECT id FROM memos WHERE archived_at IS NULL").all() as { id: number }[];
     for (const { id } of ids) this.index(this.get(id)!);
@@ -167,6 +177,7 @@ export class MemoStore {
       body: r.body,
       project: r.project,
       tags: this.tagsOf(r.id),
+      parentId: r.parent_id,
       author: r.author,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -189,10 +200,27 @@ export class MemoStore {
         .run(memoTitle(input.title ?? "", body), body, this.projectId(input.project, now), author, now, now);
       const id = Number(r.lastInsertRowid);
       this.setTags(id, normalizeTags(input.tags));
+      // 親が消えていても書いた分は失わない（オフラインで作ったメモが同期で止まらないように）
+      if (input.parentId && this.get(input.parentId)) this.db.query("UPDATE memos SET parent_id = ? WHERE id = ?").run(input.parentId, id);
       const m = this.must(id);
       this.event(m, "create", author, now);
       this.index(m);
       return m;
+    })();
+  }
+
+  /** 親を変える。null で一番上へ。自分や自分の子孫は親にできない */
+  setParent(id: number, parentId: number | null, now = Date.now()): Memo {
+    return this.db.transaction(() => {
+      const cur = this.must(id);
+      if (parentId !== null) {
+        for (let p: Memo | null = this.must(parentId); p; p = p.parentId ? this.get(p.parentId) : null)
+          if (p.id === id) throw new MemoError("自分や自分の子のメモは親にできない", 400);
+      }
+      if (cur.parentId === parentId) return cur;
+      const at = Math.max(now, cur.updatedAt + 1);
+      this.db.query("UPDATE memos SET parent_id = ?, updated_at = ? WHERE id = ?").run(parentId, at, id);
+      return this.must(id);
     })();
   }
 
@@ -262,10 +290,10 @@ export class MemoStore {
   }
 
   /**
-   * 一覧。q は空白区切りの語を AND で、題・本文・タグ・プロジェクトから探す。
+   * 一覧。q は空白区切りの語を AND で、題・本文・タグ・プロジェクトから探す（MEMO-9 はそのメモにも当たり、一番上に出る）。
    * project="" は「プロジェクトなし」。projects・tags は絞り込み用に、アーカイブ以外の件数を返す
    */
-  list(opts: { q?: string; project?: string | null; tag?: string | null; archived?: boolean; limit?: number } = {}): MemoList {
+  list(opts: { q?: string; project?: string | null; tag?: string | null; archived?: boolean; limit?: number; parent?: number | null } = {}): MemoList {
     const where = [opts.archived ? "m.archived_at IS NOT NULL" : "m.archived_at IS NULL"];
     const args: (string | number)[] = [];
     if (opts.project === "") where.push("m.project_id IS NULL");
@@ -273,25 +301,33 @@ export class MemoStore {
       where.push("p.name = ?");
       args.push(opts.project);
     }
+    if (opts.parent) {
+      where.push("m.parent_id = ?");
+      args.push(opts.parent);
+    }
     if (opts.tag) {
       where.push("EXISTS (SELECT 1 FROM memo_tags t WHERE t.memo_id = m.id AND t.tag = ?)");
       args.push(opts.tag);
     }
+    let exact = 0;
     for (const w of clean(opts.q ?? "").split(" ").filter(Boolean).slice(0, 8)) {
+      const byNumber = memoIdOf(w);
+      if (byNumber !== null) exact = byNumber;
       const like = `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       where.push(
-        "(m.title LIKE ? ESCAPE '\\' OR m.body LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memo_tags t WHERE t.memo_id = m.id AND t.tag LIKE ? ESCAPE '\\'))",
+        `(m.title LIKE ? ESCAPE '\\' OR m.body LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memo_tags t WHERE t.memo_id = m.id AND t.tag LIKE ? ESCAPE '\\')${byNumber !== null ? " OR m.id = ?" : ""})`,
       );
       args.push(like, like, like, like);
+      if (byNumber !== null) args.push(byNumber);
     }
     const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
     const rows = this.db
       .query(
-        `SELECT m.id, m.title, m.body, p.name AS project, m.updated_at, m.archived_at FROM memos m
+        `SELECT m.id, m.title, m.body, p.name AS project, m.parent_id, m.updated_at, m.archived_at FROM memos m
          LEFT JOIN memo_projects p ON p.id = m.project_id
-         WHERE ${where.join(" AND ")} ORDER BY m.updated_at DESC LIMIT ${limit}`,
+         WHERE ${where.join(" AND ")} ORDER BY m.id = ${exact} DESC, m.updated_at DESC LIMIT ${limit}`,
       )
-      .all(...args) as { id: number; title: string; body: string; project: string | null; updated_at: number; archived_at: number | null }[];
+      .all(...args) as { id: number; title: string; body: string; project: string | null; parent_id: number | null; updated_at: number; archived_at: number | null }[];
     const tagRows = rows.length
       ? (this.db.query(`SELECT memo_id, tag FROM memo_tags WHERE memo_id IN (${rows.map(() => "?").join(",")}) ORDER BY rowid`).all(...rows.map((r) => r.id)) as {
           memo_id: number;
@@ -304,6 +340,7 @@ export class MemoStore {
       excerpt: excerptOf(r.body),
       project: r.project,
       tags: tagRows.filter((t) => t.memo_id === r.id).map((t) => t.tag),
+      parentId: r.parent_id,
       updatedAt: r.updated_at,
       archived: r.archived_at !== null,
     }));

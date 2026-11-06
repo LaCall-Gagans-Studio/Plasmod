@@ -1,12 +1,15 @@
 // メモのオフライン（v2.0 A）。端末に写しと「まだ送っていない変更」を持つ。正本はサーバー。
 // 同じメモを両方で変えていたら、片方を消さずに「衝突したコピー」として両方残す。
 import type { Memo, MemoList, MemoSummary } from "../shared/types";
+import { memoIdOf } from "../shared/memo-ref";
 
 export interface MemoFields {
   title: string;
   body: string;
   project: string | null;
   tags: string[];
+  /** 作るときだけ使う（親を変えるのは /parent で） */
+  parentId?: number | null;
 }
 
 /** 送っていない変更。中身は memos の写しを送るので、1メモ1件 */
@@ -49,7 +52,7 @@ export interface SyncStatus {
 
 export const CONFLICT_SUFFIX = "（衝突したコピー）";
 
-const fieldsOf = (m: Memo): MemoFields => ({ title: m.title, body: m.body, project: m.project, tags: m.tags });
+const fieldsOf = (m: Memo): MemoFields => ({ title: m.title, body: m.body, project: m.project, tags: m.tags, parentId: m.parentId ?? null });
 const statusOf = (e: unknown) => (e as { status?: number }).status;
 
 export class MemoSync {
@@ -104,6 +107,7 @@ export class MemoSync {
     const memo: Memo = {
       id: id ?? -(at * 1000 + this.localSeq++ % 1000),
       ...f,
+      parentId: f.parentId ?? cur?.parentId ?? null,
       author: cur?.author ?? "app",
       createdAt: cur?.createdAt ?? at,
       updatedAt: at,
@@ -116,11 +120,22 @@ export class MemoSync {
     return memo;
   }
 
-  /** サーバーから取ったメモを写しにする（送っていない変更があれば触らない） */
+  /** サーバーから取ったメモを写しにする（送っていない変更があれば触らない）。アーカイブしたメモは端末に置かない */
   async adopt(m: Memo): Promise<boolean> {
     if (await this.isPending(m.id)) return false;
-    await this.db.putMemo(m);
+    await this.store(m);
     return true;
+  }
+
+  private async store(m: Memo) {
+    if (m.archivedAt) await this.db.deleteMemo(m.id);
+    else await this.db.putMemo(m);
+  }
+
+  /** 前の版で端末に入れたアーカイブを片付ける。送っていない変更があるものは残す */
+  async purgeArchived() {
+    const pending = new Set((await this.db.allPending()).map((p) => p.id));
+    for (const m of await this.db.allMemos()) if (m.archivedAt && !pending.has(m.id)) await this.db.deleteMemo(m.id);
   }
 
   async list(opts: LocalListOptions = {}): Promise<MemoList> {
@@ -146,6 +161,7 @@ export class MemoSync {
   private async cycle() {
     this.set({ syncing: true });
     try {
+      await this.purgeArchived();
       for (const p of await this.db.allPending()) await this.push(p);
       await this.pull();
       this.set({ offline: false, error: null });
@@ -170,7 +186,7 @@ export class MemoSync {
       await this.db.putMemo({ ...cur, id: server.id, createdAt: server.createdAt });
       await this.db.putPending({ id: server.id, base: server.updatedAt });
     } else {
-      await this.db.putMemo(server);
+      await this.store(server);
       await this.db.deletePending(server.id);
     }
     if (sent.id !== server.id) this.emit({ type: "remap", from: sent.id, to: server.id });
@@ -198,7 +214,7 @@ export class MemoSync {
     const latest = (await this.db.getMemo(memo.id)) ?? memo;
     const copy = await this.api.create({ ...fieldsOf(latest), title: `${latest.title || "無題"}${CONFLICT_SUFFIX}` });
     await this.db.putMemo(copy);
-    await this.db.putMemo(server);
+    await this.store(server);
     await this.db.deletePending(memo.id);
     this.emit({ type: "conflict", id: memo.id, copyId: copy.id });
   }
@@ -220,6 +236,7 @@ export interface LocalListOptions {
   project?: string | null;
   tag?: string | null;
   archived?: boolean;
+  parent?: number | null;
 }
 
 /** サーバーに届かないときの一覧。形は /api/memos と同じ */
@@ -231,12 +248,14 @@ export function localList(all: Memo[], o: LocalListOptions = {}): MemoList {
     return [...c].map(([name, n]) => ({ name, count: n })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   };
   const word = o.q?.trim().toLowerCase();
+  const exact = word ? memoIdOf(word) : null;
   const memos: MemoSummary[] = all
     .filter((m) => !!m.archivedAt === !!o.archived)
     .filter((m) => (o.project === "" ? !m.project : o.project ? m.project === o.project : true))
     .filter((m) => !o.tag || m.tags.includes(o.tag))
-    .filter((m) => !word || `${m.title}\n${m.body}`.toLowerCase().includes(word))
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .map((m) => ({ id: m.id, title: m.title, excerpt: m.body.replace(/\s+/g, " ").slice(0, 120), project: m.project, tags: m.tags, updatedAt: m.updatedAt, archived: !!m.archivedAt }));
+    .filter((m) => !o.parent || m.parentId === o.parent)
+    .filter((m) => !word || m.id === exact || `${m.title}\n${m.body}`.toLowerCase().includes(word))
+    .sort((a, b) => Number(b.id === exact) - Number(a.id === exact) || b.updatedAt - a.updatedAt)
+    .map((m) => ({ id: m.id, title: m.title, excerpt: m.body.replace(/^\s*```html\s*$[\s\S]*?^\s*```\s*$/gm, "").replace(/\s+/g, " ").trim().slice(0, 120), project: m.project, tags: m.tags, parentId: m.parentId ?? null, updatedAt: m.updatedAt, archived: !!m.archivedAt }));
   return { memos, projects: count(live.flatMap((m) => (m.project ? [m.project] : []))), tags: count(live.flatMap((m) => m.tags)) };
 }

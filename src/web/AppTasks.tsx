@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppTask, AppTaskList, AppTaskStatus, Snapshot } from "../shared/types";
 import { FolderIcon, json } from "./memo-fields";
 import { PjTabs } from "./pjtabs";
+import { createTask, fetchTaskList, patchTask, taskSync, TaskSyncBadge } from "./task-db";
 import { Icon, Nav, RAIL } from "./ui";
 import { BUCKETS, BUCKET_CLS, STATUS_LABEL, OPEN, STATUS_DOT, dueBucket, topLevel, TaskNode } from "./TaskRow";
 import { TaskDetail } from "./TaskDetail";
@@ -82,8 +83,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
     if (q.trim()) p.set("q", q.trim());
     const t = setTimeout(
       () =>
-        fetch(`/api/apptasks?${p}`)
-          .then((r) => json<AppTaskList>(r))
+        fetchTaskList(p)
           .then((l) => {
             setList(l);
             setError(null);
@@ -93,6 +93,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
     );
     return () => clearTimeout(t);
   }, [scope, project, tag, q, bump, snap]);
+  useEffect(() => taskSync.onEvent((e) => e.type === "synced" && reload()), [reload]);
 
   const go = (k: string, v: string | null, keepId = true) => {
     const p = hashParams();
@@ -103,7 +104,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
 
   const toggle = async (t: AppTask) => {
     const done = t.status === "done" || t.status === "dismissed";
-    await fetch(`/api/apptasks/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: done ? "todo" : "done" }) });
+    await patchTask(t.id, { status: done ? "todo" : "done" }).catch((e) => setError(String(e instanceof Error ? e.message : e)));
     reload();
   };
 
@@ -111,9 +112,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
     const title = adding.trim();
     if (!title) return;
     try {
-      const t = await json<AppTask>(
-        await fetch("/api/apptasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, project: project || null }) }),
-      );
+      const t = await createTask({ title, project: project || null });
       setAdding("");
       reload();
       // 広い画面では足したものを右に開く
@@ -135,6 +134,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
   const listPane = (
     <div className={`flex min-h-0 min-w-0 flex-col ${id ? "hidden lg:flex" : "flex"} lg:w-[440px] lg:flex-none lg:border-r lg:border-line 2xl:w-[520px]`}>
       <PjTabs current="tasks" onPlus={() => addRef.current?.focus()} plusLabel="タスクを追加" />
+      <div className="flex justify-end px-4 empty:hidden"><TaskSyncBadge /></div>
       {project !== null && <div className="truncate px-5 pb-1 text-[12.5px] font-semibold text-ink-2">{project === "" ? "プロジェクトなし" : project}</div>}
       <div className="flex flex-col gap-2 px-4 pb-2">
         <label className="relative flex h-10 items-center gap-2 rounded-lg border border-line-2 bg-panel px-3">

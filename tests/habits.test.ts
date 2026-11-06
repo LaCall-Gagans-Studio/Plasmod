@@ -6,7 +6,7 @@ const NOON = Date.parse("2026-11-06T03:00:00Z"); // 日本時間の正午
 const DAY = 86_400_000;
 const store = () => new HabitStore(new Database(":memory:"));
 
-describe("習慣", () => {
+describe("ルーティーン", () => {
   test("チェックすると今日の印と草が増え、外すと戻る", () => {
     const s = store();
     const h = s.create({ name: " 散歩 ", emoji: "🚶" }, NOON);
@@ -49,7 +49,7 @@ describe("習慣", () => {
     expect(() => s.check(h.id, true, undefined, NOON)).toThrow(HabitError);
   });
 
-  test("並べ替え: 順番が残り、新しいものは一番下。今の習慣と合わない並びは断る", () => {
+  test("並べ替え: 順番が残り、新しいものは一番下。今のルーティーンと合わない並びは断る", () => {
     const s = store();
     const [a, b, c] = ["一", "二", "三"].map((name) => s.create({ name }, NOON));
     s.reorder([c.id, a.id, b.id]);

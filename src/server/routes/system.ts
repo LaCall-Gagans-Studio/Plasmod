@@ -2,7 +2,7 @@
 import { type Context } from "hono";
 import type { RouteContext } from "./context";
 
-export function systemRoutes({ app, system }: RouteContext) {
+export function systemRoutes({ app, system, connections }: RouteContext) {
   // ---- システム ----
   const sysFail = (c: Context, e: unknown) =>
     c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, e instanceof Error && /見せない|外は見られない|不正/.test(e.message) ? 403 : 500);
@@ -14,12 +14,21 @@ export function systemRoutes({ app, system }: RouteContext) {
       return sysFail(c, e);
     }
   });
+  app.get("/api/system/connections", async (c) => {
+    if (!connections) return c.json({ ok: false, error: "接続の状況は使えない" }, 404);
+    try {
+      return c.json(await connections.view(c.req.query("force") === "1"));
+    } catch (e) {
+      return sysFail(c, e);
+    }
+  });
   app.get("/api/system/credits", async (c) => {
     if (!system) return c.json({ ok: false, error: "システムは使えない" }, 404);
     return c.json(await system.credits(c.req.query("force") === "1"));
   });
   app.get("/api/system/models", async (c) => (system ? c.json(await system.models()) : c.json([], 404)));
   app.get("/api/system/agents", async (c) => (system ? c.json(await system.agents()) : c.json([], 404)));
+  app.get("/api/system/vps-series", (c) => (system ? c.json({ samples: system.vpsSeries() }) : c.json({ ok: false, error: "システムは使えない" }, 404)));
   app.get("/api/system/vps", async (c) => (system ? c.json(await system.vps()) : c.json({ ok: false, error: "システムは使えない" }, 404)));
   app.get("/api/system/schedules", async (c) => (system ? c.json(await system.schedules()) : c.json({ ok: false, error: "システムは使えない" }, 404)));
   app.post("/api/system/models", async (c) => {

@@ -1,4 +1,4 @@
-// 習慣
+// ルーティーン
 import type { Context } from "hono";
 import { HabitError } from "../habits";
 import type { RouteContext } from "./context";

@@ -96,6 +96,7 @@ def main():
     s.add_argument("--title", default="")
     s.add_argument("-p", "--project")
     s.add_argument("-t", "--tag", action="append", default=[])
+    s.add_argument("--parent", type=int, help="親のメモの番号")
     s.add_argument("body", nargs="?")
 
     s = sub.add_parser("append", help="本文の最後に足す")
@@ -111,6 +112,9 @@ def main():
     g = s.add_mutually_exclusive_group()
     g.add_argument("-t", "--tag", action="append", help="タグを置き換える（何回でも）")
     g.add_argument("--no-tags", action="store_true")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--parent", type=int, help="親のメモの番号")
+    g.add_argument("--no-parent", action="store_true")
     g = s.add_mutually_exclusive_group()
     g.add_argument("--body")
     g.add_argument("--body-stdin", action="store_true")
@@ -138,7 +142,7 @@ def main():
             return print(json.dumps(r, ensure_ascii=False, indent=2))
         if a.cmd == "show":
             print(f"# {r['title']}\n")
-            print(f"id: {r['id']}  更新: {when(r['updatedAt'])}  {meta(r)}{'  （アーカイブ済み）' if r.get('archivedAt') else ''}\n")
+            print(f"id: {r['id']}  更新: {when(r['updatedAt'])}  {meta(r)}{'  親: ' + str(r['parentId']) if r.get('parentId') else ''}{'  （アーカイブ済み）' if r.get('archivedAt') else ''}\n")
             print(r["body"])
         else:
             for e in r:
@@ -146,7 +150,7 @@ def main():
         return
     if a.cmd == "new":
         body = a.body if a.body is not None else stdin_text()
-        r = call("create", {"title": a.title, "body": body, "project": a.project, "tags": a.tag}, a.as_)
+        r = call("create", {"title": a.title, "body": body, "project": a.project, "tags": a.tag, "parentId": a.parent}, a.as_)
     elif a.cmd == "append":
         r = call("append", {"id": a.id, "text": a.text if a.text is not None else stdin_text()}, a.as_)
     else:
@@ -161,6 +165,10 @@ def main():
             args["tags"] = a.tag
         if a.no_tags:
             args["tags"] = []
+        if a.parent is not None:
+            args["parentId"] = a.parent
+        if a.no_parent:
+            args["parentId"] = None
         if a.body is not None:
             args["body"] = a.body
         if a.body_stdin:

@@ -141,6 +141,22 @@ describe("root 作業の承認（アプリ側）", () => {
     expect((await post("/api/root/run", ME, { command: "id", password: "wrong" })).status).toBe(403);
   });
 
+  test("接続のつなぎ直し・有効無効: 本人とパスワードが要る。決まった操作だけ", async () => {
+    const { sock, seen } = fakeRootd((r) => (r.password === PW ? { ok: true, id: RID, status: "approved" } : { ok: false, code: "bad_password", error: "違う" }));
+    const { post } = await appFor(sock);
+    const again = "/api/root/connections/reconnect";
+    const body = { password: PW };
+    expect((await post(again, {}, body)).status).toBe(403);
+    expect((await post(again, ME, {})).status).toBe(400);
+    expect((await post("/api/root/connections/rm", ME, body)).status).toBe(404);
+    expect(seen).toEqual([]);
+    expect((await post(again, ME, body)).status).toBe(200);
+    expect(seen[0]).toEqual({ op: "nous_login", password: PW, by: `${EMAIL}（Tailscale）` });
+    expect((await post("/api/root/connections/toggle", ME, { profile: "default", name: "neon", enable: false, password: PW })).status).toBe(200);
+    expect(seen[1]).toEqual({ op: "mcp_toggle", profile: "default", name: "neon", enable: false, password: PW, by: `${EMAIL}（Tailscale）` });
+    expect((await post(again, ME, { ...body, password: "wrong" })).status).toBe(403);
+  });
+
   test("元に戻す: パスワードと承認者を plasmod-rootd の undo に渡す。パスワードが無ければ届かない", async () => {
     const { sock, seen } = fakeRootd((r) => (r.password === PW ? { ok: true, id: "20261020010204-bbbbbb", status: "approved", preview: "戻す" } : { ok: false, code: "bad_password", error: "x" }));
     const { app, post } = await appFor(sock);
