@@ -12,6 +12,10 @@ import type { Memo, MemoEvent, MemoList } from "../src/shared/types";
 const fresh = () => new MemoStore(new Store(":memory:").db);
 
 describe("memos", () => {
+  test("SQLite の一時ファイルをディスクに作らない（本番は /var/tmp に書けない）", () => {
+    expect(new Store(":memory:").db.query("PRAGMA temp_store").get()).toEqual({ temp_store: 2 });
+  });
+
   test("タグは # を外して重複を除く・題が空なら本文の最初の行", () => {
     expect(normalizeTags(["#旅", "旅", "  宿  の 予約 ", "", 3])).toEqual(["旅", "宿 の 予約"]);
     expect(memoTitle("", "\n# 夏の旅行\n本文")).toBe("夏の旅行");

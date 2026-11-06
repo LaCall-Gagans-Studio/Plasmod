@@ -40,6 +40,8 @@ export class Store {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new Database(path, { create: true, strict: true });
     this.db.exec("PRAGMA journal_mode = WAL");
+    // 本番は ProtectSystem=strict で /var/tmp・/tmp に書けない。SQLite が一時ファイルを作ると disk I/O error になる
+    this.db.exec("PRAGMA temp_store = MEMORY");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS decisions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
