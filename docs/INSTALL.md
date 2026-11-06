@@ -69,6 +69,7 @@ Android アプリは [Releases](../../../releases) から入れて、最初の�
 | 部品 | 入れ方 |
 |---|---|
 | エージェントのスキル | `deploy/hermes-skills/` を Hermes の skills に置く。更新は `rootreq action skill.sync` |
+| 見回りの登録（メールなど） | `inbox-card` スキルが手順。何を見回るかは、自分のエージェントに決めさせる。無くても手でタスクを足せる |
 | エージェントからメモ・タスクを使う | `sudo bash deploy/memo-spool/setup.sh` |
 | 監察チームの週次データ | `sudo bash deploy/watch/install.sh` |
 | 開発エージェント（Claude Code） | 下の「開発エージェント」 |
