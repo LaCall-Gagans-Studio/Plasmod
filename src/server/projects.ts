@@ -4,6 +4,7 @@ import type { Database } from "bun:sqlite";
 import type { AppTask, MemoSummary, Project, ProjectDetail, ProjectOverview, ProjectStatus } from "../shared/types";
 import { MemoStore } from "./memos";
 import { TaskStore } from "./tasks";
+import { localDay } from "../shared/time";
 
 export const PROJECT_STATUSES: ProjectStatus[] = ["active", "paused", "done"];
 
@@ -221,5 +222,5 @@ export class ProjectStore {
 }
 
 function today(now = Date.now()): string {
-  return new Date(now + 9 * 3600_000).toISOString().slice(0, 10);
+  return localDay(now);
 }

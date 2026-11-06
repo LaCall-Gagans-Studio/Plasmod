@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } fro
 import { AmoebaBurst } from "./amoeba";
 import { type AgentProfile, findProfile, type NavBadges } from "../shared/types";
 import { ownerName } from "./identity";
+import { t as tr } from "./i18n";
 
 export const ME: AgentProfile = {
   id: "me",
@@ -358,11 +359,11 @@ export function Drawer() {
                   <a href={m.href} tabIndex={open ? 0 : -1} aria-current={on ? "page" : undefined} className={`flex min-h-11 flex-1 items-center gap-3 px-3 text-[14.5px] no-underline ${on ? "font-semibold text-ink" : "text-ink-2"}`}>
                     <span className={`${on ? HALO_ON : HALO} flex items-center gap-3`}>
                       <span className="relative flex"><Icon name={m.icon} size={20} /><Badge n={n} /></span>
-                      {m.label}
+                      {tr(m.label)}
                     </span>
                   </a>
                   {m.sub && (
-                    <button onClick={() => fold(m.href)} tabIndex={open ? 0 : -1} aria-expanded={opened.includes(m.href)} aria-label={`${m.label}の小項目を${opened.includes(m.href) ? "畳む" : "開く"}`} className="mr-1 flex size-9 items-center justify-center rounded-lg text-mute hover:text-ink">
+                    <button onClick={() => fold(m.href)} tabIndex={open ? 0 : -1} aria-expanded={opened.includes(m.href)} aria-label={`${tr(m.label)}の小項目を${opened.includes(m.href) ? "畳む" : "開く"}`} className="mr-1 flex size-9 items-center justify-center rounded-lg text-mute hover:text-ink">
                       <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden="true" className={`transition-transform duration-200 ${opened.includes(m.href) ? "" : "-rotate-90"}`}><path d="M6 9l6 6 6-6" /></svg>
                     </button>
                   )}
@@ -370,7 +371,7 @@ export function Drawer() {
                 {m.sub && opened.includes(m.href) && (
                   <div className="flex flex-col pb-1 pl-11">
                     {m.sub.map((x) => (
-                      <a key={x.href} href={x.href} tabIndex={open ? 0 : -1} className={`flex min-h-9 items-center rounded-lg px-2 text-[13px] no-underline ${hash === x.href || (x.href === "#/search" && hash.startsWith("#/search")) || (x.href === "#/settings" && hash === "#/system") ? "font-semibold text-ink" : "text-mute hover:text-ink"}`}><span className={HALO}>{x.label}</span></a>
+                      <a key={x.href} href={x.href} tabIndex={open ? 0 : -1} className={`flex min-h-9 items-center rounded-lg px-2 text-[13px] no-underline ${hash === x.href || (x.href === "#/search" && hash.startsWith("#/search")) || (x.href === "#/settings" && hash === "#/system") ? "font-semibold text-ink" : "text-mute hover:text-ink"}`}><span className={HALO}>{tr(x.label)}</span></a>
                     ))}
                   </div>
                 )}
@@ -399,13 +400,13 @@ export function Nav({ current }: { current: string }) {
             href={t.href}
             className={`flex min-w-16 flex-col items-center gap-1 ${current === t.href ? "text-ink" : ""}`}
             aria-current={current === t.href ? "page" : undefined}
-            aria-label={n ? `${t.label}（${n}）` : undefined}
+            aria-label={n ? `${tr(t.label)}（${n}）` : undefined}
           >
             <span className="relative">
               <Icon name={t.icon} />
               <Badge n={n} />
             </span>
-            {t.label}
+            {tr(t.label)}
           </a>
         );
       })}
@@ -415,7 +416,7 @@ export function Nav({ current }: { current: string }) {
           <Icon name="menu" />
           <Badge n={b.system} />
         </span>
-        メニュー
+        {tr("メニュー")}
       </button>
     </nav>
   );

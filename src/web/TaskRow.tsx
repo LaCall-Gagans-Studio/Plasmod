@@ -6,6 +6,7 @@ import { fetchTask } from "./task-db";
 import { openTaskMenu } from "./taskmenu";
 import { CopyRef, useLongPress } from "./touch";
 import { Avatar, profileOf } from "./ui";
+import { localDay, tzOffsetMs } from "../shared/time";
 
 /** 状態は4つ（Inbox・Todo・AI-Driven・Done）。不要は Done の理由なので、札では Done にまとめて小さく添える */
 export const STATUS_LABEL: Record<AppTaskStatus, string> = { inbox: "Inbox", todo: "Todo", doing: "AI-Driven", done: "Done", dismissed: "Done" };
@@ -22,7 +23,7 @@ export const STATUS_DOT: Record<AppTaskStatus, string> = {
   dismissed: "var(--color-line-2)",
 };
 
-/** 今日（日本時間）の YYYY-MM-DD */
+/** 今日の YYYY-MM-DD */
 /** 期限順の区切り */
 export function dueBucket(due: string | null, now = Date.now()): string {
   if (!due) return "期日なし";
@@ -30,7 +31,7 @@ export function dueBucket(due: string | null, now = Date.now()): string {
   if (due < t) return "期限切れ";
   if (due === t) return "今日";
   if (due === today(now + 86_400_000)) return "明日";
-  const j = new Date(now + 9 * 3600_000);
+  const j = new Date(now + tzOffsetMs(now));
   const dow = (j.getUTCDay() + 6) % 7;
   const sunday = new Date(Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate() - dow + 6)).toISOString().slice(0, 10);
   return due <= sunday ? "今週" : "来週以降";
@@ -39,7 +40,7 @@ export const BUCKETS = ["期限切れ", "今日", "明日", "今週", "来週以
 export const BUCKET_CLS: Record<string, string> = { 期限切れ: "text-red-ink", 今日: "text-orange-ink" };
 
 export function today(now = Date.now()): string {
-  return new Date(now + 9 * 3600_000).toISOString().slice(0, 10);
+  return localDay(now);
 }
 
 /** 期日の見せ方: 過ぎた（赤）・今日（橙）・明日・日付 */

@@ -1,0 +1,7 @@
+# 公開リポジトリの秘密の検査（gitleaks）。テストの中の、形だけ似せた偽物は対象外
+[extend]
+useDefault = true
+
+[allowlist]
+description = "テストの偽の値"
+paths = ['''^tests/''', '''^rootd/test_''', '''^deploy/watch/test_''', '''^bridge/test_''', '''^fixtures/''']

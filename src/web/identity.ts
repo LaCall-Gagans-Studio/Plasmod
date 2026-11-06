@@ -1,4 +1,6 @@
 // アプリの名前・持ち主・開発エージェントの呼び名（/api/about）。起動のときに1回読み、端末に覚える
+import { setTimeZone } from "../shared/time";
+
 export interface About {
   name: string;
   version: string;
@@ -8,6 +10,7 @@ export interface About {
   developer: string;
   repoUrl: string;
   license: string;
+  timeZone?: string;
 }
 
 const KEY = "gh-about";
@@ -22,6 +25,7 @@ function read(): About {
 }
 
 let about: About = typeof localStorage === "undefined" ? FALLBACK : read();
+setTimeZone(about.timeZone);
 export const getAbout = () => about;
 export const ownerName = () => about.owner;
 export const devAgentName = () => about.devAgent;
@@ -31,6 +35,7 @@ export async function loadAbout() {
     const r = await fetch("/api/about");
     if (!r.ok) return;
     about = (await r.json()) as About;
+    setTimeZone(about.timeZone);
     localStorage.setItem(KEY, JSON.stringify(about));
   } catch {
     /* 前回の値のまま */

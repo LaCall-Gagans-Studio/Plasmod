@@ -34,7 +34,6 @@ HERMES_HOME = E("WATCH_HERMES_HOME", "/home/hermes/.hermes")
 BRIDGE_HISTORY = E("WATCH_BRIDGE_HISTORY", "/home/cc/.plasmod-bridge/history")
 DEPLOY_DIR = E("WATCH_DEPLOY_DIR", "/var/lib/plasmod-deploy")
 OUT_GROUP = E("WATCH_GROUP", "hermes")
-JST = datetime.timezone(datetime.timedelta(hours=9))
 
 SECRET_RES = [re.compile(p) for p in (
     r"(?i)(api[_-]?key|token|secret|passw(or)?d|authorization|bearer)\s*[:=]\s*\S+",
@@ -52,7 +51,7 @@ def mask(s, n=200):
 
 
 def jst(ts):
-    return datetime.datetime.fromtimestamp(ts, JST).strftime("%m/%d %H:%M")
+    return datetime.datetime.fromtimestamp(ts).strftime("%m/%d %H:%M")
 
 
 def ms_to_s(v):
@@ -371,7 +370,7 @@ def strategy_rhythm():
     hours = [0] * 24
     days = {}
     for t in times:
-        d = datetime.datetime.fromtimestamp(t, JST)
+        d = datetime.datetime.fromtimestamp(t)
         hours[d.hour] += 1
         days[d.strftime("%m/%d(%a)")] = days.get(d.strftime("%m/%d(%a)"), 0) + 1
     late = sum(hours[h] for h in (0, 1, 2, 3, 4))

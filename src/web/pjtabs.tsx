@@ -1,6 +1,7 @@
 // プロジェクト・メモ・タスクの画面で共通の上の列: 「プロジェクト｜メモ｜タスク」の切り替えと、＋・歯車。
 // 選んだときは白い背景が滑って動く（画面が切り替わっても、前の位置から動かす）。
 import { useEffect, useState } from "react";
+import { t as tr } from "./i18n";
 
 export type PjTab = "pj" | "memos" | "tasks";
 
@@ -45,7 +46,7 @@ export function PjTabs({ current, onPlus, plusLabel }: { current: PjTab; onPlus:
             onClick={() => setPos(i)}
             className={`relative z-10 truncate rounded-full py-1.5 text-center no-underline transition-colors duration-300 ${i === idx ? "font-semibold text-ink" : "text-ink-2"}`}
           >
-            {t.label}
+            {tr(t.label)}
           </a>
         ))}
       </div>

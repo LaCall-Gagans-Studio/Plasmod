@@ -11,6 +11,7 @@ import { SearchIndex } from "./search";
 import type { Store } from "./store";
 import type { Task, TaskStore } from "./tasks";
 import { config } from "./config";
+import { localDay } from "../shared/time";
 
 // 先（Hermes・仲介など）の失敗は 500 で返す
 export class ActError extends Error {
@@ -112,7 +113,7 @@ export class Hub {
 
   report(now = Date.now()): Report {
     const r = buildReport(this.board, this.cards(), this.cfg.profiles, now);
-    const day = new Date(now + 9 * 3600_000).toISOString().slice(0, 10); // 日本時間の日付ごとに1件残す
+    const day = localDay(now); // 日付ごとに1件残す
     this.search.upsert("report", day, `レポート ${day}`, reportText(r), now);
     return r;
   }

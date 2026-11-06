@@ -1,6 +1,7 @@
 // ルーティーン: 繰り返すことと、日ごとのチェック。画面とレポートでチェックでき、AI は plasmod-task habits で読める。
 import type { Database } from "bun:sqlite";
 import type { Habit, HabitOverview } from "../shared/types";
+import { localDay } from "../shared/time";
 
 export class HabitError extends Error {
   constructor(
@@ -16,8 +17,8 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** 草グラフに出す長さ（週の頭まで広げるので、少し長くなる） */
 export const GRAPH_DAYS = 182;
 
-/** 日本時間の日付（タスクの期日と同じ考え方） */
-export const dayOf = (ms: number) => new Date(ms + 9 * 3600_000).toISOString().slice(0, 10);
+/** その時刻の日付（タスクの期日と同じ考え方） */
+export const dayOf = (ms: number) => localDay(ms);
 const shift = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 
 interface Row {

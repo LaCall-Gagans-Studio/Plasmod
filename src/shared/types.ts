@@ -326,7 +326,7 @@ export interface Habit {
 }
 
 export interface HabitOverview {
-  /** YYYY-MM-DD（日本時間） */
+  /** YYYY-MM-DD */
   today: string;
   habits: Habit[];
   /** 古い順。草グラフの1マスずつ */
