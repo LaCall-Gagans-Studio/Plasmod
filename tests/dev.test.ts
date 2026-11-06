@@ -97,6 +97,6 @@ describe("Dev の依頼 API", () => {
     expect(((await (await app.request("/api/dev-settings")).json()) as { agent: string }).agent).toBe("default");
     expect((await post({ action: "merge", prs: [{ repo: "o/r", number: 1 }] })).status).toBe(200);
     expect(sent.at(-1)).toMatchObject({ agent: "default" });
-    expect(sent.length).toBe(1);
+    expect(sent.length).toBe(2); // 断ったものは送っていない
   });
 });
