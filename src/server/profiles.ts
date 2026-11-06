@@ -1,7 +1,7 @@
 // エージェントの一覧（v2.0 H3）。設定（PLASMOD_PROFILES）に無くても、Hermes のプロファイルから自動で見つける。
 // 名前・色・顔・隠すは、アプリの設定画面で変えられる（データベースに保存）。
 import type { Database } from "bun:sqlite";
-import type { AgentProfile } from "../shared/types";
+import { type AgentProfile, CLAUDE_AGENT } from "../shared/types";
 
 export interface ProfileOverride {
   id: string;
@@ -16,8 +16,7 @@ export interface ProfileOverride {
 export type ManagedProfile = AgentProfile & { hidden?: boolean };
 
 const COLORS = ["#8FB8FF", "#E8A27C", "#7FD8C6", "#F2C98A", "#C7A6F2", "#F29CB7", "#9BD57F"];
-/** 開発エージェント（Claude Code）の id。bridge があるときだけ出す */
-export const DEV_AGENT = "dev";
+/** Claude Code のエージェントは bridge があるときだけ出す */
 
 /** 見つけたプロファイルの見た目。同じ id なら毎回同じ色 */
 export function generatedProfile(id: string): AgentProfile {
@@ -31,7 +30,7 @@ export function mergeProfiles(base: AgentProfile[], discovered: string[], overri
   const all: AgentProfile[] = [...base, ...discovered.filter((id) => !seen.has(id)).map(generatedProfile)];
   const by = new Map(overrides.map((o) => [o.id, o]));
   return all
-    .filter((p) => p.id !== DEV_AGENT || hasDev)
+    .filter((p) => p.id !== CLAUDE_AGENT || hasDev)
     .map((p) => {
       const o = by.get(p.id);
       if (!o) return p;

@@ -1,20 +1,20 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentProfile } from "../shared/types";
+import { type AgentProfile, CLAUDE_AGENT } from "../shared/types";
 
 const env = (k: string, d = "") => process.env[k] ?? d;
 
 // エージェントの名前・並び・顔は PLASMOD_PROFILES で決める（例: deploy/profiles.example.json）。無ければこの2つ
 const DEFAULT_PROFILES: AgentProfile[] = [
-  { id: "default", name: "アシスタント", initial: "ア", color: "#8FB8FF", role: "WINGMAN" },
-  { id: "dev", name: "開発", initial: "開", color: "#E8A27C", role: "DEVELOPER" },
+  { id: "default", name: "アシスタント", initial: "ア", color: "#8FB8FF", role: "WINGMAN", osUser: "hermes" },
+  { id: CLAUDE_AGENT, name: "開発", initial: "開", color: "#E8A27C", role: "DEVELOPER", runtime: "claude-code", osUser: "cc" },
 ];
 
 /** PLASMOD_PROFILES に別名・顔の画像が書かれていなければ、同じ id の既定のものを足す（別名で来ても同じ名前で出すため） */
 export function withDefaults(list: AgentProfile[]): AgentProfile[] {
   return list.map((p) => {
     const d = DEFAULT_PROFILES.find((x) => x.id === p.id);
-    return { ...p, aliases: p.aliases ?? d?.aliases, avatar: p.avatar ?? d?.avatar, team: p.team ?? d?.team, role: p.role ?? d?.role };
+    return { ...p, aliases: p.aliases ?? d?.aliases, avatar: p.avatar ?? d?.avatar, team: p.team ?? d?.team, runtime: p.runtime ?? d?.runtime, osUser: p.osUser ?? d?.osUser, role: p.role ?? d?.role };
   });
 }
 

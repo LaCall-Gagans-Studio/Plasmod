@@ -101,8 +101,6 @@ export function shortTitle(title: string): string {
 }
 const SHORT = "max-w-[68px] truncate text-[10.5px] leading-tight text-ink-2";
 
-/** 依頼した OS のユーザーから、顔にするエージェント */
-const REQUESTER: Record<string, string> = { cc: "dev", hermes: "default" };
 
 export function Home({ snap, online }: { snap: Snapshot | null; online: boolean }) {
   const running = snap?.agents.filter((a) => a.state === "running").length ?? 0;
@@ -110,7 +108,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
   // 右上の「!」: 画面の更新が止まっている・開発エージェントにつながっていない・カンバンが読めない
   const problems = [
     !online && "接続を待っています",
-    snap?.devEnabled && !snap.bridgeConnected && "開発エージェントの bridge に未接続",
+    snap?.devEnabled && !snap.bridgeConnected && "Claude Code の bridge に未接続",
     snap?.boardError && `カンバンを読めない: ${snap.boardError}`,
   ].filter((x): x is string => !!x);
   return (
@@ -130,7 +128,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
             {snap &&
               roots.map((r) => (
                 <a key={r.id} href={`#/root/${r.id}`} className="flex w-[68px] flex-none flex-col items-center gap-1" role="listitem" title={r.title}>
-                  <Avatar p={profileOf(snap.agents, REQUESTER[r.requester ?? ""] ?? r.requester ?? "root")} size={64} ring="var(--color-red-ink)" />
+                  <Avatar p={profileOf(snap.agents, snap.agents.find((a) => a.osUser === r.requester)?.id ?? r.requester ?? "root")} size={64} ring="var(--color-red-ink)" />
                   <span className={SHORT}>{shortTitle(r.title)}</span>
                   <span className="max-w-[68px] truncate text-[11px] font-semibold text-red-ink">root 承認</span>
                 </a>
@@ -190,7 +188,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
           </a>
         )}
         {snap?.devEnabled && !snap.bridgeConnected && (
-          <div className="mx-4 mb-3 rounded-xl border border-line-2 px-3 py-2 text-xs text-orange-ink">bridge に未接続: 開発エージェントの承認依頼・セッションはまだここに出ません</div>
+          <div className="mx-4 mb-3 rounded-xl border border-line-2 px-3 py-2 text-xs text-orange-ink">bridge に未接続: Claude Code の承認依頼・セッションはまだここに出ません</div>
         )}
         {snap?.boardError && (
           <div className="mx-4 mb-3 rounded-xl border border-orange/40 bg-orange/10 px-3 py-2 text-xs text-orange-ink">

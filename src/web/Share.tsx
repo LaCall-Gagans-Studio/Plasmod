@@ -23,7 +23,7 @@ export function Share({ id }: { id: string }) {
       if (!alive) return;
       offerShared(files, text);
       await fetch(`/api/shares/${id}`, { method: "DELETE" }).catch(() => {});
-      const agent = localStorage.getItem("gh-last-agent") || "dev";
+      const agent = localStorage.getItem("gh-last-agent") || "default";
       location.replace(`#/session/${agent}/new`);
     })().catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
     return () => {
