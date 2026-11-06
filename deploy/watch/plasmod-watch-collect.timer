@@ -1,0 +1,9 @@
+[Unit]
+Description=監察チームの週次データを毎朝集める（cron の 9:00 より前）
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 Asia/Tokyo
+Persistent=true
+
+[Install]
+WantedBy=timers.target

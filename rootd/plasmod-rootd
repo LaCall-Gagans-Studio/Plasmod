@@ -1,0 +1,1534 @@
+#!/usr/bin/env python3
+"""plasmod-rootd: root の作業を「オーナーがアプリでパスワードを入れて承認したときだけ」実行する常駐サービス。
+
+  依頼の受け口  /run/plasmod-rootd/req.sock  uid が requesters（cc・hermes）のものだけ。submit / status / inspect（読むだけの決まった項目、承認なし）/ action（決まった部品）
+  承認の受け口  /run/plasmod-rootd/app.sock   uid が approver（plasmod）のものだけ。list / get / approve / reject / info / undo（部品を元に戻す。依頼と承認を 1 回で）
+  どちらも SO_PEERCRED で相手の uid を確かめる（名前でなく、カーネルが保証する uid）。
+
+守っていること:
+  - 依頼の中身（スクリプト全文と添付）は受け取った時点で root 所有の場所（state/requests/ID/）にコピーし、
+    title・reason・timeout・スクリプトと添付の SHA-256 を束ねた digest を取る。実行するのはそのコピーだけ。
+  - 承認は「ID + digest + パスワード」。digest が合わなければ（＝見せた内容と違えば）承認しない。
+  - パスワードは root だけが読める scrypt のハッシュで保存し、照合はここ（root）でやる。ログにも出さない。
+  - 5 回間違えたら 15 分ロック。依頼は 24 時間で失効。1 依頼は 1 回しか実行しない（再起動をまたいでも）。
+  - 実行はタイムアウトつき。出力は上限つきで root 所有のログ（/var/log/plasmod-rootd/）に残す。
+"""
+import base64
+import getpass
+import hashlib
+import hmac
+import json
+import os
+import pwd
+import re
+import secrets
+import signal
+import shutil
+import socket
+import socketserver
+import struct
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+
+MAX_LINE = 40 * 1024 * 1024  # 1 リクエスト（JSON 1 行）の上限
+MAX_SCRIPT = 512 * 1024
+MAX_FILES = 20
+MAX_FILES_TOTAL = 16 * 1024 * 1024
+MAX_TITLE = 200
+MAX_REASON = 4000
+MAX_PENDING_PER_UID = 10
+PREVIEW_BYTES = 64 * 1024
+TTL_SECONDS = 24 * 3600
+LOCK_AFTER = 5
+LOCK_SECONDS = 15 * 60
+DEFAULT_TIMEOUT = 600
+MAX_TIMEOUT = 3600
+OUTPUT_CAP = 256 * 1024  # stdout / stderr それぞれ
+MIN_PASSWORD_LEN = 12
+MAX_PASSWORD_LEN = 1024
+SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**15, 8, 1
+
+ID_RE = re.compile(r"^[0-9]{14}-[0-9a-f]{6}$")
+DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+FILENAME_RE = re.compile(r"^[A-Za-z0-9._+-][A-Za-z0-9._ +-]{0,127}$")
+TERMINAL = {"done", "failed", "timeout", "rejected", "expired", "interrupted"}
+
+
+class Refuse(Exception):
+    """利用者に返してよいエラー（メッセージにパスワード・内部パスを入れない）"""
+
+    def __init__(self, msg, code="refused", **extra):
+        super().__init__(msg)
+        self.code = code
+        self.extra = extra
+
+
+def now() -> float:
+    return time.time()
+
+
+def write_atomic(path: str, data: bytes, mode: int = 0o600):
+    tmp = f"{path}.tmp-{secrets.token_hex(4)}"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# ---------------------------------------------------------------- パスワード
+
+def hash_password(password: str, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, maxmem=256 * 1024 * 1024, dklen=32)
+    b = lambda x: base64.b64encode(x).decode()
+    return f"scrypt${n}${r}${p}${b(salt)}${b(dk)}"
+
+
+def check_password(stored: str, password: str) -> bool:
+    try:
+        scheme, n, r, p, salt, dk = stored.strip().split("$")
+        if scheme != "scrypt":
+            return False
+        want = base64.b64decode(dk)
+        got = hashlib.scrypt(
+            password.encode(), salt=base64.b64decode(salt), n=int(n), r=int(r), p=int(p), maxmem=256 * 1024 * 1024, dklen=len(want)
+        )
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(got, want)
+
+
+def write_password_file(path: str, password: str, **params):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    write_atomic(path, (hash_password(password, **params) + "\n").encode(), 0o600)
+
+
+# ---------------------------------------------------------------- 設定
+
+class Config:
+    def __init__(self, **kw):
+        self.state_dir = "/var/lib/plasmod-rootd"
+        self.log_dir = "/var/log/plasmod-rootd"
+        self.run_dir = "/run/plasmod-rootd"
+        self.passwd_file = "/etc/plasmod-rootd/passwd"
+        self.app_env = "/etc/plasmod/env"  # 通知の宛先を読む（root だけが読める）
+        self.requesters = ["cc", "hermes"]
+        self.approver = "plasmod"
+        self.shell = "/bin/bash"
+        # inspect（読むだけ）: Hermes のファイルは hermes の権限で読む（root で辿らない）
+        self.hermes_home = "/home/hermes/.hermes"
+        self.unit_prefixes = list(UNIT_PREFIXES)  # 設定の UNIT_PREFIXES で足せる
+        self.repo_dir = "/opt/plasmod"  # skill.sync の元（root 所有のコード）
+        self.hermes_python = "/usr/bin/python3"
+        self.hermes_bin = "/home/hermes/.local/bin/hermes"
+        self.as_hermes = ["/usr/sbin/runuser", "-u", "hermes", "--"]  # 絶対パス: hermes に渡す PATH には sbin が無く、そこから探される
+        self.systemctl = "systemctl"
+        self.journalctl = "journalctl"
+        self.__dict__.update(kw)
+
+    @classmethod
+    def load(cls, path="/etc/plasmod-rootd/config"):
+        cfg = cls()
+        try:
+            lines = open(path).read().splitlines()
+        except OSError:
+            return cfg
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if k == "REQUESTERS":
+                cfg.requesters = [x for x in v.replace(",", " ").split() if x]
+            elif k == "UNIT_PREFIXES":
+                cfg.unit_prefixes = list(UNIT_PREFIXES) + [x for x in v.replace(",", " ").split() if x]
+            elif k == "APPROVER":
+                cfg.approver = v
+            elif k == "HERMES_USER":
+                cfg.as_hermes = ["/usr/sbin/runuser", "-u", v, "--"]
+            elif k == "HERMES_HOME":
+                cfg.hermes_home = v
+            elif k == "HERMES_BIN":
+                cfg.hermes_bin = v
+        return cfg
+
+    def uid_of(self, name):
+        try:
+            return pwd.getpwnam(name).pw_uid
+        except KeyError:
+            return None
+
+    def requester_uids(self):
+        return {u for u in (self.uid_of(n) for n in self.requesters) if u is not None}
+
+    def approver_uids(self):
+        u = self.uid_of(self.approver)
+        return {u} if u is not None else set()
+
+    def validate(self):
+        """起動時の確認: 依頼する側と承認する側が同じユーザーなら、承認の意味がなくなるので起動しない"""
+        if self.approver_uids() & self.requester_uids():
+            raise SystemExit("approver が requesters に含まれている。承認と依頼は別のユーザーにすること")
+        if not self.approver_uids():
+            print(f"warning: approver ユーザー {self.approver} が無い。承認の受け口は誰も使えない", file=sys.stderr)
+
+
+# ---------------------------------------------------------------- 通知
+
+def read_env_file(path):
+    out = {}
+    try:
+        for line in open(path).read().splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip().strip("'\"")
+    except OSError:
+        pass
+    return out
+
+
+class Notifier:
+    def __init__(self, env_path):
+        self.env_path = env_path
+
+    def send(self, title, message, priority=4, tags=("lock",), click_path="/#/root"):
+        """通知にボタンは付けない（承認はアプリを開かせる）。失敗しても本体の処理は止めない"""
+        env = read_env_file(self.env_path)
+        url = env.get("PLASMOD_NOTIFY_URL", "").rstrip("/")
+        if not url:
+            return
+        body = {"title": title, "message": message, "priority": priority, "tags": list(tags)}
+        if env.get("PLASMOD_PUBLIC_URL"):
+            body["click"] = env["PLASMOD_PUBLIC_URL"].rstrip("/") + click_path
+        headers = {"Content-Type": "application/json"}
+        if env.get("PLASMOD_NOTIFY_TOKEN"):
+            headers["Authorization"] = "Bearer " + env["PLASMOD_NOTIFY_TOKEN"]
+        try:
+            req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception as e:  # noqa: BLE001 通知の失敗は握りつぶしてログだけ
+            print(f"通知の失敗: {type(e).__name__}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------- 本体
+
+def manifest_digest(title, reason, timeout, script_sha, files):
+    m = {
+        "v": 1,
+        "title": title,
+        "reason": reason,
+        "timeout": timeout,
+        "script_sha256": script_sha,
+        "files": sorted(({"name": f["name"], "sha256": f["sha256"], "size": f["size"]} for f in files), key=lambda f: f["name"]),
+    }
+    return hashlib.sha256(json.dumps(m, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class Engine:
+    """依頼の保存・状態遷移・実行。状態の変更は全部 self.lock の中で行う。"""
+
+    def __init__(self, cfg: Config, notifier=None, clock=now, recover=True):
+        self.cfg = cfg
+        self.notifier = notifier or Notifier(cfg.app_env)
+        self.clock = clock
+        self.lock = threading.RLock()
+        self.exec_lock = threading.Lock()  # 実行は 1 つずつ
+        self.req_dir = os.path.join(cfg.state_dir, "requests")
+        self.lock_file = os.path.join(cfg.state_dir, "lock.json")
+        os.makedirs(self.req_dir, mode=0o700, exist_ok=True)
+        os.makedirs(cfg.log_dir, mode=0o700, exist_ok=True)
+        os.chmod(cfg.state_dir, 0o700)
+        self.threads = []
+        if recover:
+            self.recover()
+
+    # ---- 保存 ----
+    def _dir(self, rid):
+        if not isinstance(rid, str) or not ID_RE.match(rid):
+            raise Refuse("ID の形が違う", "bad_id")
+        return os.path.join(self.req_dir, rid)
+
+    def _load(self, rid):
+        path = os.path.join(self._dir(rid), "meta.json")
+        try:
+            with open(path) as f:
+                meta = json.load(f)
+        except OSError:
+            raise Refuse("その依頼は無い", "not_found")
+        if meta["status"] == "pending" and self.clock() > meta["expires_at"]:
+            meta["status"] = "expired"
+            meta["finished_at"] = meta["expires_at"]
+            self._save(meta)
+            self.audit("expired", id=rid)
+        return meta
+
+    def _save(self, meta):
+        write_atomic(os.path.join(self._dir(meta["id"]), "meta.json"), json.dumps(meta, ensure_ascii=False).encode())
+
+    def audit(self, event, **kw):
+        line = json.dumps({"t": int(self.clock()), "event": event, **kw}, ensure_ascii=False)
+        try:
+            fd = os.open(os.path.join(self.cfg.log_dir, "audit.log"), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, "a") as f:
+                f.write(line + "\n")
+        except OSError:
+            pass
+        print(line, file=sys.stderr, flush=True)
+
+    def all_ids(self):
+        return sorted((d for d in os.listdir(self.req_dir) if ID_RE.match(d)), reverse=True)
+
+    def recover(self):
+        """再起動で止まった実行は「中断」にする。自動では再実行しない（1 依頼 1 回）"""
+        with self.lock:
+            for rid in self.all_ids():
+                try:
+                    meta = self._load(rid)
+                except Refuse:
+                    continue
+                if meta["status"] in ("approved", "running"):
+                    meta["status"] = "interrupted"
+                    meta["finished_at"] = self.clock()
+                    meta["error"] = "plasmod-rootd が再起動したため中断（実行されたかもしれない。再実行はしない）"
+                    self._save(meta)
+                    self.audit("interrupted", id=rid)
+
+    # ---- 依頼 ----
+    def submit(self, uid, name, req, notify=True):
+        title = req.get("title")
+        reason = req.get("reason", "")
+        if not isinstance(title, str) or not title.strip() or len(title) > MAX_TITLE or "\n" in title:
+            raise Refuse("title は 1 行で 1〜200 文字")
+        if not isinstance(reason, str) or len(reason) > MAX_REASON:
+            raise Refuse("reason は 4000 文字まで")
+        timeout = req.get("timeout", DEFAULT_TIMEOUT)
+        if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= MAX_TIMEOUT:
+            raise Refuse(f"timeout は 1〜{MAX_TIMEOUT} 秒")
+        try:
+            script = base64.b64decode(req.get("script_b64", ""), validate=True)
+        except (ValueError, TypeError):
+            raise Refuse("script_b64 が読めない")
+        if not script.strip() or len(script) > MAX_SCRIPT or b"\x00" in script:
+            raise Refuse("スクリプトが空か、大きすぎる（512KiB まで）か、バイナリ")
+        files_in = req.get("files", [])
+        if not isinstance(files_in, list) or len(files_in) > MAX_FILES:
+            raise Refuse(f"添付は {MAX_FILES} 個まで")
+        files, seen, total = [], set(), 0
+        for f in files_in:
+            if not isinstance(f, dict) or not isinstance(f.get("name"), str) or not FILENAME_RE.match(f["name"]) or f["name"] in (".", ".."):
+                raise Refuse("添付のファイル名が不正（英数字と ._+- と空白、128 文字まで。ディレクトリ不可）")
+            if f["name"] in seen:
+                raise Refuse("添付のファイル名が重複している")
+            seen.add(f["name"])
+            try:
+                data = base64.b64decode(f.get("data_b64", ""), validate=True)
+            except (ValueError, TypeError):
+                raise Refuse("添付が読めない")
+            total += len(data)
+            if total > MAX_FILES_TOTAL:
+                raise Refuse("添付が大きすぎる（合計 16MiB まで）")
+            files.append({"name": f["name"], "data": data, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
+
+        with self.lock:
+            pending = 0
+            for rid in self.all_ids():
+                try:
+                    m = self._load(rid)
+                except Refuse:
+                    continue
+                if m["status"] == "pending" and m["requester_uid"] == uid:
+                    pending += 1
+            if pending >= MAX_PENDING_PER_UID:
+                raise Refuse(f"承認待ちが {MAX_PENDING_PER_UID} 件たまっている。先に片づけてもらうこと", "too_many")
+            t = self.clock()
+            rid = time.strftime("%Y%m%d%H%M%S", time.gmtime(t)) + "-" + secrets.token_hex(3)
+            while os.path.exists(os.path.join(self.req_dir, rid)):
+                rid = time.strftime("%Y%m%d%H%M%S", time.gmtime(t)) + "-" + secrets.token_hex(3)
+            d = os.path.join(self.req_dir, rid)
+            os.mkdir(d, 0o700)
+            os.mkdir(os.path.join(d, "files"), 0o700)
+            sp = os.path.join(d, "script.sh")
+            fd = os.open(sp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(script)
+            for f in files:
+                fd = os.open(os.path.join(d, "files", f["name"]), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(f["data"])
+            script_sha = hashlib.sha256(script).hexdigest()
+            fmeta = [{"name": f["name"], "sha256": f["sha256"], "size": f["size"]} for f in files]
+            meta = {
+                "id": rid,
+                "title": title,
+                "reason": reason,
+                "timeout": timeout,
+                "requester_uid": uid,
+                "requester": name,
+                "created_at": t,
+                "expires_at": t + TTL_SECONDS,
+                "status": "pending",
+                "script_sha256": script_sha,
+                "script_size": len(script),
+                "files": fmeta,
+                "digest": manifest_digest(title, reason, timeout, script_sha, fmeta),
+            }
+            self._save(meta)
+            self.audit("submit", id=rid, uid=uid, requester=name, digest=meta["digest"])
+        # 通知には内容を出さない（依頼者が書いた文字列なので）。承認はアプリを開かせる
+        if notify:
+            self.notifier.send("承認待ち", "root 作業の承認待ちがあります。アプリで確認してください", 4, ("lock",))
+        return {"id": rid, "digest": meta["digest"], "expires_at": meta["expires_at"]}
+
+    # ---- 見せる ----
+    def _summary(self, m):
+        keys = ("id", "title", "status", "requester", "created_at", "expires_at", "started_at", "finished_at", "exit_code", "digest")
+        return {k: m[k] for k in keys if k in m}
+
+    def _result(self, m):
+        out = {k: m.get(k) for k in ("exit_code", "duration", "error", "stdout", "stderr", "stdout_truncated", "stderr_truncated")}
+        return {k: v for k, v in out.items() if v is not None}
+
+    def status_for_requester(self, uid, rid):
+        with self.lock:
+            m = self._load(rid)
+            if m["requester_uid"] != uid:  # 他の依頼者の依頼は存在も教えない
+                raise Refuse("その依頼は無い", "not_found")
+            return {**self._summary(m), **self._result(m)}
+
+    def list_for_app(self):
+        with self.lock:
+            res = []
+            for rid in self.all_ids()[:200]:
+                try:
+                    res.append(self._summary(self._load(rid)))
+                except Refuse:
+                    pass
+            return {"requests": res, "lock": self.lock_info()}
+
+    def get_for_app(self, rid):
+        with self.lock:
+            m = self._load(rid)
+            d = self._dir(rid)
+            with open(os.path.join(d, "script.sh"), "rb") as f:
+                script = f.read()
+            files = []
+            for fm in m["files"]:
+                with open(os.path.join(d, "files", fm["name"]), "rb") as f:
+                    raw = f.read(PREVIEW_BYTES + 1)
+                try:
+                    preview = raw[:PREVIEW_BYTES].decode("utf-8") if b"\x00" not in raw else None
+                except UnicodeDecodeError:
+                    preview = None
+                files.append({**fm, "preview": preview, "preview_truncated": len(raw) > PREVIEW_BYTES})
+            return {
+                **self._summary(m),
+                "reason": m["reason"],
+                "timeout": m["timeout"],
+                "requester_uid": m["requester_uid"],
+                "script": script.decode("utf-8", "replace"),
+                "script_sha256": m["script_sha256"],
+                "files": files,
+                **self._result(m),
+            }
+
+    # ---- 承認・却下 ----
+    def lock_info(self):
+        try:
+            with open(self.lock_file) as f:
+                s = json.load(f)
+        except (OSError, ValueError):
+            s = {"failures": 0, "locked_until": 0}
+        if s["locked_until"] and self.clock() >= s["locked_until"]:
+            s = {"failures": 0, "locked_until": 0}
+        return {"failures": s["failures"], "locked_until": s["locked_until"], "max_failures": LOCK_AFTER}
+
+    def _set_lock(self, s):
+        write_atomic(self.lock_file, json.dumps(s).encode())
+
+    def reject(self, rid, by):
+        with self.lock:
+            m = self._load(rid)
+            if m["status"] != "pending":
+                raise Refuse(f"もう {m['status']} になっている", "not_pending")
+            m["status"] = "rejected"
+            m["finished_at"] = self.clock()
+            m["decided_by"] = by
+            self._save(m)
+            self.audit("reject", id=rid, by=by)
+            return self._summary(m)
+
+    def approve(self, rid, digest, password, by):
+        with self.lock:
+            m = self._load(rid)
+            if m["status"] != "pending":
+                raise Refuse(f"もう {m['status']} になっている", "not_pending")
+            if not isinstance(digest, str) or not DIGEST_RE.match(digest) or not hmac.compare_digest(digest, m["digest"]):
+                # 画面に出した内容と違う。パスワードは見ない（失敗回数にも数えない）
+                raise Refuse("承認する内容が、依頼の内容（digest）と合わない。画面を開き直すこと", "digest_mismatch")
+            lk = self.lock_info()
+            if lk["locked_until"]:
+                raise Refuse("パスワードを間違えすぎたため、ロック中", "locked", locked_until=lk["locked_until"])
+            if not isinstance(password, str) or not password or len(password) > MAX_PASSWORD_LEN:
+                raise Refuse("パスワードを入れること", "bad_password_input")
+            try:
+                with open(self.cfg.passwd_file) as f:
+                    stored = f.read()
+            except OSError:
+                raise Refuse("パスワードが未設定（plasmod-rootd set-password）", "no_password")
+            if not check_password(stored, password):
+                failures = lk["failures"] + 1
+                if failures >= LOCK_AFTER:
+                    until = self.clock() + LOCK_SECONDS
+                    self._set_lock({"failures": 0, "locked_until": until})
+                    self.audit("password_locked", id=rid, by=by, until=int(until))
+                    self.notifier.send("パスワードを5回間違えた", "15分ロックしました。心当たりがなければ要確認です", 5, ("rotating_light",))
+                    raise Refuse("パスワードが違う。5 回間違えたので 15 分ロックした", "locked", locked_until=until)
+                self._set_lock({"failures": failures, "locked_until": 0})
+                self.audit("password_failed", id=rid, by=by, failures=failures)
+                self.notifier.send("パスワードの入力に失敗", f"{failures}/{LOCK_AFTER} 回目。心当たりがなければ要確認です", 4, ("warning",))
+                raise Refuse(f"パスワードが違う（あと {LOCK_AFTER - failures} 回でロック）", "bad_password", remaining=LOCK_AFTER - failures)
+            self._set_lock({"failures": 0, "locked_until": 0})
+            # 承認の直前に、保存してある中身が digest どおりか確かめる（root 所有だが念のため）
+            try:
+                self._verify_integrity(m)
+            except Refuse as e:
+                m["status"] = "failed"
+                m["error"] = str(e)
+                m["finished_at"] = self.clock()
+                self._save(m)
+                self.audit("integrity_failed", id=rid)
+                raise
+            m["status"] = "approved"
+            m["approved_at"] = self.clock()
+            m["decided_by"] = by
+            self._save(m)
+            self.audit("approve", id=rid, by=by, digest=m["digest"])
+        t = threading.Thread(target=self._execute, args=(rid,), daemon=True)
+        self.threads.append(t)
+        t.start()
+        return {"id": rid, "status": "approved"}
+
+    def _verify_integrity(self, m):
+        d = self._dir(m["id"])
+        if sha256_file(os.path.join(d, "script.sh")) != m["script_sha256"]:
+            raise Refuse("保存したスクリプトが変わっている。実行しない", "tampered")
+        for fm in m["files"]:
+            p = os.path.join(d, "files", fm["name"])
+            if os.path.islink(p) or sha256_file(p) != fm["sha256"]:
+                raise Refuse("保存した添付が変わっている。実行しない", "tampered")
+        if manifest_digest(m["title"], m["reason"], m["timeout"], m["script_sha256"], m["files"]) != m["digest"]:
+            raise Refuse("依頼の記録が変わっている。実行しない", "tampered")
+
+    # ---- 実行 ----
+    def _execute(self, rid):
+        with self.exec_lock:
+            with self.lock:
+                m = self._load(rid)
+                if m["status"] != "approved":  # 1 依頼 1 回: approved から running に進めるのは 1 度だけ
+                    return
+                try:
+                    self._verify_integrity(m)
+                except Refuse as e:
+                    m.update(status="failed", error=str(e), finished_at=self.clock())
+                    self._save(m)
+                    return
+                m["status"] = "running"
+                m["started_at"] = self.clock()
+                self._save(m)
+            d = self._dir(rid)
+            env = {
+                "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "HOME": "/root",
+                "LANG": "C.UTF-8",
+                "PLASMOD_ROOTD_REQUEST_ID": rid,
+                "PLASMOD_ROOTD_FILES": os.path.join(d, "files"),
+            }
+            out = {"stdout": bytearray(), "stderr": bytearray()}
+            trunc = {"stdout": False, "stderr": False}
+            status, code, err = "done", None, None
+            t0 = self.clock()
+            try:
+                proc = subprocess.Popen(
+                    [self.cfg.shell, os.path.join(d, "script.sh")],
+                    cwd=os.path.join(d, "files"),
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                )
+
+                def drain(name, stream):
+                    while True:
+                        chunk = stream.read(65536)
+                        if not chunk:
+                            stream.close()
+                            return
+                        room = OUTPUT_CAP - len(out[name])
+                        if room > 0:
+                            out[name].extend(chunk[:room])
+                        if len(chunk) > room:
+                            trunc[name] = True
+
+                readers = [threading.Thread(target=drain, args=(n, s), daemon=True) for n, s in (("stdout", proc.stdout), ("stderr", proc.stderr))]
+                for r in readers:
+                    r.start()
+                try:
+                    code = proc.wait(timeout=m["timeout"])
+                except subprocess.TimeoutExpired:
+                    status = "timeout"
+                    err = f"{m['timeout']} 秒のタイムアウトで止めた"
+                    self._kill(proc, signal.SIGTERM)
+                    try:
+                        code = proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self._kill(proc, signal.SIGKILL)
+                        code = proc.wait()
+                # 子プロセスが出力の口を持ち続けても、ここで待ち切る
+                for r in readers:
+                    r.join(timeout=5)
+                self._kill(proc, signal.SIGKILL)  # 取り残しの子孫
+                if status == "done" and code != 0:
+                    status = "failed"
+            except Exception as e:  # noqa: BLE001
+                status, err = "failed", f"起動できなかった: {type(e).__name__}"
+            t1 = self.clock()
+            stdout = bytes(out["stdout"]).decode("utf-8", "replace")
+            stderr = bytes(out["stderr"]).decode("utf-8", "replace")
+            self._write_log(m, status, code, t0, t1, stdout, stderr, trunc, err)
+            with self.lock:
+                m = self._load(rid)
+                m.update(
+                    status=status, exit_code=code, finished_at=t1, duration=round(t1 - t0, 2), stdout=stdout, stderr=stderr,
+                    stdout_truncated=trunc["stdout"], stderr_truncated=trunc["stderr"],
+                )
+                if err:
+                    m["error"] = err
+                self._save(m)
+                self.audit("finished", id=rid, status=status, exit_code=code)
+            label = {"done": "完了", "failed": "失敗", "timeout": "タイムアウト"}[status]
+            self.notifier.send(f"root 作業: {label}", f"{rid} 終了コード {code}", 3 if status == "done" else 4, ("white_check_mark",) if status == "done" else ("x",), "/#/root")
+
+    @staticmethod
+    def _kill(proc, sig):
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def _write_log(self, m, status, code, t0, t1, stdout, stderr, trunc, err):
+        head = (
+            f"id: {m['id']}\ntitle: {m['title']}\nrequester: {m['requester']} (uid {m['requester_uid']})\n"
+            f"digest: {m['digest']}\napproved_by: {m.get('decided_by')}\nstatus: {status}\nexit_code: {code}\n"
+            f"duration: {t1 - t0:.2f}s\n{('error: ' + err + chr(10)) if err else ''}"
+        )
+        body = f"{head}--- stdout{' (切り詰め)' if trunc['stdout'] else ''} ---\n{stdout}\n--- stderr{' (切り詰め)' if trunc['stderr'] else ''} ---\n{stderr}\n"
+        try:
+            write_atomic(os.path.join(self.cfg.log_dir, f"{m['id']}.log"), body.encode(), 0o600)
+        except OSError:
+            pass
+
+    def wait_idle(self, timeout=30):
+        """テスト用: 実行スレッドの終了を待つ"""
+        for t in list(self.threads):
+            t.join(timeout)
+
+
+# ---------------------------------------------------------------- 調べる（inspect）
+#
+# 依頼する側（cc・hermes）が承認なしで使える、読むだけの決まった項目。自由な引数は取らない（プロファイル名・unit 名は形を決める）。
+# Hermes のファイルは hermes の権限で読む（hermes が置いたシンボリックリンクを root で辿って、ほかのファイルを読まないため）。
+# 返す前に、秘密らしい文字列は伏せる。呼び出しは監査ログに残す。
+
+INSPECT_ITEMS = ("hermes-config", "hermes-cron", "hermes-mcp", "units", "env-keys", "system", "gateway-log", "hermes-code", "hermes-grep", "skills", "skill")
+# 引数の形。自由な文字列は通さない（.. は別に断る）
+INSPECT_ARG_RE = {
+    "gateway-log": re.compile(r"^[^\x00-\x1f]{1,64}$"),
+    "hermes-code": re.compile(r"^[A-Za-z0-9_./-]{1,200}(:[0-9]{1,6}(-[0-9]{1,6})?)?$"),
+    "hermes-grep": re.compile(r"^[\w .:/-]{2,64}$"),
+    "skill": re.compile(r"^[a-z0-9_-]{1,32}:[A-Za-z0-9_./-]{1,120}$"),
+}
+INSPECT_PER_MINUTE = 60
+PROFILE_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+UNIT_RE = re.compile(r"^[A-Za-z0-9@._-]{1,90}\.(service|timer)$")
+UNIT_PREFIXES = ("plasmod", "hermes-")
+INSPECT_TIMEOUT = 20
+INSPECT_MAX = 256 * 1024
+INSPECT_CONCURRENCY = 2
+JOURNAL_LINES = 40
+MASK = "[伏せた]"
+SECRET_PATTERNS = [
+    # Authorization: Bearer xxx / token xxx
+    (re.compile(r"(?i)\b(bearer|basic|token)(\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1\2" + MASK),
+    # KEY=値・"api_key": "値" のような、名前が秘密らしいもの
+    (re.compile(r"""(?i)(["']?[\w.-]*(?:key|token|secret|passw(?:or)?d|pwd|auth|cookie|session|credential|dsn)[\w.-]*["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,}]+)"""), r"\1" + MASK),
+    # JWT
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}"), MASK),
+    # よくある鍵の頭
+    (re.compile(r"\b(?:sk|pk|rk)-[A-Za-z0-9_-]{10,}|\b(?:ghp|gho|ghs|ghu|github_pat|glpat|xox[abprs])[-_][A-Za-z0-9_-]{10,}|\b(?:AKIA|ASIA)[A-Z0-9]{12,}|\bAIza[A-Za-z0-9_-]{20,}"), MASK),
+    # URL のクエリの中の code・state・token など
+    (re.compile(r"(?i)([?&](?:code|state|token|key|access_token|refresh_token|id_token|sig|signature|password)=)[^&\s\"']+"), r"\1" + MASK),
+    # URL の中の user:pass@
+    (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1" + MASK + "@"),
+    # 長い不透明な文字列（40 文字以上の英数字の塊）
+    (re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{40,}={0,2}"), MASK),
+]
+
+
+def mask_text(s: str) -> str:
+    for rx, rep in SECRET_PATTERNS:
+        s = rx.sub(rep, s)
+    return s
+
+
+def mask(v):
+    if isinstance(v, str):
+        return mask_text(v)
+    if isinstance(v, list):
+        return [mask(x) for x in v]
+    if isinstance(v, dict):
+        return {k: mask(x) for k, x in v.items()}
+    return v
+
+
+# hermes の権限で動く読み取り。引数: 操作 HERMES_HOME プロファイル。標準出力に JSON を 1 つ出す。
+# 値そのものは出さない（キーの名前・有無・数・ホスト名・時刻だけ）
+HERMES_HELPER = r'''
+import json, os, re, sys, time, urllib.parse
+op, home, prof = sys.argv[1], sys.argv[2], sys.argv[3]
+PRE = re.compile(r"^[a-z0-9_-]{1,32}$")
+def profiles():
+    out = {"default": home}
+    d = os.path.join(home, "profiles")
+    if os.path.isdir(d):
+        for n in sorted(os.listdir(d)):
+            if PRE.match(n) and os.path.isdir(os.path.join(d, n)):
+                out[n] = os.path.join(d, n)
+    return out
+def pick():
+    ps = profiles()
+    if prof == "*":
+        return ps
+    if prof not in ps:
+        raise SystemExit(json.dumps({"error": "知らないプロファイル", "profiles": list(ps)}))
+    return {prof: ps[prof]}
+def text(v, n=200):
+    return v[:n] if isinstance(v, str) and v else None
+def config(h):
+    import yaml
+    try:
+        c = yaml.safe_load(open(os.path.join(h, "config.yaml"), encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {"error": "config.yaml が無い"}
+    except Exception as e:
+        return {"error": "config.yaml を読めない: " + e.__class__.__name__}
+    if not isinstance(c, dict):
+        return {"error": "config.yaml の形が違う"}
+    m = c.get("model") if isinstance(c.get("model"), dict) else {}
+    servers = {}
+    for n, s in (c.get("mcp_servers") or {}).items():
+        s = s if isinstance(s, dict) else {}
+        t = s.get("tools") if isinstance(s.get("tools"), dict) else {}
+        o = s.get("oauth")
+        names = lambda v: [str(x)[:120] for x in v][:300] if isinstance(v, list) else None
+        servers[str(n)[:80]] = {
+            "enabled": s.get("enabled", True) is not False,
+            "host": urllib.parse.urlparse(s["url"]).hostname if isinstance(s.get("url"), str) else None,
+            "command": os.path.basename(str(s["command"])) if s.get("command") else None,
+            "oauth": isinstance(o, dict) or s.get("auth") == "oauth",
+            "oauth_keys": sorted(o) if isinstance(o, dict) else [],
+            "header_keys": sorted(s["headers"]) if isinstance(s.get("headers"), dict) else [],
+            "env_keys": sorted(s["env"]) if isinstance(s.get("env"), dict) else [],
+            "include": names(t.get("include")),
+            "exclude": names(t.get("exclude")),
+        }
+    return {"model": {"default": text(m.get("default"), 100), "provider": text(m.get("provider"), 60)},
+            "keys": sorted(str(k)[:60] for k in c)[:80], "mcp_servers": servers}
+def deliver_kind(v):
+    items = v if isinstance(v, list) else [v] if v else []
+    return [str(x).split(":", 1)[0][:20] for x in items if isinstance(x, str) and x][:5]
+def cron(h):
+    try:
+        d = json.load(open(os.path.join(h, "cron", "jobs.json"), encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        return {"error": "jobs.json を読めない: " + e.__class__.__name__}
+    jobs = d.get("jobs", []) if isinstance(d, dict) else d
+    out = []
+    for j in (jobs if isinstance(jobs, list) else [])[:200]:
+        if not isinstance(j, dict):
+            continue
+        sch = j.get("schedule") if isinstance(j.get("schedule"), dict) else {}
+        enabled = j.get("enabled", True) is not False
+        state = text(j.get("state"), 20) or "scheduled"
+        if not enabled and state not in ("completed", "error"):
+            state = "paused"
+        out.append({"id": text(j.get("id"), 40), "name": text(j.get("name")), "enabled": enabled, "state": state,
+                    "schedule": text(j.get("schedule_display") or sch.get("display") or sch.get("expr"), 100),
+                    "next_run_at": text(j.get("next_run_at"), 40), "last_run_at": text(j.get("last_run_at"), 40),
+                    "last_status": text(j.get("last_status"), 40), "last_error": text(j.get("last_error"), 500),
+                    "failure_streak": j.get("failure_streak") if isinstance(j.get("failure_streak"), int) else 0,
+                    "model": text(j.get("model"), 100), "deliver": deliver_kind(j.get("deliver")),
+                    "skills": [text(x, 80) for x in (j.get("skills") or []) if isinstance(x, str)][:20]})
+    return out
+def mcp(h):
+    cfg = config(h)
+    names = list((cfg.get("mcp_servers") or {}).keys())
+    tdir = os.path.join(h, "mcp-tokens")
+    if os.path.isdir(tdir):
+        names += [f[:-5] for f in sorted(os.listdir(tdir)) if f.endswith(".json") and f.count(".") == 1 and f[:-5] not in names]
+    now = time.time()
+    out = {}
+    for n in names:
+        s = (cfg.get("mcp_servers") or {}).get(n, {})
+        r = {"in_config": n in (cfg.get("mcp_servers") or {}), "enabled": s.get("enabled"), "oauth": s.get("oauth"),
+             "tools": len(s["include"]) if isinstance(s.get("include"), list) else None}
+        p = os.path.join(tdir, n + ".json")
+        try:
+            st = os.lstat(p)
+            r["token"] = {"exists": True, "updated_at": int(st.st_mtime)}
+            if not os.path.islink(p):
+                t = json.load(open(p, encoding="utf-8"))
+                exp = t.get("expires_at")
+                r["token"].update({"access": bool(t.get("access_token")), "refresh": bool(t.get("refresh_token")),
+                                   "expires_at": int(exp) if isinstance(exp, (int, float)) else None,
+                                   "expired": bool(isinstance(exp, (int, float)) and exp < now)})
+        except FileNotFoundError:
+            r["token"] = {"exists": False}
+        except Exception as e:
+            r["token"] = {"exists": True, "error": e.__class__.__name__}
+        r["client_registered"] = os.path.isfile(os.path.join(tdir, n + ".client.json"))
+        out[n] = r
+    # gateway.log の末尾から、MCP・OAuth の警告とエラー
+    warn = []
+    try:
+        with open(os.path.join(h, "logs", "gateway.log"), "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 2 * 1024 * 1024))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+        rx = re.compile(r"(?i)(mcp|oauth)")
+        lv = re.compile(r"\b(WARNING|ERROR|CRITICAL)\b")
+        quiet = re.compile(r"MCP shutdown did not finish")
+        warn = [l[:400] for l in lines if rx.search(l) and lv.search(l) and not quiet.search(l)][-20:]
+    except OSError:
+        pass
+    return {"servers": out, "log": warn}
+def env_keys(h):
+    try:
+        lines = open(os.path.join(h, ".env"), encoding="utf-8", errors="replace").read().splitlines()
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        return {"error": e.__class__.__name__}
+    ks = []
+    for l in lines:
+        l = l.strip()
+        if l.startswith("export "):
+            l = l[7:].lstrip()
+        if l and not l.startswith("#") and "=" in l:
+            k = l.split("=", 1)[0].strip()
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,80}$", k):
+                ks.append(k)
+    return sorted(set(ks))
+def denied(rel):
+    for part in rel.split("/"):
+        l = part.lower()
+        if l.startswith(".env") or l.startswith(".git") or any(w in l for w in ("secret", "credential", "token", "passwd", "password", "auth.json")) or l.endswith((".pem", ".key", ".p12", ".pfx")) or l.startswith("id_rsa") or l.startswith("id_ed25519"):
+            return True
+    return False
+def inside(root, rel):
+    """root の中の実際のパス。リンクで外へ出るもの・秘密らしい名前は断る"""
+    p = os.path.realpath(os.path.join(root, rel))
+    r = os.path.realpath(root)
+    if p != r and not p.startswith(r + os.sep):
+        raise SystemExit(json.dumps({"error": "読める場所の外", "profiles": []}))
+    if denied(os.path.relpath(p, r)):
+        raise SystemExit(json.dumps({"error": "読まないファイル", "profiles": []}))
+    return p
+CODE_EXT = (".py", ".md", ".yaml", ".yml", ".toml", ".txt", ".sh")
+def gateway_log(word):
+    path = os.path.join(home, "logs", "gateway.log")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 2 * 1024 * 1024))
+            lines = f.read().decode("utf-8", "replace").splitlines()[1:]
+    except OSError:
+        return {"lines": []}
+    w = word.lower()
+    hit = [l[:300] for l in lines if not w or w in l.lower()]
+    return {"total": len(hit), "lines": hit[-100:]}
+def code_read(arg):
+    rel, _, rng = arg.partition(":")
+    p = inside(os.path.join(home, "hermes-agent"), rel)
+    if not p.endswith(CODE_EXT) or not os.path.isfile(p):
+        raise SystemExit(json.dumps({"error": "読めるのはコードと文書だけ（.py .md .yaml .toml .txt .sh）", "profiles": []}))
+    lines = open(p, encoding="utf-8", errors="replace").read().splitlines()
+    a, _, b = rng.partition("-")
+    start = max(1, int(a)) if a else 1
+    end = min(len(lines), int(b) if b else start + 399, start + 399)
+    return {"path": rel, "start": start, "end": end, "total": len(lines), "lines": [l[:300] for l in lines[start - 1:end]]}
+def code_grep(word):
+    root = os.path.join(home, "hermes-agent")
+    out = []
+    for d, subs, files in os.walk(root):
+        subs[:] = [s for s in subs if not s.startswith(".") and s not in ("node_modules", "__pycache__", "venv", "tests") and not denied(s)]
+        for fn in files:
+            if not fn.endswith(CODE_EXT) or denied(fn):
+                continue
+            p = os.path.join(d, fn)
+            if os.path.islink(p):  # リンクは辿らない（.env などを指せるので）
+                continue
+            try:
+                for i, l in enumerate(open(p, encoding="utf-8", errors="replace"), 1):
+                    if word in l:
+                        out.append(f"{os.path.relpath(p, root)}:{i}:{l.strip()[:200]}")
+                        if len(out) >= 80:
+                            return {"truncated": True, "matches": out}
+            except OSError:
+                pass
+    return {"truncated": False, "matches": out}
+def skills(h):
+    root = os.path.join(h, "skills")
+    return sorted(os.path.relpath(d, root) for d, _, fs in os.walk(root) if "SKILL.md" in fs)
+def skill_read(arg):
+    pr, _, rel = arg.partition(":")
+    ps = profiles()
+    if pr not in ps:
+        raise SystemExit(json.dumps({"error": "知らないプロファイル", "profiles": list(ps)}))
+    p = inside(os.path.join(ps[pr], "skills"), os.path.join(rel, "SKILL.md"))
+    return {"skill": rel, "text": open(p, encoding="utf-8", errors="replace").read()[:64000]}
+def config_value(arg):
+    pr, _, key = arg.partition(":")
+    import yaml
+    try:
+        c = yaml.safe_load(open(os.path.join(profiles()[pr], "config.yaml"), encoding="utf-8")) or {}
+    except (OSError, KeyError):
+        c = {}
+    for k in key.split("."):
+        c = c.get(k) if isinstance(c, dict) else None
+    return {"value": c if isinstance(c, (str, int, float, bool)) else None}
+SINGLE = {"gateway-log": gateway_log, "code": code_read, "grep": code_grep, "skill": skill_read, "cfgval": config_value}
+if op in SINGLE:
+    print(json.dumps(SINGLE[op](prof), ensure_ascii=False))
+    raise SystemExit(0)
+fn = {"config": config, "cron": cron, "mcp": mcp, "env-keys": env_keys, "skills": skills}[op]
+print(json.dumps({n: fn(h) for n, h in pick().items()}, ensure_ascii=False))
+'''
+
+
+def env_file_keys(path):
+    """KEY=値 のファイルから、キーの名前だけ"""
+    try:
+        lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        return {"error": type(e).__name__}
+    keys = set()
+    for line in lines:
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if line and not line.startswith("#") and "=" in line:
+            k = line.split("=", 1)[0].strip()
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,80}$", k):
+                keys.add(k)
+    return sorted(keys)
+
+
+class Inspector:
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.slots = threading.BoundedSemaphore(INSPECT_CONCURRENCY)
+        self.recent = []
+        self.recent_lock = threading.Lock()
+
+    def throttle(self, now=None):
+        """読むだけでも、回数に上限を付ける（暴走しても root の負荷にならないように）"""
+        now = time.time() if now is None else now
+        with self.recent_lock:
+            self.recent = [t for t in self.recent if now - t < 60]
+            if len(self.recent) >= INSPECT_PER_MINUTE:
+                raise Refuse("読み取りが多すぎる。1分待って", "rate_limited")
+            self.recent.append(now)
+
+    def system(self):
+        """VPS の様子。自由な引数は取らない"""
+        out = {}
+        for key, argv in (("disk", ["df", "-h", "--output=target,size,used,avail,pcent", "/", "/home", "/var"]), ("memory", ["free", "-h"]), ("uptime", ["uptime"]), ("failed", [self.cfg.systemctl, "list-units", "--failed", "--plain", "--no-legend", "--no-pager"])):
+            code, txt, _ = self._run(argv)
+            out[key] = list(dict.fromkeys(txt.splitlines()))[:40] if code == 0 else None  # 同じディスクの行を重ねない
+        code, txt, _ = self._run(["tailscale", "status", "--json"]) if shutil.which("tailscale") else (1, "", "")
+        if code == 0:
+            try:
+                d = json.loads(txt)
+                out["tailscale"] = {"state": d.get("BackendState"), "online": (d.get("Self") or {}).get("Online")}
+            except ValueError:
+                pass
+        return out
+
+    def run(self, item, arg):
+        if item not in INSPECT_ITEMS:
+            raise Refuse("知らない項目。使えるのは: " + " ".join(INSPECT_ITEMS), "bad_item")
+        if arg is not None and not isinstance(arg, str):
+            raise Refuse("引数の形が違う", "bad_arg")
+        rx = INSPECT_ARG_RE.get(item)
+        if rx and arg is not None and (not rx.match(arg) or ".." in arg):
+            raise Refuse("引数の形が違う", "bad_arg")
+        if item in ("hermes-code", "hermes-grep", "skill") and not arg:
+            raise Refuse(f"{item} には引数が要る", "bad_arg")
+        self.throttle()
+        if not self.slots.acquire(blocking=False):
+            raise Refuse("いま別の inspect が動いている。少し待って", "busy")
+        try:
+            if item == "units":
+                data = self.units(arg)
+            elif item == "system":
+                data = self.system()
+            elif item in ("gateway-log", "hermes-code", "hermes-grep", "skill"):
+                op = {"gateway-log": "gateway-log", "hermes-code": "code", "hermes-grep": "grep", "skill": "skill"}[item]
+                data = self.hermes(op, arg or "")
+            else:
+                prof = arg or ("default" if item == "hermes-config" else "*")
+                if prof != "*" and not PROFILE_RE.match(prof):
+                    raise Refuse("プロファイル名の形が違う", "bad_arg")
+                op = {"hermes-config": "config", "hermes-cron": "cron", "hermes-mcp": "mcp", "env-keys": "env-keys", "skills": "skills"}[item]
+                data = self.hermes(op, prof)
+                if item == "env-keys":
+                    data = {"plasmod": env_file_keys(self.cfg.app_env), "hermes": data}
+        finally:
+            self.slots.release()
+        data = mask(data)
+        if len(json.dumps(data, ensure_ascii=False).encode()) > INSPECT_MAX:
+            raise Refuse("結果が大きすぎる。プロファイルや unit を絞って", "too_large")
+        return data
+
+    def _run(self, argv, env=None):
+        try:
+            p = subprocess.run(argv, capture_output=True, timeout=INSPECT_TIMEOUT, env=env, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            raise Refuse("時間内に終わらなかった", "timeout")
+        except OSError as e:
+            raise Refuse(f"動かせない: {type(e).__name__}", "exec_failed")
+        return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+
+    def hermes(self, op, prof):
+        env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": os.path.dirname(self.cfg.hermes_home.rstrip("/"))}
+        argv = [*self.cfg.as_hermes, self.cfg.hermes_python, "-I", "-c", HERMES_HELPER, op, self.cfg.hermes_home, prof]
+        code, out, err = self._run(argv, env)
+        if code == 0:
+            try:
+                return json.loads(out)
+            except ValueError:
+                pass
+        else:
+            # 知らないプロファイルは、標準エラーに JSON で理由とプロファイルの一覧が出る
+            try:
+                e = json.loads(err.strip().splitlines()[-1])
+                extra = f"（あるのは: {' '.join(e['profiles'])}）" if e.get("profiles") else ""
+                raise Refuse(f"{e['error']}{extra}", "bad_arg")
+            except (ValueError, IndexError, KeyError, TypeError):
+                pass
+        raise Refuse(f"読み取りに失敗した（終了コード {code}）", "helper_failed")
+
+    def unit_ok(self, unit):
+        return bool(UNIT_RE.match(unit)) and unit.startswith(tuple(self.cfg.unit_prefixes))
+
+    def units(self, unit):
+        if unit is not None and not self.unit_ok(unit):
+            raise Refuse("見られる unit ではない（plasmod・hermes- の .service / .timer だけ）", "bad_arg")
+        names = [unit] if unit else []
+        if not unit:
+            for kind in ("service", "timer"):
+                _, out, _ = self._run([self.cfg.systemctl, "list-units", "--all", "--plain", "--no-legend", "--no-pager", f"--type={kind}"])
+                names += [ln.split()[0] for ln in out.splitlines() if ln.split() and self.unit_ok(ln.split()[0])]
+        props = "ActiveState,SubState,Result,ExecMainStatus,NRestarts,ActiveEnterTimestamp,StateChangeTimestamp,LastTriggerUSec,NextElapseUSecRealtime"
+        out = {}
+        for n in sorted(set(names))[:60]:
+            _, txt, _ = self._run([self.cfg.systemctl, "show", n, "--no-pager", f"--property={props}"])
+            out[n] = {k: v for k, v in (ln.split("=", 1) for ln in txt.splitlines() if "=" in ln) if v not in ("", "n/a")}
+        data = {"units": out}
+        if unit:
+            _, txt, _ = self._run([self.cfg.journalctl, "-u", unit, "-n", str(JOURNAL_LINES), "--no-pager", "-o", "short-iso"])
+            data["journal"] = txt.splitlines()[-JOURNAL_LINES:]
+        return data
+
+
+# ---------------------------------------------------------------- 部品（action）
+#
+# 決まった操作を、依頼者ではなく plasmod-rootd がスクリプトに組み立てて、いつもの依頼（digest・パスワード承認・1 回だけ）にする。
+#   - 引数は形を決めて検査し、今の状態から「変わること」の下見を作る。下見と部品の記録は添付（preview.txt・action.json）に
+#     入れるので digest に含まれる（見せた下見と違う内容は実行できない）
+#   - スクリプトは: 対象ファイルの控え（backups/<ID>/）→ 変更 → 控えとの差分と確かめ
+#   - Hermes の持ち物の読み書きは、控えを取るのも戻すのも hermes の権限で（root が hermes のパスを辿らない）
+#   - 元に戻す（undo）: 終わった部品の依頼の控えに戻す。戻す前にも控えを取るので、戻したのをさらに戻せる
+
+ACTIONS = {
+    "cron.pause": ("profile", "job"),
+    "cron.resume": ("profile", "job"),
+    "mcp.enable": ("profile", "name"),
+    "mcp.disable": ("profile", "name"),
+    "service.restart": ("unit",),
+    "config.set": ("profile", "key", "value"),
+    "skill.sync": ("profile", "name"),
+    "undo": ("id",),
+}
+# config.set で変えてよいキーと値。承認を緩める値（approvals.mode の off など）は入れない
+CONFIG_ALLOW = {
+    "approvals.mode": lambda v: v in ("manual", "smart"),
+    "approvals.timeout": lambda v: v.isdigit() and 30 <= int(v) <= 3600,
+}
+# 再起動しない: 自分自身（実行中の依頼が切れる）
+NO_RESTART = {"plasmod-rootd.service"}
+ACTION_ARG_RE = {
+    "profile": PROFILE_RE,
+    "job": re.compile(r"^[A-Za-z0-9_-]{4,64}$"),
+    "name": re.compile(r"^[A-Za-z0-9_-]{1,64}$"),
+    "id": ID_RE,
+    "unit": UNIT_RE,
+    "key": re.compile(r"^[a-z_.]{1,64}$"),
+    "value": re.compile(r"^[A-Za-z0-9_.-]{1,32}$"),
+}
+ACTION_TIMEOUT = 300
+OWNER_COMMAND_MAX = 8000
+UNDO_PREVIEW_LINES = 400
+
+
+def sh(s: str) -> str:
+    """bash の 1 語にする（引数は正規表現で検査済みだが、念のため必ずクォートする）"""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+class Actions:
+    def __init__(self, cfg: Config, engine, inspector):
+        self.cfg = cfg
+        self.engine = engine
+        self.inspector = inspector
+
+    @property
+    def backup_root(self):
+        return os.path.join(self.cfg.state_dir, "backups")
+
+    def home_of(self, profile):
+        return self.cfg.hermes_home if profile == "default" else os.path.join(self.cfg.hermes_home, "profiles", profile)
+
+    def check_args(self, name, args):
+        if name not in ACTIONS:
+            raise Refuse("知らない部品。使えるのは: " + " ".join(ACTIONS), "bad_action")
+        params = ACTIONS[name]
+        if not isinstance(args, list) or len(args) != len(params) or not all(isinstance(a, str) for a in args):
+            raise Refuse(f"{name} の引数は: " + " ".join(p.upper() for p in params), "bad_arg")
+        for p, a in zip(params, args):
+            if not ACTION_ARG_RE[p].match(a):
+                raise Refuse(f"{p} の形が違う: {a[:80]}", "bad_arg")
+        return dict(zip(params, args))
+
+    # ---- 下見と手順 ----
+    def plan(self, name, a):
+        """返す: title・preview（文）・targets（控えを取るファイル）・steps（bash の行）・verify（確かめの bash の行）"""
+        if name in ("cron.pause", "cron.resume"):
+            home = self.home_of(a["profile"])
+            jobs = self.inspector.hermes("cron", a["profile"])[a["profile"]]
+            if not isinstance(jobs, list):
+                raise Refuse("cron の一覧を読めない", "bad_state")
+            job = next((j for j in jobs if j.get("id") == a["job"]), None)
+            if not job:
+                raise Refuse(f"{a['profile']} に cron {a['job']} は無い", "bad_arg")
+            want = "paused" if name == "cron.pause" else "scheduled"
+            if (job["state"] == "paused") == (want == "paused"):
+                raise Refuse(f"もう {job['state']} になっている", "no_change")
+            verb = name.split(".")[1]
+            return {
+                "title": f"部品 {name}: {a['profile']} / {job.get('name') or a['job']}",
+                "preview": f"{a['profile']} / cron {a['job']}「{job.get('name') or ''}」（{job.get('schedule') or '-'}）\n  状態: {job['state']} → {want}",
+                "targets": [os.path.join(home, "cron", "jobs.json")],
+                "steps": [f"H {sh(home)} {sh(self.cfg.hermes_bin)} cron {verb} {sh(a['job'])}"],
+                "verify": [f"H {sh(home)} {sh(self.cfg.hermes_bin)} cron list"],
+            }
+        if name in ("mcp.enable", "mcp.disable"):
+            home = self.home_of(a["profile"])
+            conf = self.inspector.hermes("config", a["profile"])[a["profile"]]
+            srv = (conf.get("mcp_servers") or {}).get(a["name"]) if isinstance(conf, dict) else None
+            if not srv:
+                raise Refuse(f"{a['profile']} の config.yaml に MCP {a['name']} は無い", "bad_arg")
+            want = name == "mcp.enable"
+            if bool(srv.get("enabled")) == want:
+                raise Refuse(f"もう {'有効' if want else '無効'}になっている", "no_change")
+            where = srv.get("host") or srv.get("command") or "-"
+            key = f"mcp_servers.{a['name']}.enabled"
+            return {
+                "title": f"部品 {name}: {a['profile']} / {a['name']}",
+                "preview": f"{a['profile']} / MCP {a['name']}（{where}）\n  有効: {'はい' if srv.get('enabled') else 'いいえ'} → {'はい' if want else 'いいえ'}\n  トークンのファイルは触らない",
+                "targets": [os.path.join(home, "config.yaml")],
+                "steps": [f"H {sh(home)} {sh(self.cfg.hermes_bin)} config set {sh(key)} {'true' if want else 'false'}"],
+                "verify": [f"H {sh(home)} {sh(self.cfg.hermes_bin)} config get {sh(key)}"],
+            }
+        if name == "service.restart":
+            unit = a["unit"]
+            if not self.inspector.unit_ok(unit) or not unit.endswith(".service") or unit in NO_RESTART:
+                raise Refuse(f"{unit} は再起動できない", "bad_arg")
+            info = self.inspector.units(unit)["units"].get(unit) or {}
+            return {
+                "title": f"部品 service.restart: {unit}",
+                "preview": f"{unit} を再起動する\n  今の状態: {info.get('ActiveState', '?')} / {info.get('SubState', '?')}",
+                "targets": [],
+                "steps": [f"{sh(self.cfg.systemctl)} restart {sh(unit)}", "sleep 2"],
+                "verify": [f"{sh(self.cfg.systemctl)} is-active {sh(unit)}"],
+            }
+        if name == "config.set":
+            ok = CONFIG_ALLOW.get(a["key"])
+            if not ok:
+                raise Refuse("変えられるキー: " + " ".join(CONFIG_ALLOW), "bad_arg")
+            if not ok(a["value"]):
+                raise Refuse(f"{a['key']} にこの値は入れられない", "bad_arg")
+            cur = self.inspector.hermes("cfgval", f"{a['profile']}:{a['key']}").get("value")
+            if str(cur) == a["value"]:
+                raise Refuse(f"もう {a['value']} になっている", "no_change")
+            home = self.home_of(a["profile"])
+            return {
+                "title": f"部品 config.set: {a['profile']} / {a['key']}",
+                "preview": f"{a['profile']} / {a['key']}\n  今: {cur}\n  変更後: {a['value']}",
+                "targets": [os.path.join(home, "config.yaml")],
+                "steps": [f"H {sh(home)} {sh(self.cfg.hermes_bin)} config set {sh(a['key'])} {sh(a['value'])}"],
+                "verify": [f"H {sh(home)} {sh(self.cfg.hermes_bin)} config get {sh(a['key'])}"],
+            }
+        if name == "skill.sync":
+            return self.plan_skill_sync(a["profile"], a["name"])
+        if name == "undo":
+            return self.plan_undo(a["id"])
+        raise Refuse("知らない部品", "bad_action")
+
+    def plan_skill_sync(self, profile, skill):
+        """リポジトリのスキルで、入っているスキルを更新する。新しく入れない・元はリポジトリの版だけ"""
+        import difflib
+
+        src = os.path.join(self.cfg.repo_dir, "deploy", "hermes-skills", skill, "SKILL.md")
+        try:
+            new = open(src, encoding="utf-8").read()
+        except OSError:
+            raise Refuse(f"リポジトリにスキル {skill} は無い", "bad_arg")
+        installed = self.inspector.hermes("skills", profile)[profile]
+        rel = next((r for r in installed if r == skill or r.endswith("/" + skill)), None)
+        if not rel:
+            raise Refuse(f"{profile} に {skill} は入っていない", "bad_arg")
+        path = os.path.join(self.home_of(profile), "skills", rel, "SKILL.md")
+        cur = self.read_as_hermes(path)
+        if cur is None:
+            raise Refuse("今のスキルを読めない", "bad_state")
+        if cur == new:
+            raise Refuse("もう同じ内容", "no_change")
+        diff = [mask_text(x) for x in difflib.unified_diff(cur.splitlines(), new.splitlines(), "今", "更新後", lineterm="")]
+        extra = [f"（ほか {len(diff) - UNDO_PREVIEW_LINES} 行）"] if len(diff) > UNDO_PREVIEW_LINES else []
+        return {
+            "title": f"部品 skill.sync: {profile} / {skill}",
+            "preview": "\n".join([f"--- {path}", *diff[:UNDO_PREVIEW_LINES], *extra]),
+            "targets": [path],
+            "steps": [f"restore {sh(src)} {sh(path)}"],
+            "verify": [],
+        }
+
+    def read_as_hermes(self, path):
+        code, out, _ = self.inspector._run([*self.cfg.as_hermes, "cat", "--", path])
+        return out if code == 0 else None
+
+    def plan_undo(self, rid):
+        import difflib
+
+        m = self.engine._load(rid)
+        if m["status"] != "done":
+            raise Refuse(f"元に戻せるのは、終わった（done）部品の依頼だけ（今は {m['status']}）", "not_undoable")
+        if not any(f["name"] == "action.json" for f in m.get("files", [])):
+            raise Refuse("部品の依頼ではない（自由なスクリプトは元に戻せない）", "not_undoable")
+        bdir = os.path.join(self.backup_root, rid)
+        try:
+            index = [ln.split("\t", 1) for ln in open(os.path.join(bdir, "index"), encoding="utf-8").read().splitlines() if "\t" in ln]
+        except OSError:
+            raise Refuse("この依頼の控えが無い", "not_undoable")
+        home = self.cfg.hermes_home.rstrip("/") + "/"
+        preview, steps, targets = [f"{m['title']}（{rid}）を、実行の前の状態に戻す"], [], []
+        for i, path in index:
+            if not re.match(r"^[0-9]{1,3}$", i) or not path.startswith(home) or "/../" in path:
+                raise Refuse("控えの記録の形が違う", "bad_state")
+            try:
+                before = open(os.path.join(bdir, i), encoding="utf-8", errors="replace").read()
+            except OSError:
+                raise Refuse("控えのファイルが無い", "bad_state")
+            now_ = self.read_as_hermes(path)
+            if now_ is None:
+                raise Refuse(f"今のファイルを読めない: {path}", "bad_state")
+            diff = list(difflib.unified_diff(now_.splitlines(), before.splitlines(), "今", "戻したあと", lineterm=""))
+            if diff:
+                preview.append(f"--- {path}")
+                preview += [mask_text(x) for x in diff[:UNDO_PREVIEW_LINES]]
+                if len(diff) > UNDO_PREVIEW_LINES:
+                    preview.append(f"（ほか {len(diff) - UNDO_PREVIEW_LINES} 行）")
+                targets.append(path)
+                steps.append(f"restore {sh(os.path.join(bdir, i))} {sh(path)}")
+        if not steps:
+            raise Refuse("もう控えと同じ。戻すものが無い", "no_change")
+        return {"title": f"部品 undo: {m['title'][:120]}", "preview": "\n".join(preview), "targets": targets, "steps": steps, "verify": []}
+
+    def script(self, name, a, p):
+        hhome = os.path.dirname(self.cfg.hermes_home.rstrip("/"))
+        prefix = " ".join(sh(x) for x in self.cfg.as_hermes)
+        lines = [
+            "#!/bin/bash",
+            f"# 部品 {name} {' '.join(a.values())}（plasmod-rootd が組み立てた。依頼者はこの中身を書けない）",
+            "set -euo pipefail",
+            "exec 2>&1",
+            f'B={sh(self.backup_root)}/"$PLASMOD_ROOTD_REQUEST_ID"',
+            'install -d -m 700 "$B"',
+            ': > "$B/index"',
+            "# Hermes のファイルの読み書きは hermes の権限で",
+            f'H() {{ local home=$1; shift; {prefix} env -i HOME={sh(hhome)} PATH={hhome}/.local/bin:/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 HERMES_HOME="$home" "$@"; }}',
+            "n=0",
+            'backup() { n=$((n+1)); H / cat -- "$1" > "$B/$n"; printf \'%s\\t%s\\n\' "$n" "$1" >> "$B/index"; echo "控え: $1 -> $B/$n"; }',
+            'restore() { H / tee -- "$2" < "$1" > /dev/null; echo "戻した: $2"; }',
+            'show_diff() { while IFS=$\'\\t\' read -r i p; do echo "--- 差分: $p"; diff -u --label 前 --label 後 "$B/$i" <(H / cat -- "$p") || true; done < "$B/index"; }',
+            *[f"backup {sh(t)}" for t in p["targets"]],
+            *p["steps"],
+            "show_diff",
+        ]
+        if p["verify"]:
+            lines += ['echo "--- 確かめ"', *p["verify"]]
+        return "\n".join(lines) + "\n"
+
+    def submit(self, uid, uname, name, args, reason=""):
+        a = self.check_args(name, args)
+        p = self.plan(name, a)
+        record = {"v": 1, "action": name, "args": a, "targets": p["targets"]}
+        files = [
+            {"name": "preview.txt", "data_b64": base64.b64encode(p["preview"].encode()).decode()},
+            {"name": "action.json", "data_b64": base64.b64encode(json.dumps(record, ensure_ascii=False, indent=1).encode()).decode()},
+        ]
+        req = {
+            "title": p["title"][:MAX_TITLE].replace("\n", " "),
+            "reason": (reason or "")[: MAX_REASON - 200] + ("\n\n" if reason else "") + "決まった部品（スクリプトは plasmod-rootd が組み立てた）。下見は preview.txt",
+            "timeout": ACTION_TIMEOUT,
+            "script_b64": base64.b64encode(self.script(name, a, p).encode()).decode(),
+            "files": files,
+        }
+        r = self.engine.submit(uid, uname, req)
+        return {**r, "preview": p["preview"]}
+
+    def run_for_owner(self, approver_uid, command, password, by):
+        """アプリでオーナーが打ったコマンド: 依頼を作って、同じパスワードで承認する。
+        受け口は承認の app.sock だけ（エージェントは使えない）。パスワードが違えば依頼は残さない"""
+        if not isinstance(command, str) or not command.strip():
+            raise Refuse("コマンドが空", "bad_arg")
+        if len(command.encode()) > OWNER_COMMAND_MAX or "\0" in command:
+            raise Refuse("コマンドが長すぎる", "bad_arg")
+        first = command.strip().splitlines()[0]
+        req = {
+            "title": f"オーナーのコマンド: {first}"[:MAX_TITLE],
+            "reason": f"アプリで打った（{str(by)[:40]}）",
+            "timeout": ACTION_TIMEOUT,
+            "script_b64": base64.b64encode(("#!/bin/bash\nexec 2>&1\n" + command.strip() + "\n").encode()).decode(),
+            "files": [],
+        }
+        r = self.engine.submit(approver_uid, "app", req, notify=False)  # 本人がその場で承認するので知らせない
+        try:
+            return {**self.engine.approve(r["id"], r["digest"], password, by), "id": r["id"]}
+        except Refuse:
+            self.engine.reject(r["id"], by)
+            raise
+
+    def undo_for_app(self, approver_uid, rid, password, by):
+        """アプリの「元に戻す」: 依頼を作って、同じパスワードで承認する（パスワードの照合は approve と同じ）"""
+        if not isinstance(rid, str) or not ID_RE.match(rid):
+            raise Refuse("ID の形が違う", "bad_id")
+        r = self.submit(approver_uid, "app", "undo", [rid], f"アプリの「元に戻す」（{str(by)[:40]}）")
+        return {**self.engine.approve(r["id"], r["digest"], password, by), "preview": r["preview"]}
+
+
+# ---------------------------------------------------------------- ソケット
+
+SO_PEERCRED = getattr(socket, "SO_PEERCRED", 17)
+
+
+def peer_uid(conn):
+    pid, uid, gid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, SO_PEERCRED, struct.calcsize("3i")))
+    return uid
+
+
+def uid_name(uid):
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return str(uid)
+
+
+class Handlers:
+    """op ごとの処理。role: 'req' か 'app'"""
+
+    def __init__(self, engine: Engine, requester_uids, approver_uids, inspector=None):
+        self.engine = engine
+        self.requester_uids = requester_uids
+        self.approver_uids = approver_uids
+        self.inspector = inspector or Inspector(engine.cfg)
+        self.actions = Actions(engine.cfg, engine, self.inspector)
+
+    def handle(self, role, uid, req):
+        allowed = self.requester_uids() if role == "req" else self.approver_uids()
+        if uid not in allowed:
+            self.engine.audit("denied", role=role, uid=uid)
+            return {"ok": False, "code": "forbidden", "error": "この受け口は使えない"}
+        op = req.get("op")
+        try:
+            if role == "req":
+                if op == "submit":
+                    return {"ok": True, **self.engine.submit(uid, uid_name(uid), req)}
+                if op == "status":
+                    return {"ok": True, **self.engine.status_for_requester(uid, req.get("id"))}
+                if op == "inspect":
+                    item, arg = req.get("item"), req.get("arg")
+                    self.engine.audit("inspect", uid=uid, requester=uid_name(uid), item=str(item)[:40], arg=str(arg)[:80] if arg is not None else None)
+                    return {"ok": True, "item": item, "data": self.inspector.run(item, arg)}
+                if op == "action":
+                    return {"ok": True, **self.actions.submit(uid, uid_name(uid), req.get("name"), req.get("args"), req.get("reason") if isinstance(req.get("reason"), str) else "")}
+            else:
+                if op == "list":
+                    return {"ok": True, **self.engine.list_for_app()}
+                if op == "get":
+                    return {"ok": True, **self.engine.get_for_app(req.get("id"))}
+                if op == "reject":
+                    return {"ok": True, **self.engine.reject(req.get("id"), str(req.get("by", "")))}
+                if op == "run":
+                    return {"ok": True, **self.actions.run_for_owner(uid, req.get("command"), req.get("password"), str(req.get("by", "")))}
+                if op == "undo":
+                    return {"ok": True, **self.actions.undo_for_app(uid, req.get("id"), req.get("password"), str(req.get("by", "")))}
+                if op == "approve":
+                    return {"ok": True, **self.engine.approve(req.get("id"), req.get("digest"), req.get("password"), str(req.get("by", "")))}
+            return {"ok": False, "code": "bad_op", "error": "知らない操作"}
+        except Refuse as e:
+            return {"ok": False, "code": e.code, "error": str(e), **e.extra}
+
+
+def make_server(path, role, handlers, group_gid=None, mode=0o666):
+    class H(socketserver.StreamRequestHandler):
+        timeout = 30
+
+        def handle(self):
+            try:
+                uid = peer_uid(self.request)
+                line = self.rfile.readline(MAX_LINE + 1)
+                if len(line) > MAX_LINE:
+                    resp = {"ok": False, "code": "too_large", "error": "大きすぎる"}
+                else:
+                    try:
+                        req = json.loads(line)
+                        if not isinstance(req, dict):
+                            raise ValueError
+                    except ValueError:
+                        resp = {"ok": False, "code": "bad_json", "error": "JSON が読めない"}
+                    else:
+                        resp = handlers.handle(role, uid, req)
+                self.wfile.write(json.dumps(resp, ensure_ascii=False).encode() + b"\n")
+            except (OSError, socket.timeout):
+                pass
+            except Exception as e:  # noqa: BLE001 内容は出さず、型だけ
+                print(f"handler error: {type(e).__name__}", file=sys.stderr)
+
+    class S(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
+        request_queue_size = 32
+
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    old = os.umask(0o177)
+    try:
+        srv = S(path, H)
+    finally:
+        os.umask(old)
+    if group_gid is not None:
+        os.chown(path, 0 if os.geteuid() == 0 else -1, group_gid)
+    os.chmod(path, mode)
+    return srv
+
+
+def serve(cfg: Config):
+    cfg.validate()
+    os.makedirs(cfg.run_dir, mode=0o755, exist_ok=True)
+    engine = Engine(cfg)  # 起動時に recover（実行中だったものを中断にする）
+    handlers = Handlers(engine, cfg.requester_uids, cfg.approver_uids)
+    gid = None
+    try:
+        gid = pwd.getpwnam(cfg.approver).pw_gid
+    except KeyError:
+        pass
+    req = make_server(os.path.join(cfg.run_dir, "req.sock"), "req", handlers, None, 0o666)
+    app = make_server(os.path.join(cfg.run_dir, "app.sock"), "app", handlers, gid, 0o660 if gid is not None else 0o600)
+    for s in (req, app):
+        threading.Thread(target=s.serve_forever, daemon=True).start()
+    stop = threading.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: stop.set())
+    print("plasmod-rootd: ready", file=sys.stderr, flush=True)
+    stop.wait()
+    req.shutdown()
+    app.shutdown()
+
+
+def set_password(cfg: Config):
+    if os.geteuid() != 0:
+        raise SystemExit("root で実行すること")
+    if not sys.stdin.isatty():
+        raise SystemExit("端末から対話で実行すること（パイプや引数でパスワードを渡さない）")
+    p1 = getpass.getpass("新しいパスワード（%d 文字以上、表示されない）: " % MIN_PASSWORD_LEN)
+    if len(p1) < MIN_PASSWORD_LEN or len(p1) > MAX_PASSWORD_LEN:
+        raise SystemExit("短すぎる")
+    p2 = getpass.getpass("もう一度: ")
+    if p1 != p2:
+        raise SystemExit("一致しない")
+    write_password_file(cfg.passwd_file, p1)
+    try:
+        os.unlink(os.path.join(cfg.state_dir, "lock.json"))
+    except OSError:
+        pass
+    print("パスワードを設定した（%s）。ロックも解除した。" % cfg.passwd_file)
+
+
+def main(argv):
+    cfg = Config.load(os.environ.get("PLASMOD_ROOTD_CONFIG", "/etc/plasmod-rootd/config"))
+    cmd = argv[1] if len(argv) > 1 else ""
+    if cmd == "serve":
+        serve(cfg)
+    elif cmd == "set-password":
+        set_password(cfg)
+    elif cmd == "list":
+        engine = Engine(cfg, recover=False)  # 動いている plasmod-rootd の状態を壊さない
+        for r in engine.list_for_app()["requests"][:30]:
+            print(r["id"], r["status"], r.get("requester", ""), r["title"])
+    else:
+        print("usage: plasmod-rootd serve | set-password | list", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

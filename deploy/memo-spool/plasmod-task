@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""plasmod-task: Plasmod のタスク（TASK-173）を AI（ハブのエージェントたち・開発エージェント）から登録・参照する。
+
+見回りで拾ったもの（メール・Beeper・ops）は、カードを直接作らず、ここに「元の ID 付き」で登録する。
+同じ元（--source と --key）は何度登録しても 1 件にまとまり、オーナーの判断（完了・不要など）が残る。
+判断待ちのものだけが、アプリのホームにカードとして出る。状態は 判断待ち・やる・任せ中・完了 の4つ。
+
+判断待ちに入れるのは、オーナーに決めてほしい問いだけ。題は問いの形（〜してよいか？）、本文は
+「何の話か／選択肢／おすすめ」の3行で、オーナーが読んで分かる言葉にする。
+計画の段・子タスクは --status todo（オーナーがやる）か doing（エージェントがやる）で入れる。
+
+  plasmod-task add --source mail --key <スレッドID> --title 題 [--kind reply|confirm|todo] [--url URL]
+              [--agent acct] [--propose kanban,task] [--project P] [--due YYYY-MM-DD] [--event-at 時刻] [--parent 親ID]
+              [--status inbox|todo|doing] [本文 | 標準入力]
+  plasmod-task status ID inbox|todo|doing|done [ひとこと]   # タスクの状態を動かす（誰が登録したものでも）
+  plasmod-task find --source mail --key <スレッドID>      # 登録済みか・判断は何か
+  plasmod-task show ID|TASK-123
+  plasmod-task list [--status inbox,todo,doing,done,dismissed] [--source mail] [-q 語] [-n 件数]
+  plasmod-task comment ID 文
+  plasmod-task parent ID 親ID|--none          # 親を付ける・外す（ID は TASK-123 か #の数字）
+  plasmod-task link ID 相手ID [--kind related|blocks] [--off]   # つながりを足す・外す（blocks＝ID が相手を止めている）
+  plasmod-task links ID                        # 親・子・つながりの一覧
+
+  共通: --json、--as プロファイル（hermes の中で名乗る。環境変数 PLASMOD_MEMO_AS でも可）
+  受け渡しのフォルダ: 環境変数 PLASMOD_MEMO_SPOOL（既定 /var/lib/plasmod-spool/memo。メモと共通）
+"""
+import argparse
+import datetime
+import json
+import os
+import sys
+import time
+import uuid
+
+SPOOL = os.environ.get("PLASMOD_MEMO_SPOOL", "/var/lib/plasmod-spool/memo")
+TIMEOUT = float(os.environ.get("PLASMOD_MEMO_TIMEOUT", "15"))
+STATUS_JA = {"inbox": "Inbox", "todo": "Todo", "doing": "AI-Driven", "done": "Done", "dismissed": "Done・不要"}
+ACTION_JA = {"created": "登録した", "updated": "更新した", "unchanged": "変わらず", "reopened": "判断待ちに戻した", "ignored": "登録しなかった"}
+
+
+def call(op, args, as_=None):
+    rid = uuid.uuid4().hex
+    tmp = os.path.join(SPOOL, "in", rid + ".tmp")
+    req = {"op": op, "args": args}
+    if as_:
+        req["as"] = as_
+    # アプリ（別のユーザー）が読めるよう 0644。in は一覧できず、名前はランダムで、すぐ消される
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    os.fchmod(fd, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(req, f, ensure_ascii=False)
+    os.rename(tmp, os.path.join(SPOOL, "in", rid + ".json"))
+    out = os.path.join(SPOOL, "out", rid + ".json")
+    end = time.time() + TIMEOUT
+    while time.time() < end:
+        try:
+            with open(out, encoding="utf-8") as f:
+                reply = json.load(f)
+            break
+        except FileNotFoundError:
+            time.sleep(0.1)
+        except json.JSONDecodeError:
+            time.sleep(0.05)
+    else:
+        sys.exit(f"plasmod-task: アプリから返事が来ない（{TIMEOUT:.0f}秒）。アプリが止まっているか、このユーザーは使えない")
+    if not reply.get("ok"):
+        sys.exit(f"plasmod-task: {reply.get('error')}")
+    return reply["result"]
+
+
+def when(ms):
+    return datetime.datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M") if ms else "-"
+
+
+def event_ms(v):
+    """--event-at: ISO 8601（2026-10-24T09:12:00+09:00）か、ミリ秒・秒の数字"""
+    if v is None:
+        return None
+    if v.isdigit():
+        n = int(v)
+        return n if n > 10**12 else n * 1000
+    return int(datetime.datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp() * 1000)
+
+
+def ref(v):
+    """TASK-123 はそのまま、#12・12 は数字に"""
+    v = v.lstrip("#")
+    return int(v) if v.isdigit() else v
+
+
+def line(t):
+    extra = " ".join(x for x in [f"[{t['project']}]" if t.get("project") else "", f"期日 {t['due']}" if t.get("due") else ""] if x)
+    num = t.get("ref") or f"#{t['id']}"
+    return f"{num:<9} {STATUS_JA.get(t['status'], t['status']):<8} {t['source']}:{t.get('sourceKey') or '-'}  {t['title']}  {extra}".rstrip()
+
+
+def main():
+    p = argparse.ArgumentParser(prog="plasmod-task", description="Plasmod のタスクを登録・参照する")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--as", dest="as_", default=os.environ.get("PLASMOD_MEMO_AS"))
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("habits", help="習慣と今日のチェックを読む（読むだけ）")
+    s = sub.add_parser("add", help="登録（同じ元は1件にまとまる）")
+    s.add_argument("--source", required=True, help="mail / beeper / ops など")
+    s.add_argument("--key", required=True, help="元の ID（メールのスレッド ID・Beeper のチャット+メッセージ ID・TASK-123・ops の項目+日付）")
+    s.add_argument("--title", required=True)
+    s.add_argument("--kind", default="todo", choices=["reply", "confirm", "todo", "ops"])
+    s.add_argument("--url")
+    s.add_argument("--agent", help="「任せる」の渡し先（acct / design / dev / default）")
+    s.add_argument("--propose", default="", help="kanban,task（task＝オーナーのタスクに残す）")
+    s.add_argument("--project")
+    s.add_argument("--due", help="YYYY-MM-DD")
+    s.add_argument("--event-at", help="元の最後の動きの時刻（新しい返信が来た時刻など）")
+    s.add_argument("--parent", help="親のタスク（TASK-123 か #の数字）")
+    s.add_argument("--status", default="inbox", choices=["inbox", "todo", "doing"], help="新しく作るときの状態。判断待ち（既定）はオーナーに決めてほしい問いだけ。計画の子は todo（オーナー）か doing（エージェント）")
+    s.add_argument("body", nargs="?")
+
+    s = sub.add_parser("status", help="タスクの状態を動かす（誰が登録したものでも）")
+    s.add_argument("id", help="TASK-123 か #の数字")
+    s.add_argument("status", choices=["inbox", "todo", "doing", "done"])
+    s.add_argument("note", nargs="?", default="")
+
+    s = sub.add_parser("find", help="元の ID で探す")
+    s.add_argument("--source", required=True)
+    s.add_argument("--key", required=True)
+
+    s = sub.add_parser("show")
+    s.add_argument("id", help="タスクの番号（TASK-123）か #の数字")
+
+    s = sub.add_parser("list")
+    s.add_argument("--status", help="カンマ区切り。既定は開いているもの（inbox,todo,doing）")
+    s.add_argument("--source")
+    s.add_argument("-q", "--query")
+    s.add_argument("-n", "--limit", type=int, default=50)
+
+    s = sub.add_parser("comment")
+    s.add_argument("id", type=int)
+    s.add_argument("text", nargs="?")
+
+    s = sub.add_parser("parent", help="親を付ける・外す")
+    s.add_argument("id", help="TASK-123 か #の数字")
+    s.add_argument("parent", nargs="?", help="親（TASK-123 か #の数字）")
+    s.add_argument("--none", action="store_true", help="親を外す")
+
+    s = sub.add_parser("link", help="つながりを足す・外す")
+    s.add_argument("id")
+    s.add_argument("other")
+    s.add_argument("--kind", default="related", choices=["related", "blocks"])
+    s.add_argument("--off", action="store_true", help="外す")
+
+    s = sub.add_parser("links", help="親・子・つながり")
+    s.add_argument("id")
+
+    a = p.parse_args()
+    out = lambda r: print(json.dumps(r, ensure_ascii=False, indent=2))  # noqa: E731
+    if a.cmd == "habits":
+        r = call("habit.list", {}, a.as_)
+        if a.json:
+            return out(r)
+        print(f"今日 {r['today']}")
+        for h in r["habits"]:
+            print(f"[{'x' if h['doneToday'] else ' '}] {h['name']}（{h['streak']} 日連続・計 {h['total']} 回）")
+        if not r["habits"]:
+            print("（習慣は無い）")
+        return
+    if a.cmd == "add":
+        body = a.body if a.body is not None else ("" if sys.stdin.isatty() else sys.stdin.read())
+        r = call(
+            "task.upsert",
+            {
+                "source": a.source,
+                "key": a.key,
+                "title": a.title,
+                "body": body,
+                "kind": a.kind,
+                "url": a.url,
+                "agent": a.agent,
+                "propose": [x.strip() for x in a.propose.split(",") if x.strip()],
+                "project": a.project,
+                "due": a.due,
+                "eventAt": event_ms(a.event_at),
+                **({"parent": ref(a.parent)} if a.parent else {}),
+                **({"status": a.status} if a.status != "inbox" else {}),
+            },
+            a.as_,
+        )
+        if a.json:
+            return out(r)
+        t = r["task"]
+        print(f"{ACTION_JA.get(r['action'], r['action'])}: {t.get('ref') or '#' + str(t['id'])}（{STATUS_JA.get(t['status'], t['status'])}）{t['title']}" + (f" — {r['reason']}" if r.get("reason") else ""))
+        return
+    if a.cmd in ("find", "show"):
+        r = call("task.find", {"source": a.source, "key": a.key}, a.as_) if a.cmd == "find" else call("task.get", {"id": a.id if not a.id.isdigit() else int(a.id)}, a.as_)
+        if a.json:
+            return out(r)
+        if r is None:
+            return print("（登録されていない）")
+        print(line(r))
+        if r.get("url"):
+            print(r["url"])
+        if r.get("kanbanId"):
+            print(f"カンバン: {r['kanbanId']}")
+        print()
+        print(r["body"])
+        print("\n--- 記録")
+        for e in r.get("events", []):
+            print(f"{when(e['at'])}  {e['kind']:<8} {e['author']:<16} {e['text']}")
+        return
+    if a.cmd == "list":
+        args = {"limit": a.limit}
+        if a.status:
+            args["status"] = [x.strip() for x in a.status.split(",") if x.strip()]
+        if a.source:
+            args["source"] = a.source
+        if a.query:
+            args["q"] = a.query
+        r = call("task.list", args, a.as_)
+        if a.json:
+            return out(r)
+        for t in r:
+            print(line(t))
+        if not r:
+            print("（当てはまるタスクは無い）")
+        return
+    if a.cmd == "status":
+        r = call("task.status", {"id": ref(a.id), "status": a.status, "note": a.note}, a.as_)
+        return print(json.dumps(r, ensure_ascii=False, indent=2) if a.json else line(r))
+    if a.cmd == "parent":
+        if a.none == bool(a.parent):
+            sys.exit("plasmod-task: 親の ID か --none のどちらか一つを指定する")
+        r = call("task.parent", {"id": ref(a.id), "parent": None if a.none else ref(a.parent)}, a.as_)
+        if a.json:
+            return out(r)
+        return print(line(r) + ("" if r.get("parentId") else "（親なし）"))
+    if a.cmd in ("link", "links"):
+        if a.cmd == "link":
+            r = call("task.link", {"a": ref(a.id), "b": ref(a.other), "kind": a.kind, "on": not a.off}, a.as_)
+        else:
+            r = call("task.links", {"id": ref(a.id)}, a.as_)
+        if a.json:
+            return out(r)
+        for label, k in (("親", "parent"), ("子", "children"), ("止めている", "blocks"), ("止められている", "blockedBy"), ("関連", "related")):
+            v = r.get(k)
+            items = [v] if isinstance(v, dict) else (v or [])
+            if items:
+                print(f"{label}:")
+                for t in items:
+                    print("  " + line(t))
+        if not any(r.get(k) for k in ("parent", "children", "blocks", "blockedBy", "related")):
+            print("（親・子・つながりは無い）")
+        return
+    text = a.text if a.text is not None else sys.stdin.read()
+    r = call("task.comment", {"id": a.id, "text": text}, a.as_)
+    print(json.dumps(r, ensure_ascii=False, indent=2) if a.json else line(r))
+
+
+if __name__ == "__main__":
+    main()

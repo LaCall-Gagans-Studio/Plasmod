@@ -1,0 +1,22 @@
+[Unit]
+Description=Plasmod (AI agent control app)
+After=network-online.target plasmod-bridge.service
+Wants=network-online.target
+
+[Service]
+User=plasmod
+Group=plasmod
+# コードは root 所有。サービス自身は書き換えられない
+WorkingDirectory=/opt/plasmod
+EnvironmentFile=/etc/plasmod/env
+Environment=PLASMOD_DATA_DIR=/var/lib/plasmod
+Environment=PLASMOD_BRIDGE_SOCK=/run/plasmod-dev/app.sock
+StateDirectory=plasmod
+ExecStart=/usr/local/bin/bun run src/server/index.ts
+Restart=always
+RestartSec=5
+# sudo（broker 呼び出し）が要るので NoNewPrivileges は付けない
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

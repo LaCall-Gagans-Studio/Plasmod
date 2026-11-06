@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#F7F6F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0D0D0F" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!-- iPhone のホーム画面は SVG を使わないので PNG（角は iOS が丸める） -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Plasmod</title>
+    <style>
+      /* JS が届く前から出す。動きは SVG の中（loading.tsx の AmoebaLoader と同じ見た目） */
+      html, body { margin: 0; height: 100%; background: #f7f6f2; }
+      html[data-theme="dark"], html[data-theme="dark"] body { background: #0d0d0f; }
+      #root { height: 100%; }
+      .gh-splash { display: flex; height: 100%; align-items: center; justify-content: center; }
+      .gh-splash g.a { transform-origin: 100px 100px; animation: gh-sway 2.6s ease-in-out infinite alternate; }
+      .gh-splash g.a:nth-child(2n) { animation-duration: 1.9s; animation-direction: alternate-reverse; }
+      .gh-splash g.a:nth-child(3n) { animation-duration: 2.2s; }
+      .gh-splash g.p { animation: gh-look 2.8s ease-in-out infinite alternate; }
+      @keyframes gh-look { from { transform: translate(-5px, -2px); } to { transform: translate(5px, 3px); } }
+      @keyframes gh-sway { from { transform: rotate(-10deg) scale(.86); } to { transform: rotate(10deg) scale(1.08); } }
+      @media (prefers-reduced-motion: reduce) { .gh-splash g.a, .gh-splash g.p { animation: none; } }
+    </style>
+    <script src="/theme-init.js"></script>
+  </head>
+  <body>
+    <div id="root"><div class="gh-splash">
+      <svg width="200" height="200" viewBox="0 0 200 200" aria-hidden="true">
+        <defs><filter id="gh-splash-goo" x="0" y="0" width="200" height="200" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="4" /><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" /></filter></defs>
+        <g filter="url(#gh-splash-goo)" fill="none" stroke="#a3c93a" stroke-width="11" stroke-linecap="round">
+          <g class="a"><path d="M100 78C94 58 106 44 98 24" /></g>
+          <g class="a"><path d="M116 84C130 72 134 64 148 58" /></g>
+          <g class="a"><path d="M122 100C142 94 152 108 174 100" /></g>
+          <g class="a"><path d="M116 116C126 128 136 130 142 146" /></g>
+          <g class="a"><path d="M100 122C106 142 94 156 102 178" /></g>
+          <g class="a"><path d="M84 116C72 126 66 136 54 142" /></g>
+          <g class="a"><path d="M78 100C58 106 48 92 26 100" /></g>
+          <g class="a"><path d="M84 84C74 72 64 70 56 54" /></g>
+          <circle cx="100" cy="100" r="30" fill="#a3c93a" stroke="none" />
+        </g>
+        <circle cx="100" cy="100" r="17" fill="#F3F1EC" />
+        <g class="p"><circle cx="100" cy="100" r="9.5" fill="#0D0D0F" /><circle cx="97" cy="96" r="2.6" fill="#fff" /></g>
+      </svg>
+    </div></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

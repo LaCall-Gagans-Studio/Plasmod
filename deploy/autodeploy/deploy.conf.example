@@ -1,0 +1,7 @@
+# /etc/plasmod-deploy/deploy.conf（root:root 0644）
+REPO_URL=git@github.com:<owner>/<repo>.git
+# GitHub の画面でマージしたときの author（持ち主のアカウント）。空白区切りで複数可
+ALLOWED_AUTHORS="<id>+<owner>@users.noreply.github.com"
+# GitHub がマージ commit に付ける署名の鍵（web-flow）。https://github.com/web-flow.gpg の指紋
+WEBFLOW_FPR=968479A1AFF927E37D1A566BB5690EEEBB952194
+BUILD_USER=plasmod-build

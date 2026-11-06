@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""rootreq: root の作業を plasmod-rootd に依頼する（cc・hermes から使う）。
+
+  rootreq submit --title 題 --reason 理由 --script FILE [--file 添付 ...] [--timeout 秒]   → ID と digest を出す
+  rootreq status ID
+  rootreq wait ID [--max 秒]      承認されて実行が終わるまで待ち、出力を表示して、スクリプトの終了コードで終わる
+  rootreq action 部品 引数... [--reason 理由]   決まった部品を依頼する（スクリプトは plasmod-rootd が組み立てる。承認は submit と同じ）
+      cron.pause PROFILE JOB / cron.resume PROFILE JOB
+      mcp.enable PROFILE NAME / mcp.disable PROFILE NAME
+      service.restart UNIT      サービスの再起動（plasmod・hermes- だけ。plasmod-rootd 自身は不可）
+      config.set PROFILE KEY VALUE  Hermes の設定。approvals.mode（manual・smart）と approvals.timeout（30〜3600）だけ
+      skill.sync PROFILE NAME   入っているスキルを、リポジトリの版に更新する
+      undo ID                   終わった部品の依頼を、実行の前の状態に戻す
+  rootreq inspect 項目 [引数]     読むだけの決まった項目（承認なし）。秘密らしい値は伏せて返る
+      system                    ディスク・メモリ・稼働時間・落ちているサービス・Tailscale の状態
+      gateway-log [語]          gateway のログの末尾2MB から、語を含む行（最後の100行）
+      hermes-code パス[:開始-終わり]  Hermes のコードを読む（400行まで。.env や鍵は読めない）
+      hermes-grep 語            Hermes のコードから語を探す（80件まで）
+      skills [PROFILE]          入っているスキルの一覧
+      skill PROFILE:名前        スキルの本文を読む
+      hermes-config [PROFILE]   config.yaml の要点（モデル・MCP の名前・有効・ホスト・道具の絞り込み）。既定 default
+      hermes-cron [PROFILE]     cron の一覧（状態・次と前回・結果）。既定は全プロファイル
+      hermes-mcp [PROFILE]      MCP ごとのログイン状態（トークンの有無・期限）と gateway.log の警告。既定は全プロファイル
+      units [UNIT]              関係する systemd の unit の状態。UNIT を付けると journal の末尾も
+      env-keys [PROFILE]        /etc/plasmod/env と Hermes の .env の「キーの名前」だけ
+
+依頼した中身は、この時点で plasmod-rootd（root）にコピーされる。あとで FILE を書き換えても実行されるのはコピー。
+承認はオーナーが Plasmod アプリでパスワードを入れたときだけ。ここからは承認できない。
+終了コード: スクリプトの終了コード / 10 却下 / 11 失効 / 12 中断 / 20 待ちきれなかった / 2 使い方・接続の誤り
+"""
+import argparse
+import base64
+import json
+import os
+import socket
+import sys
+import time
+
+SOCK = os.environ.get("PLASMOD_ROOTD_REQ_SOCK", "/run/plasmod-rootd/req.sock")
+MAX_LINE = 40 * 1024 * 1024
+
+
+def call(req):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(30)
+    try:
+        s.connect(SOCK)
+        s.sendall(json.dumps(req).encode() + b"\n")
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+            if len(buf) > MAX_LINE:
+                break
+    except OSError as e:
+        sys.exit(f"rootreq: plasmod-rootd に繋げない（{SOCK}）: {e.strerror or e}")
+    finally:
+        s.close()
+    try:
+        return json.loads(buf)
+    except ValueError:
+        sys.exit("rootreq: plasmod-rootd の返事が読めない")
+
+
+def read(path):
+    try:
+        return sys.stdin.buffer.read() if path == "-" else open(path, "rb").read()
+    except OSError as e:
+        sys.exit(f"rootreq: {path} を読めない: {e.strerror}")
+
+
+def show(r):
+    for k in ("stdout", "stderr"):
+        if r.get(k):
+            print(f"--- {k}{' (切り詰め)' if r.get(k + '_truncated') else ''} ---")
+            print(r[k], end="" if r[k].endswith("\n") else "\n")
+    if r.get("error"):
+        print("error:", r["error"])
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="rootreq")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("submit")
+    s.add_argument("--title", required=True)
+    s.add_argument("--reason", default="")
+    s.add_argument("--script", required=True, help="bash スクリプト（- で標準入力）")
+    s.add_argument("--file", action="append", default=[], help="添付（実行時は $PLASMOD_ROOTD_FILES に置かれる）")
+    s.add_argument("--timeout", type=int, default=600)
+    st = sub.add_parser("status")
+    st.add_argument("id")
+    w = sub.add_parser("wait")
+    w.add_argument("id")
+    w.add_argument("--max", type=int, default=24 * 3600)
+    ac = sub.add_parser("action")
+    ac.add_argument("name")
+    ac.add_argument("args", nargs="*")
+    ac.add_argument("--reason", default="")
+    i = sub.add_parser("inspect")
+    i.add_argument("item")
+    i.add_argument("arg", nargs="?")
+    a = ap.parse_args()
+
+    if a.cmd == "submit":
+        files = [{"name": os.path.basename(f), "data_b64": base64.b64encode(read(f)).decode()} for f in a.file]
+        r = call({"op": "submit", "title": a.title, "reason": a.reason, "timeout": a.timeout,
+                  "script_b64": base64.b64encode(read(a.script)).decode(), "files": files})
+        if not r.get("ok"):
+            sys.exit(f"rootreq: 依頼できない: {r.get('error')}")
+        print(r["id"])
+        print(f"digest {r['digest']}", file=sys.stderr)
+        print("承認待ち。オーナーが Plasmod アプリで内容を見てパスワードを入れると実行される。結果は: rootreq wait " + r["id"], file=sys.stderr)
+        return 0
+    if a.cmd == "action":
+        r = call({"op": "action", "name": a.name, "args": a.args, "reason": a.reason})
+        if not r.get("ok"):
+            sys.exit(f"rootreq: 依頼できない: {r.get('error')}")
+        print(r["id"])
+        print("--- 下見", file=sys.stderr)
+        print(r["preview"], file=sys.stderr)
+        print(f"digest {r['digest']}", file=sys.stderr)
+        print("承認待ち。結果は: rootreq wait " + r["id"], file=sys.stderr)
+        return 0
+    if a.cmd == "inspect":
+        r = call({"op": "inspect", "item": a.item, "arg": a.arg})
+        if not r.get("ok"):
+            sys.exit(f"rootreq: {r.get('error')}")
+        print(json.dumps(r["data"], ensure_ascii=False, indent=2))
+        return 0
+    if a.cmd == "status":
+        r = call({"op": "status", "id": a.id})
+        if not r.get("ok"):
+            sys.exit(f"rootreq: {r.get('error')}")
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
+    deadline = time.time() + a.max
+    last = None
+    while True:
+        r = call({"op": "status", "id": a.id})
+        if not r.get("ok"):
+            sys.exit(f"rootreq: {r.get('error')}")
+        if r["status"] != last:
+            print(f"[{r['status']}]", file=sys.stderr, flush=True)
+            last = r["status"]
+        if r["status"] in ("done", "failed", "timeout"):
+            show(r)
+            code = r.get("exit_code")
+            if r["status"] == "timeout" or code is None:
+                return 124
+            return code if code >= 0 else 128 - code  # シグナルで死んだら 128+番号
+        if r["status"] in ("rejected", "expired", "interrupted"):
+            show(r)
+            return {"rejected": 10, "expired": 11, "interrupted": 12}[r["status"]]
+        if time.time() > deadline:
+            print("rootreq: 待ちきれなかった（依頼は残っている）", file=sys.stderr)
+            return 20
+        time.sleep(2)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

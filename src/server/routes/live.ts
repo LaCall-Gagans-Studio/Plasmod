@@ -1,0 +1,90 @@
+// 死活確認・画面への流れ・外の送り手の受け口・APK の通知
+import { type Context } from "hono";
+import { streamSSE } from "hono/streaming";
+import { fromTailscale } from "../auth";
+import { parseRelay, relayNotice, tokenOk } from "../notify-relay";
+import type { RouteContext } from "./context";
+import pkg from "../../../package.json";
+
+export function liveRoutes({ app, cfg, hub, rootd, feed }: RouteContext) {
+  app.get("/api/health", (c) => c.json({ ok: true }));
+  app.get("/api/about", (c) =>
+    c.json({
+      name: "Plasmod",
+      version: pkg.version,
+      owner: cfg.ownerName,
+      ownerIsDefault: cfg.ownerName === "オーナー",
+      devAgent: cfg.profiles.find((p) => p.id === "dev")?.name ?? "開発",
+      developer: cfg.developer,
+      repoUrl: cfg.repoUrl,
+      license: "MIT",
+    }),
+  );
+  app.get("/api/snapshot", (c) => c.json(hub.snapshot()));
+
+  app.get("/api/stream", (c) => {
+    const res = streamSSE(c, async (stream) => {
+      let alive = true;
+      const send = (s: unknown) => stream.writeSSE({ event: "snapshot", data: JSON.stringify(s) });
+      const off = hub.subscribe((s) => void send(s));
+      stream.onAbort(() => {
+        alive = false;
+        off();
+      });
+      await send(hub.snapshot());
+      while (alive) {
+        await stream.sleep(25_000);
+        if (alive) await stream.writeSSE({ event: "ping", data: "" });
+      }
+    });
+    // 途中で貯めたり圧縮したりさせない（中継がまとめて流すと、新しいカードが届かない）
+    res.headers.set("Cache-Control", "no-cache, no-transform");
+    res.headers.set("X-Accel-Buffering", "no");
+    return res;
+  });
+
+  // 外の送り手（自動デプロイ・plasmod-rootd が PLASMOD_NOTIFY_URL に送る知らせ）の受け口
+  // 127.0.0.1 の TCP だけ・PLASMOD_NOTIFY_TOKEN が合うものだけ。APK の通知の流れに入れる
+  const relay = async (c: Context) => {
+    if (fromTailscale(c.env)) return c.text("forbidden", 403);
+    if (!tokenOk(c.req.header("authorization"), cfg.relayToken)) return c.text("forbidden", 403);
+    const e = feed?.add(relayNotice(parseRelay(c.req.raw.headers, await c.req.text())));
+    return c.json({ id: String(e?.id ?? ""), event: "message" });
+  };
+  app.post("/notify-relay", relay);
+
+  // APK の通知（TASK-250）: つなぎっぱなしで受け取る。?since=<最後に受け取った id> でつながっていなかった間の分も送る。
+  // since が無ければ（初めての端末）、今の id を hello で知らせて、ここから先だけ
+  app.get("/api/notify/stream", (c) => {
+    if (!feed) return c.json({ ok: false, error: "通知の流れが無い" }, 404);
+    const since = Number(c.req.query("since"));
+    const res = streamSSE(c, async (stream) => {
+      let alive = true;
+      const send = (e: { id: number; type: string }) => stream.writeSSE({ id: String(e.id), event: e.type, data: JSON.stringify(e) });
+      // 先に受け口を作ってから、たまっていた分を送る（その間に来たものを落とさない。重なりは id で弾く）
+      let sent = Number.isFinite(since) && since >= 0 ? since : feed.last();
+      const off = feed.subscribe((e) => {
+        if (e.id <= sent) return;
+        sent = e.id;
+        void send(e);
+      });
+      stream.onAbort(() => {
+        alive = false;
+        off();
+      });
+      await stream.writeSSE({ event: "hello", data: JSON.stringify({ last: feed.last() }) });
+      for (const e of feed.since(sent, 200)) {
+        if (e.id <= sent) continue;
+        sent = e.id;
+        await send(e);
+      }
+      while (alive) {
+        await stream.sleep(25_000);
+        if (alive) await stream.writeSSE({ event: "ping", data: "" });
+      }
+    });
+    res.headers.set("Cache-Control", "no-cache, no-transform");
+    res.headers.set("X-Accel-Buffering", "no");
+    return res;
+  });
+}

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ウィジェット「すぐ書く」: 音声メモ・アシスタントに頼む -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:gravity="center"
+    android:orientation="horizontal"
+    android:padding="10dp">
+
+    <TextView
+        android:id="@+id/widget_voice"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:layout_weight="1"
+        android:background="@drawable/widget_button_lime"
+        android:gravity="center"
+        android:text="🎤 音声メモ"
+        android:textColor="#17171A"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_ask"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:background="@drawable/widget_button"
+        android:gravity="center"
+        android:text="＋ アシスタントに頼む"
+        android:textColor="#F7F6F2"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+</LinearLayout>

@@ -1,0 +1,766 @@
+#!/usr/bin/python3
+"""Plasmod 用のカンバン仲介。plasmod ユーザーから `sudo -n -u hermes /usr/local/bin/plasmod-broker ...` で呼ばれる。
+
+オーナーの判断をカンバンに返すための、決まった操作だけを受け付ける:
+  latest-event               task_events の最新 ID（変化の検知用）
+  board                      ボードのスナップショット（JSON）。アーカイブ以外と、3日以内に終わったカード
+  endpoints                  Hermes の API につなぐ先とキー（JSON）。アプリだけが呼ぶ
+  comment ID TEXT            コメント（author=owner）
+  unblock ID                 blocked を解除して ready に戻す
+  complete ID RESULT         完了にする（review の承認）
+  archive ID                 アーカイブする（triage など、完了にできない状態のカードを「不要」で片付ける）
+  specify ID ASSIGNEE        triage（仕分け待ち）のカードの担当を決めて todo に戻す（オーナーの手の仕分け）
+  request-changes ID REASON  review を差し戻す（実装した担当に戻す）
+  create TITLE BODY ASSIGNEE カードを作る（created-by=owner）。作ったカードの ID を出す
+  attach ID NAME             標準入力の中身を添付する（25MB まで）
+  put-file NAME              標準入力の中身を ~/.hermes/plasmod-inbox/ に置いて、置いたパスを出す（チャットの添付を Hermes のエージェントに渡す。25MB まで）
+  media-read PATH            エージェントが出したファイルを、そのまま標準出力に出す（チャットで見る用。許可した場所の中だけ、15MB まで）
+  usage                      プロファイルごとのトークン数・費用（直近5時間・7日・30日）
+  credits                    Nous のクレジット（月の枠・残り・有料モデルが使えるか）。金額と状態だけで、アカウントの情報は出さない
+  models                     プロファイルごとの今のモデルと、選べるモデル（/etc/plasmod-models.json）
+  set-model PROFILE INDEX    選べるモデルの INDEX 番目に切り替える（許可リストの外は選べない）
+  fs-list PATH / fs-read PATH  ~/.hermes の中を見る（.env・auth・DB・鍵などは見せない）
+  task ID                    カードの詳細（本文・コメント・イベント・実行・親子・添付の一覧）。JSON
+  agents                     プロファイルごとの人格（SOUL.md）・スキルの一覧・設定ファイルの場所・モデル。JSON
+  cron-output PROFILE        そのプロファイルの cron の最近の出力（監察チームの報告）。返答の部分だけ、新しい順に 8 件。JSON
+  cron                       プロファイルごとの定期実行（cron/jobs.json）。スケジュール・状態・前回の結果だけで、送り先の ID などは出さない。JSON
+
+読み取りは kanban.db を読み取り専用で開く。書き込みは hermes の CLI を通す（Hermes 側の整合性チェックを使うため）。
+"""
+import contextlib
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+
+CONF_FILE = "/etc/plasmod-broker.conf"   # 任意。root が置く。HERMES_USER_HOME=・HERMES_HOME=・HERMES_BIN=・DEV_ASSIGNEE=
+
+
+def conf(key, default):
+    try:
+        with open(CONF_FILE, encoding="utf-8") as f:
+            for line in f:
+                k, sep, v = line.strip().partition("=")
+                if sep and k == key and v:
+                    return v
+    except OSError:
+        pass
+    return default
+
+
+USER_HOME = conf("HERMES_USER_HOME", "/home/hermes")
+HERMES_HOME = conf("HERMES_HOME", USER_HOME + "/.hermes")
+HERMES = conf("HERMES_BIN", USER_HOME + "/.local/bin/hermes")
+KANBAN_DB = HERMES_HOME + "/kanban.db"
+# アプリのサービスは ProtectSystem=strict で動き、sudo で呼ばれるこの仲介も同じ見え方になる（/tmp を含めて読み取り専用、/home は書ける）。
+# 一時ファイルは /tmp ではなく ~/.hermes の中に置き、Hermes の CLI にも TMPDIR で同じ場所を使わせる
+WORK_TMP = HERMES_HOME + "/plasmod-tmp"
+ENV = {"HOME": USER_HOME, "PATH": USER_HOME + "/.local/bin:/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "TMPDIR": WORK_TMP}
+AUTHOR = "owner"
+DONE_WINDOW = 3 * 86400
+
+
+def die(msg, code=2):
+    print(f"plasmod-broker: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def task_id(s):
+    if not s or len(s) > 64 or not all(c.isalnum() or c in "-_" for c in s):
+        die(f"不正なカードID: {s!r}")
+    return s
+
+
+def kanban(*args):
+    r = subprocess.run([HERMES, "kanban", *args], env=ENV, cwd=USER_HOME, capture_output=True, text=True)
+    if r.returncode != 0:
+        die((r.stderr or r.stdout).strip()[-2000:] or f"hermes kanban {args[0]} failed", r.returncode)
+    print(r.stdout, end="")
+
+
+def db():
+    c = sqlite3.connect(f"file:{KANBAN_DB}?mode=ro", uri=True, timeout=5)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+TASK_COLS = ("id, title, body, assignee, status, priority, created_by, created_at, started_at, completed_at, "
+             "last_heartbeat_at, block_kind, result")
+
+
+def board():
+    c = db()
+    try:
+        since = int(time.time()) - DONE_WINDOW
+        tasks = [dict(r) for r in c.execute(
+            f"SELECT {TASK_COLS} FROM tasks WHERE status != 'archived' AND (status != 'done' OR completed_at >= ?)",
+            (since,))]
+        ids = [t["id"] for t in tasks]
+        latest = {}
+        if ids:
+            q = ",".join("?" * len(ids))
+            for r in c.execute(
+                    f"""SELECT task_id, author, body, created_at FROM task_comments c
+                        WHERE task_id IN ({q}) AND id = (SELECT MAX(id) FROM task_comments WHERE task_id = c.task_id)""",
+                    ids):
+                latest[r["task_id"]] = {"author": r["author"], "body": (r["body"] or "")[:4000], "created_at": r["created_at"]}
+        for t in tasks:
+            t["body"] = (t["body"] or "")[:4000] or None
+            t["result"] = (t["result"] or "")[:2000] or None
+            t["latest_comment"] = latest.get(t["id"])
+        idset = set(ids)
+        links = [dict(r) for r in c.execute("SELECT parent_id, child_id FROM task_links")
+                 if r["parent_id"] in idset or r["child_id"] in idset]
+        runs = [dict(r) for r in c.execute(
+            "SELECT task_id, profile, started_at, last_heartbeat_at FROM task_runs WHERE status = 'running' AND ended_at IS NULL")]
+        latest_event = c.execute("SELECT COALESCE(MAX(id), 0) FROM task_events").fetchone()[0]
+        print(json.dumps({"latest_event_id": latest_event, "tasks": tasks, "links": links, "active_runs": runs},
+                         ensure_ascii=False))
+    finally:
+        c.close()
+
+
+ASSIGNEE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+MAX_ATTACH = 25 * 1024 * 1024
+
+
+def create(title, body, assignee):
+    if not ASSIGNEE_RE.match(assignee):
+        die(f"不正な担当: {assignee!r}")
+    if assignee == "dev":
+        assignee = dev_assignee()
+    r = subprocess.run([HERMES, "kanban", "create", "--assignee", assignee, "--created-by", AUTHOR,
+                        "--body", body[:8000], title[:200]], env=ENV, cwd=USER_HOME, capture_output=True, text=True)
+    if r.returncode != 0:
+        die((r.stderr or r.stdout).strip()[-2000:] or "hermes kanban create failed", r.returncode)
+    m = re.search(r"\bt_[A-Za-z0-9_-]+\b", r.stdout)
+    if not m:
+        die(f"作ったカードの ID が読めない: {r.stdout.strip()[:200]}")
+    print(m.group(0))
+
+
+def attach(tid, name):
+    import os
+    import shutil
+    import tempfile
+    base = name.strip()
+    if not base or base != os.path.basename(base) or base.startswith(".") or len(base) > 120 or "\0" in base:
+        die(f"不正なファイル名: {name!r}")
+    data = sys.stdin.buffer.read(MAX_ATTACH + 1)
+    if len(data) > MAX_ATTACH:
+        die("25MB を超えている")
+    os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
+    d = tempfile.mkdtemp(prefix="gh-attach-", dir=WORK_TMP)
+    try:
+        path = os.path.join(d, base)
+        with open(path, "wb") as f:
+            f.write(data)
+        kanban("attach", "--author", AUTHOR, "--name", base, tid, path)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+INBOX_DIR = os.path.join(HERMES_HOME, "plasmod-inbox")
+INBOX_KEEP = 30 * 86400
+MODELS_FILE = "/etc/plasmod-models.json"
+PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def put_file(name):
+    """チャットの添付を、エージェントが読める場所に置く。30日より古いものはここで片付ける。"""
+    base = name.strip()
+    if not base or base != os.path.basename(base) or base.startswith(".") or len(base) > 120 or "\0" in base:
+        die(f"不正なファイル名: {name!r}")
+    data = sys.stdin.buffer.read(MAX_ATTACH + 1)
+    if len(data) > MAX_ATTACH:
+        die("25MB を超えている")
+    os.makedirs(INBOX_DIR, mode=0o755, exist_ok=True)
+    now = time.time()
+    for old in os.listdir(INBOX_DIR):
+        q = os.path.join(INBOX_DIR, old)
+        try:
+            if os.path.isfile(q) and not os.path.islink(q) and now - os.path.getmtime(q) > INBOX_KEEP:
+                os.remove(q)
+        except OSError:
+            pass
+    path = os.path.join(INBOX_DIR, f"{int(now * 1000)}-{base}")
+    with open(path, "xb") as f:
+        f.write(data)
+    print(path)
+
+
+def profiles():
+    out = {"default": HERMES_HOME}
+    pdir = os.path.join(HERMES_HOME, "profiles")
+    if os.path.isdir(pdir):
+        for name in sorted(os.listdir(pdir)):
+            if PROFILE_RE.match(name) and os.path.isdir(os.path.join(pdir, name)):
+                out[name] = os.path.join(pdir, name)
+    return out
+
+
+def endpoints():
+    """アプリが Hermes の API につなぐ先。API_SERVER_KEY のあるプロファイルだけ（キーはアプリのメモリにだけ置く）"""
+    try:
+        with open(os.path.join(HERMES_HOME, "config.yaml"), encoding="utf-8") as f:
+            multiplex = bool(re.search(r"^\s*multiplex_profiles:\s*true\s*$", f.read(), re.M))
+    except OSError:
+        multiplex = False
+    found = {}
+    for name, home in profiles().items():
+        env = {}
+        try:
+            with open(os.path.join(home, ".env"), encoding="utf-8") as f:
+                for line in f:
+                    k, sep, v = line.strip().partition("=")
+                    if sep and k in ("API_SERVER_KEY", "API_SERVER_PORT"):
+                        env[k] = v.strip().strip("'\"")
+        except OSError:
+            continue
+        if env.get("API_SERVER_KEY"):
+            found[name] = env
+    base = found.get("default", {}).get("API_SERVER_PORT") or "8642"
+    out = {}
+    for name, env in found.items():
+        if multiplex:
+            url = f"http://127.0.0.1:{base}" + ("" if name == "default" else f"/p/{name}")
+        else:
+            url = f"http://127.0.0.1:{env.get('API_SERVER_PORT') or '8642'}"
+        out[name] = {"url": url, "key": env["API_SERVER_KEY"]}
+    print(json.dumps(out))
+
+
+def usage():
+    now = time.time()
+    res = {}
+    for name, home in profiles().items():
+        path = os.path.join(home, "state.db")
+        if not os.path.exists(path):
+            continue
+        try:
+            c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+            c.row_factory = sqlite3.Row
+            q = ("SELECT COALESCE(SUM(input_tokens + output_tokens + COALESCE(cache_write_tokens, 0)), 0) AS tokens, "
+                 "COALESCE(SUM(COALESCE(actual_cost_usd, estimated_cost_usd, 0)), 0) AS cost, COUNT(*) AS sessions "
+                 "FROM sessions WHERE started_at >= ?")
+            win = {k: dict(c.execute(q, (now - sec,)).fetchone()) for k, sec in (("h5", 5 * 3600), ("d7", 7 * 86400), ("d30", 30 * 86400))}
+            models = [dict(r) for r in c.execute(
+                "SELECT COALESCE(model, '?') AS model, SUM(input_tokens + output_tokens) AS tokens, "
+                "SUM(COALESCE(actual_cost_usd, estimated_cost_usd, 0)) AS cost FROM sessions "
+                "WHERE started_at >= ? GROUP BY model ORDER BY tokens DESC LIMIT 5", (now - 30 * 86400,))]
+            c.close()
+            res[name] = {**win, "models": models}
+        except sqlite3.Error as e:
+            res[name] = {"error": str(e)[:200]}
+    print(json.dumps(res, ensure_ascii=False))
+
+
+# Hermes の中で動かす。get_nous_portal_account_info は Hermes が「You've used $X of your $Y cap」を出すときと同じ出どころ
+CREDITS_CODE = r"""
+import contextlib
+import json
+from hermes_cli.nous_account import get_nous_portal_account_info
+i = get_nous_portal_account_info(force_fresh=True)
+acc, sub = i.paid_service_access_info, i.subscription
+num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+print(json.dumps({
+    "logged_in": bool(i.logged_in),
+    "paid_access": i.paid_service_access if isinstance(i.paid_service_access, bool) else None,
+    "reason": getattr(acc, "reason", None),
+    "plan": getattr(sub, "plan", None),
+    "monthly": num(getattr(sub, "monthly_credits", None)),
+    "subscription_remaining": num(getattr(acc, "subscription_credits_remaining", None)),
+    "purchased_remaining": num(getattr(acc, "purchased_credits_remaining", None)),
+    "total_remaining": num(getattr(acc, "total_usable_credits", None)),
+    "period_end": getattr(sub, "current_period_end", None),
+    "error": str(i.error)[:300] if i.error else None,
+}))
+"""
+RUNPY_RE = re.compile(r"runpy\.run_module\([^()]*\)")
+
+
+def hermes_exec(code, extra_env=None, what="Hermes の中の処理"):
+    """code を Hermes の Python で動かし、最後の行の JSON を返す。
+    Hermes の Python と依存は Hermes 自身の起動コマンドで決まる。その最後（hermes_cli.main を動かすところ）だけ差し替える"""
+    r = subprocess.run([HERMES, "--print-runtime-command", "--module", "hermes_cli.main"], env=ENV, cwd=ENV["HOME"],
+                       capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        die((r.stderr or r.stdout).strip()[-1000:] or "hermes --print-runtime-command failed", r.returncode)
+    try:
+        cmd = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        die("Hermes の起動コマンドが読めない")
+    hits = [n for n, a in enumerate(cmd) if isinstance(a, str) and len(RUNPY_RE.findall(a)) == 1] if isinstance(cmd, list) else []
+    if len(hits) != 1:
+        die("Hermes の起動コマンドの形が想定と違う（Hermes の更新で変わったかもしれない）")
+    cmd[hits[0]] = RUNPY_RE.sub(lambda _: "exec(%r)" % code, cmd[hits[0]])
+    r = subprocess.run(cmd, env={**ENV, **(extra_env or {})}, cwd=ENV["HOME"], capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        die((r.stderr or r.stdout).strip()[-1000:] or f"{what}に失敗した", r.returncode)
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        die(f"{what}の返事が読めない")
+
+
+def credits():
+    print(json.dumps(hermes_exec(CREDITS_CODE, what="クレジットの取得"), ensure_ascii=False))
+
+
+# triage → todo。Hermes の CLI には手で仕分けるコマンドが無い（specify は AI に仕分けさせる）ので、
+# CLI の specify が最後に呼ぶのと同じ関数を直接呼ぶ。状態の確認・コメント・イベント・ready への繰り上げは Hermes がやる
+SPECIFY_CODE = r"""
+import json
+import os
+from hermes_cli import kanban_db as kb
+from hermes_cli import kanban_db_connect as kbc
+with kbc.connect_closing() as conn:
+    ok = kb.specify_triage_task(conn, os.environ["PLASMOD_TASK_ID"], assignee=os.environ["PLASMOD_ASSIGNEE"], author=os.environ["PLASMOD_AUTHOR"])
+print(json.dumps({"ok": bool(ok)}))
+"""
+# カンバンの担当になれるもの: Hermes のプロファイルと、開発エージェント（カンバン作業者が dev 宛てのカードを拾う）
+EXTRA_ASSIGNEES = ("dev",)
+
+
+def dev_assignee():
+    """画面の dev を、カンバンの担当名にする（環境ごとに変えられる）"""
+    v = conf("DEV_ASSIGNEE", "dev")
+    return v if ASSIGNEE_RE.match(v) else "dev"
+
+
+def specify(tid, assignee):
+    if not PROFILE_RE.match(assignee) or (assignee not in profiles() and assignee not in EXTRA_ASSIGNEES):
+        die(f"知らない担当: {assignee!r}")
+    if assignee == "dev":
+        assignee = dev_assignee()
+    out = hermes_exec(SPECIFY_CODE, {"PLASMOD_TASK_ID": tid, "PLASMOD_ASSIGNEE": assignee, "PLASMOD_AUTHOR": AUTHOR}, "仕分け")
+    if not out.get("ok"):
+        die("仕分けられなかった（もう仕分け待ちではないかもしれない）")
+
+
+def hermes_cfg(profile, *args):
+    cmd = [HERMES] + (["-p", profile] if profile != "default" else []) + ["config", *args]
+    try:
+        r = subprocess.run(cmd, env=ENV, cwd=USER_HOME, capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        die("hermes config が 20 秒で終わらなかった")
+    if r.returncode != 0:
+        die((r.stderr or r.stdout).strip()[-1000:] or "hermes config failed", r.returncode)
+    return r.stdout.strip()
+
+
+def model_choices():
+    try:
+        with open(MODELS_FILE) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def model_of(name, home):
+    """いまのモデル。config.yaml を直接読む（hermes config get を毎回起動すると1回数秒かかり、
+    プロファイル8つ×2回で1分を超えて、システムの画面が読み込みのまま終わらなかった）。書いていなければ hermes に聞く"""
+    try:
+        import yaml
+        with open(os.path.join(home, "config.yaml"), encoding="utf-8") as f:
+            m = (yaml.safe_load(f) or {}).get("model")
+        if isinstance(m, dict) and m.get("default"):
+            return {"provider": str(m["provider"]) if m.get("provider") else None, "model": str(m["default"])}
+        if isinstance(m, str) and m:
+            return {"provider": None, "model": m}
+    except Exception:  # 読めない・形が違う・yaml が無い → hermes に聞く
+        pass
+    try:
+        return {"provider": hermes_cfg(name, "get", "model.provider"), "model": hermes_cfg(name, "get", "model.default")}
+    except SystemExit:
+        return {"provider": None, "model": None}
+
+
+def models():
+    choices = model_choices()
+    out = {}
+    for name, home in profiles().items():
+        out[name] = {"current": model_of(name, home), "choices": choices.get(name, [])}
+    print(json.dumps(out, ensure_ascii=False))
+
+
+def set_model(profile, index):
+    if profile not in profiles():
+        die(f"知らないプロファイル: {profile!r}")
+    choices = model_choices().get(profile, [])
+    if not index.isdigit() or int(index) >= len(choices):
+        die("許可リストに無いモデル")
+    ch = choices[int(index)]
+    provider, model = str(ch.get("provider", "")), str(ch.get("model", ""))
+    if not provider or not model:
+        die("許可リストの形が正しくない")
+    hermes_cfg(profile, "set", "model.provider", provider)
+    hermes_cfg(profile, "set", "model.default", model)
+    print(json.dumps({"profile": profile, "provider": provider, "model": model}, ensure_ascii=False))
+
+
+FS_DENY = re.compile(r"(^|/)(\.env[^/]*|auth[^/]*\.json|[^/]*\.db(-[a-z]+)?|[^/]*\.(pem|key|p12)|[^/]*(credential|secret|token)[^/]*|\.git)(/|$)", re.I)
+FS_MAX = 256 * 1024
+
+
+def fs_path(rel):
+    rel = rel.strip().lstrip("/")
+    if "\0" in rel or len(rel) > 1000:
+        die("不正なパス")
+    p = os.path.realpath(os.path.join(HERMES_HOME, rel))
+    if p != HERMES_HOME and not p.startswith(HERMES_HOME + "/"):
+        die("~/.hermes の外は見られない")
+    inner = os.path.relpath(p, HERMES_HOME)
+    if inner != "." and FS_DENY.search(inner):
+        die(f"見せない場所: {inner}")
+    return p, ("" if inner == "." else inner)
+
+
+def fs_list(rel):
+    p, inner = fs_path(rel)
+    if not os.path.isdir(p):
+        die("フォルダではない")
+    items = []
+    for name in sorted(os.listdir(p))[:500]:
+        q = os.path.join(p, name)
+        sub = os.path.join(inner, name) if inner else name
+        try:
+            st = os.lstat(q)
+        except OSError:
+            continue
+        items.append({"name": name, "dir": os.path.isdir(q) and not os.path.islink(q), "size": st.st_size,
+                      "mtime": int(st.st_mtime), "locked": bool(FS_DENY.search(sub))})
+    items.sort(key=lambda x: (not x["dir"], x["name"].lower()))
+    print(json.dumps({"path": inner, "items": items}, ensure_ascii=False))
+
+
+def fs_read(rel):
+    p, inner = fs_path(rel)
+    if not os.path.isfile(p):
+        die("ファイルではない")
+    size = os.path.getsize(p)
+    with open(p, "rb") as f:
+        data = f.read(FS_MAX)
+    binary = b"\0" in data[:8192]
+    print(json.dumps({"path": inner, "size": size, "binary": binary, "truncated": size > FS_MAX,
+                      "text": "" if binary else data.decode("utf-8", errors="replace")}, ensure_ascii=False))
+
+
+MEDIA_ROOTS_FILE = "/etc/plasmod-media-roots"   # 任意。1行に1つ、読んでよいフォルダを足す（/home/hermes か /tmp の下だけ）
+MEDIA_MAX = 15 * 1024 * 1024
+
+
+def media_roots():
+    roots = [HERMES_HOME]
+    try:
+        with open(MEDIA_ROOTS_FILE) as f:
+            for line in f:
+                r = os.path.realpath(line.strip()) if line.strip().startswith("/") else ""
+                if r and (r.startswith(USER_HOME + "/") or r.startswith("/tmp/")) and r not in roots:
+                    roots.append(r)
+    except OSError:
+        pass
+    return roots
+
+
+def media_read(path):
+    """絶対パスのファイルを返す。シンボリックリンクは実体に直してから、許可した場所の中で、鍵・.env・DB などでないことを確かめる。"""
+    if not path.startswith("/") or "\0" in path or len(path) > 1000:
+        die("不正なパス")
+    p = os.path.realpath(path)
+    for root in media_roots():
+        if p.startswith(root + "/"):
+            inner = os.path.relpath(p, root)
+            if FS_DENY.search(inner) or FS_DENY.search(p):
+                die(f"見せない場所: {inner}")
+            break
+    else:
+        die("許可した場所の外は見られない")
+    if not os.path.isfile(p):
+        die("ファイルではない")
+    if os.path.getsize(p) > MEDIA_MAX:
+        die("大きすぎて開けない")
+    with open(p, "rb") as f:
+        sys.stdout.buffer.write(f.read(MEDIA_MAX + 1))
+    sys.stdout.buffer.flush()
+
+
+ATTACH_ROOT = os.path.join(HERMES_HOME, "kanban", "attachments")
+TASK_KEEP = ("id", "title", "body", "assignee", "status", "priority", "created_by", "created_at", "started_at",
+             "completed_at", "result", "skills", "model_override", "provider_override", "last_failure_error")
+
+
+def clip(v, n):
+    return v[:n] if isinstance(v, str) else v
+
+
+def task_detail(tid):
+    """hermes kanban show --json を、アプリで見せる形に絞る。添付は一覧（名前・大きさ・パス）だけで、中身は media-read で読む。"""
+    r = subprocess.run([HERMES, "kanban", "show", "--json", tid], env=ENV, cwd=USER_HOME, capture_output=True, text=True)
+    if r.returncode != 0:
+        die((r.stderr or r.stdout).strip()[-2000:] or "hermes kanban show failed", r.returncode)
+    try:
+        info = json.loads(r.stdout)
+    except ValueError:
+        die("hermes kanban show の出力が読めない")
+    t = info.get("task", info)
+    task = {k: t.get(k) for k in TASK_KEEP}
+    task["body"] = clip(task["body"], 20000)
+    task["result"] = clip(task["result"], 8000)
+    comments = [{"author": c.get("author"), "body": clip(c.get("body") or "", 8000), "created_at": c.get("created_at")}
+                for c in (info.get("comments") or [])][-300:]
+    events = []
+    for e in (info.get("events") or [])[-200:]:
+        payload = e.get("payload")
+        events.append({"kind": e.get("kind"), "created_at": e.get("created_at"), "run_id": e.get("run_id"),
+                       "detail": clip(json.dumps(payload, ensure_ascii=False), 600) if payload else None})
+    runs = [{"id": x.get("id"), "profile": x.get("profile"), "status": x.get("status"), "outcome": x.get("outcome"),
+             "summary": clip(x.get("summary"), 4000), "error": clip(x.get("error"), 2000),
+             "started_at": x.get("started_at"), "ended_at": x.get("ended_at")} for x in (info.get("runs") or [])][-50:]
+    ids = [i for i in (info.get("parents") or []) + (info.get("children") or []) if isinstance(i, str)]
+    titles = {}
+    if ids:
+        c = db()
+        try:
+            q = ",".join("?" * len(ids))
+            titles = {row["id"]: {"title": row["title"], "status": row["status"], "assignee": row["assignee"]}
+                      for row in c.execute(f"SELECT id, title, status, assignee FROM tasks WHERE id IN ({q})", ids)}
+        finally:
+            c.close()
+    rel = lambda i: {"id": i, **titles.get(i, {"title": i, "status": None, "assignee": None})}
+    attachments = []
+    adir = os.path.realpath(os.path.join(ATTACH_ROOT, tid))
+    if adir.startswith(os.path.realpath(ATTACH_ROOT) + "/") and os.path.isdir(adir):
+        for name in sorted(os.listdir(adir))[:200]:
+            q = os.path.join(adir, name)
+            if os.path.isfile(q) and not os.path.islink(q) and not FS_DENY.search(name):
+                st = os.stat(q)
+                attachments.append({"name": name, "size": st.st_size, "path": q, "mtime": int(st.st_mtime)})
+    print(json.dumps({"task": task, "latest_summary": clip(info.get("latest_summary"), 4000), "comments": comments,
+                      "events": events, "runs": runs, "parents": [rel(i) for i in info.get("parents") or [] if isinstance(i, str)],
+                      "children": [rel(i) for i in info.get("children") or [] if isinstance(i, str)],
+                      "attachments": attachments}, ensure_ascii=False))
+
+
+TEXT_MAX = 16 * 1024
+
+
+def read_text(path, n=TEXT_MAX):
+    try:
+        if os.path.isfile(path) and not os.path.islink(path):
+            with open(path, "rb") as f:
+                return f.read(n).decode("utf-8", errors="replace")
+    except OSError:
+        pass
+    return None
+
+
+def frontmatter(text):
+    """SKILL.md の先頭の --- で囲まれた所から name / description を拾う（YAML の1行の値だけ）"""
+    out = {}
+    lines = (text or "").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return out
+    for line in lines[1:60]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^(name|description):\s*(.*)$", line)
+        if m:
+            out[m.group(1)] = m.group(2).strip().strip("'\"")
+    return out
+
+
+def skills_of(home):
+    sdir = os.path.join(home, "skills")
+    found = []
+    if not os.path.isdir(sdir):
+        return found
+    for root, dirs, files in os.walk(sdir):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and not os.path.islink(os.path.join(root, d)))
+        if os.path.relpath(root, sdir).count(os.sep) >= 4:
+            dirs[:] = []
+        if "SKILL.md" in files:
+            path = os.path.join(root, "SKILL.md")
+            fm = frontmatter(read_text(path, 4096))
+            cat = os.path.relpath(os.path.dirname(root), sdir)
+            found.append({"name": fm.get("name") or os.path.basename(root), "description": (fm.get("description") or "")[:300],
+                          "category": "" if cat == "." else cat, "path": os.path.relpath(path, HERMES_HOME)})
+            if len(found) >= 500:
+                break
+    return found
+
+
+def agents():
+    out = []
+    for name, home in profiles().items():
+        model = model_of(name, home)
+        files = {}
+        for key, rel in (("soul", "SOUL.md"), ("config", "config.yaml"), ("memory", "memories/MEMORY.md"), ("user", "memories/USER.md")):
+            p = os.path.join(home, rel)
+            if os.path.isfile(p):
+                files[key] = os.path.relpath(p, HERMES_HOME)
+        out.append({"id": name, "model": model, "soul": read_text(os.path.join(home, "SOUL.md")), "files": files, "skills": skills_of(home)})
+    print(json.dumps(out, ensure_ascii=False))
+
+
+def deliver_kind(v):
+    """送り先は種類（local・origin など）だけ。チャンネルやチャットの ID は出さない"""
+    items = v if isinstance(v, list) else [v] if v else []
+    return [str(x).split(":", 1)[0][:20] for x in items if isinstance(x, str) and x][:5]
+
+
+def cron_jobs(home):
+    try:
+        with open(os.path.join(home, "cron", "jobs.json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as e:
+        return {"error": f"jobs.json を読めない: {e.__class__.__name__}"}
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+    if not isinstance(jobs, list):
+        jobs = []
+    def text(v, n):
+        return v[:n] if isinstance(v, str) and v else None
+
+    out = []
+    for j in jobs[:200]:
+        if not isinstance(j, dict):
+            continue
+        sched = j.get("schedule") if isinstance(j.get("schedule"), dict) else {}
+        repeat = j.get("repeat") if isinstance(j.get("repeat"), dict) else {}
+        skills = j.get("skills") if isinstance(j.get("skills"), list) else [j["skill"]] if isinstance(j.get("skill"), str) else []
+        enabled = j.get("enabled", True) is not False
+        state = text(j.get("state"), 20) or "scheduled"
+        if not enabled and state not in ("completed", "error"):
+            state = "paused"
+        out.append({
+            "id": text(j.get("id"), 40),
+            "name": text(j.get("name"), 200),
+            "schedule": text(j.get("schedule_display") or sched.get("display") or sched.get("expr"), 100),
+            "kind": text(sched.get("kind"), 20),
+            "enabled": enabled,
+            "state": state,
+            "paused_reason": text(j.get("paused_reason"), 300),
+            "next_run_at": text(j.get("next_run_at"), 40),
+            "last_run_at": text(j.get("last_run_at"), 40),
+            "last_status": text(j.get("last_status"), 40),
+            "last_error": text(j.get("last_error"), 500),
+            "last_delivery_error": text(j.get("last_delivery_error"), 300),
+            "failure_streak": j.get("failure_streak") if isinstance(j.get("failure_streak"), int) else 0,
+            "repeat": {"times": repeat.get("times") if isinstance(repeat.get("times"), int) else None,
+                       "completed": repeat.get("completed") if isinstance(repeat.get("completed"), int) else 0},
+            "skills": [text(x, 80) for x in skills if isinstance(x, str)][:20],
+            "model": text(j.get("model"), 100),
+            "script": bool(j.get("script")),
+            "no_agent": bool(j.get("no_agent")),
+            "deliver": deliver_kind(j.get("deliver")),
+            "prompt": text(j.get("prompt"), 4000),
+        })
+    return out
+
+
+CRON_OUTPUT_MAX = 8
+RESPONSE_HEADING = "\n## Response\n\n"
+
+
+def cron_output(profile):
+    home = profiles().get(profile)
+    if not home:
+        die("知らないプロファイル")
+    names = {}
+    jobs = cron_jobs(home)
+    if isinstance(jobs, list):
+        names = {j["id"]: j["name"] for j in jobs if j.get("id")}
+    odir = os.path.join(home, "cron", "output")
+    found = []
+    if os.path.isdir(odir):
+        for job in os.listdir(odir):
+            jdir = os.path.join(odir, job)
+            if not re.match(r"^[A-Za-z0-9_-]{1,64}$", job) or os.path.islink(jdir) or not os.path.isdir(jdir):
+                continue
+            for name in os.listdir(jdir):
+                path = os.path.join(jdir, name)
+                if name.endswith(".md") and not name.startswith(".") and os.path.isfile(path) and not os.path.islink(path):
+                    found.append((os.path.getmtime(path), job, path))
+    out = []
+    for mtime, job, path in sorted(found, reverse=True)[:CRON_OUTPUT_MAX]:
+        text = read_text(path, 256 * 1024) or ""
+        head = text.split("\n", 1)[0]
+        i = text.rfind(RESPONSE_HEADING)
+        body = text[i + len(RESPONSE_HEADING):] if i >= 0 else text
+        out.append({"job": job, "name": names.get(job) or job, "at": int(mtime), "ok": "(FAILED)" not in head,
+                    "text": body.strip()[:30000]})
+    print(json.dumps(out, ensure_ascii=False))
+
+
+def cron():
+    print(json.dumps({name: cron_jobs(home) for name, home in profiles().items()}, ensure_ascii=False))
+
+
+def main(argv):
+    if not argv:
+        die(__doc__.strip())
+    op, rest = argv[0], argv[1:]
+    if op == "latest-event" and not rest:
+        c = db()
+        try:
+            print(c.execute("SELECT COALESCE(MAX(id), 0) FROM task_events").fetchone()[0])
+        finally:
+            c.close()
+    elif op == "board" and not rest:
+        board()
+    elif op == "comment" and len(rest) == 2:
+        kanban("comment", "--author", AUTHOR, task_id(rest[0]), rest[1][:8000])
+    elif op == "unblock" and len(rest) == 1:
+        kanban("unblock", task_id(rest[0]))
+    elif op == "media-read" and len(rest) == 1:
+        media_read(rest[0])
+    elif op == "put-file" and len(rest) == 1:
+        put_file(rest[0])
+    elif op == "endpoints" and not rest:
+        endpoints()
+    elif op == "usage" and not rest:
+        usage()
+    elif op == "credits" and not rest:
+        with contextlib.suppress(OSError):
+            os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
+        credits()
+    elif op == "models" and not rest:
+        models()
+    elif op == "set-model" and len(rest) == 2:
+        set_model(rest[0], rest[1])
+    elif op == "fs-list" and len(rest) == 1:
+        fs_list(rest[0])
+    elif op == "fs-read" and len(rest) == 1:
+        fs_read(rest[0])
+    elif op == "request-changes" and len(rest) == 2:
+        kanban("request-changes", task_id(rest[0]), rest[1][:4000])
+    elif op == "create" and len(rest) == 3:
+        create(rest[0], rest[1], rest[2])
+    elif op == "attach" and len(rest) == 2:
+        attach(task_id(rest[0]), rest[1])
+    elif op == "task" and len(rest) == 1:
+        task_detail(task_id(rest[0]))
+    elif op == "agents" and not rest:
+        agents()
+    elif op == "cron-output" and len(rest) == 1 and PROFILE_RE.match(rest[0]):
+        cron_output(rest[0])
+    elif op == "cron" and not rest:
+        cron()
+    elif op == "archive" and len(rest) == 1:
+        kanban("archive", task_id(rest[0]))
+    elif op == "specify" and len(rest) == 2:
+        specify(task_id(rest[0]), rest[1])
+    elif op == "complete" and len(rest) == 2:
+        kanban("complete", "--result", rest[1][:8000], "--force", task_id(rest[0]))
+    else:
+        die(__doc__.strip())
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plasmod</title>
+<!-- ビルドのとき Actions が書く（APK_SERVER_URL）。無ければ住所を入れてもらう -->
+<script src="config.js" onerror="void 0"></script>
+<style>
+  :root { --ground: #F7F6F2; --panel: #FFFFFF; --ink: #17171A; --ink-2: #4A4A50; --mute: #8A8A90; --line: #E3E0D8; --lime: #C8F25A; --orange: #C2410C; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground: #101012; --panel: #1A1A1D; --ink: #F2F1EC; --ink-2: #C9C8C2; --mute: #8D8C86; --line: #2C2C30; --orange: #FF8A3D; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink); font-family: system-ui, "Noto Sans JP", sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+  main { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+  img { width: 88px; height: 88px; border-radius: 22px; }
+  h1 { margin: 4px 0 0; font-size: 20px; }
+  p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--ink-2); }
+  .err { color: var(--orange); }
+  button, input { font: inherit; }
+  button { min-height: 48px; width: 100%; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 700; }
+  button.primary { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+  button.link { min-height: 40px; border: 0; background: none; color: var(--mute); font-weight: 400; font-size: 13px; }
+  form { width: 100%; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+  label { font-size: 12.5px; color: var(--mute); display: flex; flex-direction: column; gap: 6px; }
+  input { height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 0 12px; font-size: 15px; }
+  .spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--ink); animation: s 0.8s linear infinite; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <img src="icon.png" alt="">
+  <h1>Plasmod</h1>
+
+  <div id="connecting" hidden><div class="spin" aria-hidden="true"></div></div>
+  <p id="status" role="status"></p>
+
+  <div id="offline" hidden style="width:100%;display:flex;flex-direction:column;gap:10px">
+    <p class="err">VPS につながりません。<br>スマホの Tailscale がオンになっているか確かめてください。</p>
+    <button id="retry" class="primary">もう一度つなぐ</button>
+  </div>
+
+  <form id="setup" hidden>
+    <label>サーバーの住所（Tailscale の中の住所）
+      <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://<マシン名>.<tailnet>.ts.net:8443" required>
+    </label>
+    <button class="primary">つなぐ</button>
+  </form>
+
+  <button id="change" class="link" hidden>サーバーの住所を変える</button>
+</main>
+<script>
+  // 入口の画面: 保存した住所（無ければビルドの既定）につながるか確かめて、つながれば Plasmod を開く。
+  // 画面そのものは VPS から読むので、画面の更新に APK の作り直しは要らない
+  const KEY = "gh-server";
+  const $ = (id) => document.getElementById(id);
+  const read = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
+  const save = (v) => { try { localStorage.setItem(KEY, v); } catch { /* 覚えられないだけ */ } };
+  const clean = (v) => v.trim().replace(/\/+$/, "");
+
+  function show(state, text) {
+    $("connecting").hidden = state !== "connecting";
+    $("offline").hidden = state !== "offline";
+    $("setup").hidden = state !== "setup";
+    $("change").hidden = state !== "offline";
+    $("status").textContent = text || "";
+  }
+
+  // CORS の返事は読めない（no-cors）が、届けば解決・届かなければ失敗するので、つながるかだけは分かる
+  async function reachable(base) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 6000);
+    try {
+      await fetch(base + "/api/health", { mode: "no-cors", cache: "no-store", signal: ac.signal });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  // APK の中の部品（通知の受け取り。MainActivity が登録する HermesNotify）。ブラウザで開いたときは無い。
+  // @capacitor/core を入れていないので、ネイティブの橋（nativePromise）を直に呼ぶ
+  const native = window.Capacitor && typeof window.Capacitor.nativePromise === "function" ? window.Capacitor : null;
+  const notify = native && {
+    start: (o) => native.nativePromise("HermesNotify", "start", o),
+    takePath: () => native.nativePromise("HermesNotify", "takePath", {}),
+  };
+
+  function openedBefore(base) {
+    try { return localStorage.getItem("gh-opened") === base; } catch { return false; }
+  }
+  function markOpened(base) {
+    try { localStorage.setItem("gh-opened", base); } catch { /* 次も確認するだけ */ }
+  }
+
+  async function connect(base) {
+    show("connecting", "つないでいます…");
+    if (!(await reachable(base)) && openedBefore(base)) {
+      // 届かなくても、前に開いた画面はキャッシュから開ける（メモはオフラインで使える）
+      location.replace(base + "/?launch=" + Math.round(performance.timeOrigin) + "#/memos");
+      return;
+    }
+    if (await reachable(base)) {
+      markOpened(base);
+      save(base);
+      let path = "";
+      if (notify) {
+        // 通知の受け取りを始める（初回は通知の許可と、電池の最適化を外すかを聞く）
+        try { await notify.start({ server: base }); } catch (e) { console.warn("通知を始められない", e); }
+        // 通知を押して起動したなら、そのカードへ
+        try { path = (await notify.takePath()).path || ""; } catch { /* 行き先なし */ }
+      }
+      // 起動の時間を、ここ（APK を開いた時刻）から測る
+      location.replace(base + "/?launch=" + Math.round(performance.timeOrigin) + path);
+    } else show("offline", base.replace(/^https?:\/\//, ""));
+  }
+
+  $("retry").onclick = () => connect(clean(read() || window.PLASMOD_DEFAULT_SERVER || ""));
+  $("change").onclick = () => {
+    $("url").value = read() || window.PLASMOD_DEFAULT_SERVER || "";
+    show("setup");
+  };
+  $("setup").onsubmit = (e) => {
+    e.preventDefault();
+    const v = clean($("url").value);
+    if (!/^https:\/\/[^/]+\.ts\.net(:\d+)?$/.test(v)) return show("setup", "Tailscale の住所（https://〜.ts.net:ポート）を入れてください");
+    connect(v);
+  };
+
+  const start = read() || window.PLASMOD_DEFAULT_SERVER || "";
+  if (start) connect(clean(start));
+  else show("setup");
+</script>
+</body>
+</html>

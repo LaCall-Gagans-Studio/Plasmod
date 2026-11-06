@@ -1,0 +1,111 @@
+{
+  "latest_event_id": 120,
+  "tasks": [
+    {
+      "id": "t_8f2a",
+      "title": "demo-app PR #23 をマージしていいか",
+      "body": "文字起こしワーカーの再試行処理を直した PR。",
+      "assignee": "dev",
+      "status": "blocked",
+      "priority": 1,
+      "created_by": "default",
+      "created_at": 1792370000,
+      "started_at": 1792370100,
+      "completed_at": null,
+      "last_heartbeat_at": 1792373000,
+      "block_kind": "needs_input",
+      "result": null,
+      "latest_comment": {
+        "author": "dev",
+        "body": "PR #23 をマージしてよいか判断がほしい。テスト 41件通過、staging で 3本の音声を確認済み。マージすると staging に自動デプロイされる。",
+        "created_at": 1792373100
+      }
+    },
+    {
+      "id": "t_91c0",
+      "title": "10月分の請求書 2件の確認",
+      "body": "取引先 A と B の請求書。金額の確認をお願いします。",
+      "assignee": "default",
+      "status": "review",
+      "priority": 0,
+      "created_by": "default",
+      "created_at": 1792360000,
+      "started_at": 1792360100,
+      "completed_at": null,
+      "last_heartbeat_at": null,
+      "block_kind": null,
+      "result": null,
+      "latest_comment": null
+    },
+    {
+      "id": "t_a001",
+      "title": "Plasmod フェーズ1",
+      "body": "土台・カード・通知からの承認・ウォッチング",
+      "assignee": "dev",
+      "status": "running",
+      "priority": 0,
+      "created_by": "default",
+      "created_at": 1792380000,
+      "started_at": 1792380100,
+      "completed_at": null,
+      "last_heartbeat_at": 1792383000,
+      "block_kind": null,
+      "result": null,
+      "latest_comment": null
+    },
+    {
+      "id": "t_a002",
+      "title": "朝のメール振り分け",
+      "body": null,
+      "assignee": "default",
+      "status": "running",
+      "priority": 0,
+      "created_by": "default",
+      "created_at": 1792381000,
+      "started_at": 1792381100,
+      "completed_at": null,
+      "last_heartbeat_at": 1792383100,
+      "block_kind": null,
+      "result": null,
+      "latest_comment": null
+    },
+    {
+      "id": "t_a003",
+      "title": "カシュガルの宿を比較",
+      "body": null,
+      "assignee": "acct",
+      "status": "ready",
+      "priority": 0,
+      "created_by": "default",
+      "created_at": 1792379000,
+      "started_at": null,
+      "completed_at": null,
+      "last_heartbeat_at": null,
+      "block_kind": null,
+      "result": null,
+      "latest_comment": null
+    },
+    {
+      "id": "t_a004",
+      "title": "文字起こし再試行の修正",
+      "body": null,
+      "assignee": "dev",
+      "status": "done",
+      "priority": 0,
+      "created_by": "default",
+      "created_at": 1792300000,
+      "started_at": 1792300100,
+      "completed_at": 1792310000,
+      "last_heartbeat_at": null,
+      "block_kind": null,
+      "result": "PR #23 を作成",
+      "latest_comment": null
+    }
+  ],
+  "links": [{ "parent_id": "t_a004", "child_id": "t_8f2a" }],
+  "active_runs": [
+    { "task_id": "t_a001", "profile": "dev", "started_at": 1792380100, "last_heartbeat_at": 1792383000 },
+    { "task_id": "t_a002", "profile": "default", "started_at": 1792381100, "last_heartbeat_at": 1792383100 }
+  ],
+  "fetched_at": 0
+}
