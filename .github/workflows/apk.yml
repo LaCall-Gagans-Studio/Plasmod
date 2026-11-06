@@ -55,13 +55,15 @@ jobs:
         run: |
           if [ "$RELEASE" = true ]; then VERSION="${GITHUB_REF_NAME#apk-v}"; else VERSION="0.0.$GITHUB_RUN_NUMBER-dev"; fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          # 実行番号はリポジトリごとに 1 から数え直す。前のリポジトリの版より必ず大きくして、上書きで入るようにする
+          CODE=$((1000 + GITHUB_RUN_NUMBER))
           if [ "$SIGN" = true ]; then
-            ./gradlew --no-daemon assembleRelease -PversionCode="$GITHUB_RUN_NUMBER" -PversionName="$VERSION"
+            ./gradlew --no-daemon assembleRelease -PversionCode="$CODE" -PversionName="$VERSION"
           elif [ "$RELEASE" = true ]; then
             echo "::error::署名の鍵（APK_KEYSTORE_B64 など）が GitHub secrets に無い"; exit 1
           else
             echo "::warning::署名の鍵が無いのでデバッグの鍵で作る（前の試しの APK とは上書きできない）"
-            ./gradlew --no-daemon assembleDebug -PversionCode="$GITHUB_RUN_NUMBER" -PversionName="$VERSION"
+            ./gradlew --no-daemon assembleDebug -PversionCode="$CODE" -PversionName="$VERSION"
           fi
 
       - name: 署名（鍵があるとき）
