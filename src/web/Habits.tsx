@@ -1,17 +1,17 @@
-// 習慣: 上に草グラフ、下に今日の習慣。チェックはここと、レポートからできる。
+// ルーティーン: 上に草グラフ、下に今日のルーティーン。チェックはここと、レポートからできる。
 import { type PointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { Habit, HabitOverview } from "../shared/types";
 import { Skeleton } from "./loading";
 import { json } from "./memo-fields";
 import { Page } from "./ui";
 
-/** チェックを付ける・外す。結果の習慣が返る */
+/** チェックを付ける・外す。結果のルーティーンが返る */
 export const checkHabit = (id: number, done: boolean) =>
   fetch(`/api/habits/${id}/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ done }) }).then((r) => json<Habit>(r));
 
 const LEVEL = ["bg-chip", "bg-lime/35", "bg-lime/60", "bg-lime/80", "bg-lime"];
 
-/** その日のチェックの数を、習慣の数に対する割合で5段階に */
+/** その日のチェックの数を、ルーティーンの数に対する割合で5段階に */
 function levelOf(count: number, habits: number) {
   if (count <= 0) return 0;
   return Math.min(4, Math.max(1, Math.ceil((count / Math.max(1, habits)) * 4)));
@@ -222,7 +222,7 @@ export function Habits() {
   const done = ov?.habits.filter((h) => h.doneToday).length ?? 0;
   return (
     <Page
-      title="習慣"
+      title="ルーティーン"
       current="#/habits"
       right={ov && ov.habits.length > 0 ? <button onClick={() => setEditing((x) => !x)} className="min-h-9 px-1 text-[13px] text-mute">{editing ? "完了" : "編集"}</button> : undefined}
     >
@@ -255,12 +255,12 @@ export function Habits() {
               )}
               <label className="flex h-11 items-center gap-2 rounded-2xl border border-dashed border-line-2 px-3.5 text-mute">
                 <span aria-hidden="true">＋</span>
-                <span className="sr-only">習慣を足す</span>
+                <span className="sr-only">ルーティーンを足す</span>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void add()}
-                  placeholder="習慣を足す（Enter）"
+                  placeholder="ルーティーンを足す（Enter）"
                   className="min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute"
                 />
               </label>

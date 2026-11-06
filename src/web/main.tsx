@@ -4,6 +4,7 @@ import { App } from "./App";
 import "./styles.css";
 import { applyTheme } from "./theme";
 import { startMemoSync } from "./memo-db";
+import { startTaskSync } from "./task-db";
 import { startVersionWatch } from "./version";
 import { loadAbout } from "./identity";
 import { burst } from "./loading";
@@ -33,3 +34,4 @@ if ("serviceWorker" in navigator) {
   });
 }
 startMemoSync();
+startTaskSync();

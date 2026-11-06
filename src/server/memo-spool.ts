@@ -122,9 +122,9 @@ export class MemoSpool {
 
   run(op: string, a: Record<string, unknown>, author: string): unknown {
     if (op.startsWith("task.")) return this.runTask(op.slice("task.".length), a, author);
-    // 習慣は読むだけ（チェックはオーナーが画面で付ける）
+    // ルーティーンは読むだけ（チェックはオーナーが画面で付ける）
     if (op === "habit.list") {
-      if (!this.habits) throw new MemoError("習慣は使えない", 404);
+      if (!this.habits) throw new MemoError("ルーティーンは使えない", 404);
       return this.habits.overview();
     }
     const str = (k: string) => (typeof a[k] === "string" ? (a[k] as string) : undefined);
@@ -146,13 +146,16 @@ export class MemoSpool {
       case "history":
         return this.memos.history(id());
       case "create":
-        return this.memos.create({ title: str("title"), body: str("body"), project, tags }, author);
-      case "update":
-        return this.memos.update(
+        return this.memos.create({ title: str("title"), body: str("body"), project, tags, parentId: typeof a.parentId === "number" && a.parentId > 0 ? a.parentId : null }, author);
+      case "update": {
+        const updated = this.memos.update(
           id(),
           { title: str("title"), body: str("body"), project, tags, baseUpdatedAt: typeof a.baseUpdatedAt === "number" ? a.baseUpdatedAt : undefined },
           author,
         );
+        if (a.parentId === null || typeof a.parentId === "number") return this.memos.setParent(updated.id, a.parentId === null ? null : a.parentId);
+        return updated;
+      }
       case "append":
         return this.memos.append(id(), str("text") ?? "", author);
       default:

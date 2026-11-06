@@ -539,6 +539,68 @@ class BrokerTriageTest(BrokerCreditsTest):
             run("archive", "t1; rm -rf /")
 
 
+SECRET = "s3cr3t-VALUE-0123456789"
+
+
+class ConnectionsTest(unittest.TestCase):
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.keep = (broker.HERMES_HOME,)
+        broker.HERMES_HOME = self.home
+        self.addCleanup(lambda: setattr(broker, "HERMES_HOME", self.keep[0]))
+        os.makedirs(os.path.join(self.home, "mcp-tokens"))
+        os.makedirs(os.path.join(self.home, "logs"))
+        self.write("config.yaml", "model:\n  provider: nous\nmcp_servers:\n  vercel:\n    oauth: {}\n  cf:\n    oauth: true\n    enabled: false\n  ga:\n    command: x\n")
+
+    def write(self, rel, text):
+        with open(os.path.join(self.home, rel), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def auth(self, nous):
+        self.write("auth.json", json.dumps({"providers": {"nous": nous}}))
+
+    def result(self):
+        out = run("connections")
+        self.assertNotIn(SECRET, out)
+        return json.loads(out)
+
+    def test_values_never_leave(self):
+        self.auth({"access_token": SECRET, "refresh_token": SECRET, "obtained_at": "2026-11-06T05:17:11+00:00"})
+        self.write("mcp-tokens/vercel.json", json.dumps({"access_token": SECRET, "refresh_token": SECRET, "expires_at": 4000000000}))
+        self.write("logs/gateway.log", f"2026-11-06 10:00:00,000 WARNING mcp: vercel refresh failed token={SECRET}\n")
+        r = self.result()
+        self.assertEqual(r["nous"], {"logged_in": True, "obtained_at": "2026-11-06T05:17:11+00:00"})
+        v = r["mcp"]["default"]["vercel"]
+        self.assertTrue(v["oauth"])
+        self.assertEqual((v["token"]["refresh"], v["token"]["expires_at"]), (True, 4000000000))
+        self.assertEqual(v["log_error"]["reason"], "refresh failed")
+        self.assertFalse(r["mcp"]["default"]["ga"]["oauth"])
+        self.assertFalse(r["mcp"]["default"]["cf"]["enabled"])
+
+    def test_quarantined_nous(self):
+        self.auth({"last_auth_error": {"code": "invalid_grant", "relogin_required": True}})
+        self.write("logs/agent.log", f"2026-11-06 11:00:53,006 WARNING hermes_cli.auth: Nous OAuth state quarantined (terminal auth death): {{\"refresh_token_fp\": \"{SECRET}\"}}\n")
+        r = self.result()["nous"]
+        self.assertFalse(r["logged_in"])
+        self.assertEqual(r["error"], "invalid_grant")
+        self.assertIsInstance(r["error_at"], int)
+
+    def test_no_nous_login(self):
+        self.assertEqual(self.result()["nous"], {"logged_in": False, "error": "ログインしていない"})
+        self.write("config.yaml", "model:\n  provider: other\n")
+        self.assertIsNone(self.result()["nous"])
+
+    def test_does_not_follow_links_or_match_other_servers(self):
+        target = os.path.join(self.home, "secret.json")
+        self.write("secret.json", json.dumps({"access_token": SECRET}))
+        os.symlink(target, os.path.join(self.home, "mcp-tokens", "vercel.json"))
+        self.write("logs/gateway.log", "2026-11-06 10:00:00,000 WARNING mcp: vercel-old refresh failed\n2026-11-06 10:00:00,000 INFO mcp: vercel refresh failed\n")
+        v = self.result()["mcp"]["default"]["vercel"]
+        self.assertTrue(v["token"]["exists"])
+        self.assertNotIn("access", v["token"])
+        self.assertIsNone(v["log_error"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

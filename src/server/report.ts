@@ -1,5 +1,5 @@
 // レポート（ストーリー型のスライド）をボードから組み立てる（純粋関数）。
-// 先に実務（タスク・メモ・習慣・判断待ち）を見せ、カンバンとエージェントの実績は最後の「まとめ」1枚に寄せる。
+// 先に実務（タスク・メモ・ルーティーン・判断待ち）を見せ、カンバンとエージェントの実績は最後の「まとめ」1枚に寄せる。
 import type { AgentProfile, Board, Card, Report, ReportSlide } from "../shared/types";
 import { isInboxTask, profileOf } from "./model";
 

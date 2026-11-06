@@ -9,7 +9,7 @@
 <style>
   :root { --ground: #F7F6F2; --panel: #FFFFFF; --ink: #17171A; --ink-2: #4A4A50; --mute: #8A8A90; --line: #E3E0D8; --lime: #C8F25A; --orange: #C2410C; }
   @media (prefers-color-scheme: dark) {
-    :root { --ground: #101012; --panel: #1A1A1D; --ink: #F2F1EC; --ink-2: #C9C8C2; --mute: #8D8C86; --line: #2C2C30; --orange: #FF8A3D; }
+    :root { --ground: #0D0D0F; --panel: #1A1A1D; --ink: #F2F1EC; --ink-2: #C9C8C2; --mute: #8D8C86; --line: #2C2C30; --orange: #FF8A3D; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink); font-family: system-ui, "Noto Sans JP", sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
@@ -25,8 +25,18 @@
   form { width: 100%; display: flex; flex-direction: column; gap: 10px; text-align: left; }
   label { font-size: 12.5px; color: var(--mute); display: flex; flex-direction: column; gap: 6px; }
   input { height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 0 12px; font-size: 15px; }
-  .spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--ink); animation: s 0.8s linear infinite; }
-  @keyframes s { to { transform: rotate(360deg); } }
+  /* つないでいる間: Plasmod の起動画面（src/web/index.html）と同じ絵を同じ位置に出し、そのまま読み込み画面へ続ける */
+  #connecting { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #connecting g.a { transform-origin: 100px 100px; animation: gh-sway 2.6s ease-in-out infinite alternate; }
+  #connecting g.a:nth-child(2n) { animation-duration: 1.9s; animation-direction: alternate-reverse; }
+  #connecting g.a:nth-child(3n) { animation-duration: 2.2s; }
+  #connecting g.p { animation: gh-look 2.8s ease-in-out infinite alternate; }
+  @keyframes gh-look { from { transform: translate(-5px, -2px); } to { transform: translate(5px, 3px); } }
+  @keyframes gh-sway { from { transform: rotate(-10deg) scale(.86); } to { transform: rotate(10deg) scale(1.08); } }
+  @media (prefers-reduced-motion: reduce) { #connecting g.a, #connecting g.p { animation: none; } }
+  /* 文字は絵の下に重ねる（絵の位置を動かさない） */
+  body.connecting main > :not(#connecting):not(#status) { display: none; }
+  body.connecting #status { position: fixed; left: 16px; right: 16px; top: calc(50% + 112px); text-align: center; color: var(--mute); font-size: 13px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -35,7 +45,24 @@
   <img src="icon.png" alt="">
   <h1>Plasmod</h1>
 
-  <div id="connecting" hidden><div class="spin" aria-hidden="true"></div></div>
+  <div id="connecting" hidden>
+      <svg width="200" height="200" viewBox="0 0 200 200" aria-hidden="true">
+        <defs><filter id="gh-splash-goo" x="0" y="0" width="200" height="200" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="4" /><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" /></filter></defs>
+        <g filter="url(#gh-splash-goo)" fill="none" stroke="#a3c93a" stroke-width="11" stroke-linecap="round">
+          <g class="a"><path d="M100 78C94 58 106 44 98 24" /></g>
+          <g class="a"><path d="M116 84C130 72 134 64 148 58" /></g>
+          <g class="a"><path d="M122 100C142 94 152 108 174 100" /></g>
+          <g class="a"><path d="M116 116C126 128 136 130 142 146" /></g>
+          <g class="a"><path d="M100 122C106 142 94 156 102 178" /></g>
+          <g class="a"><path d="M84 116C72 126 66 136 54 142" /></g>
+          <g class="a"><path d="M78 100C58 106 48 92 26 100" /></g>
+          <g class="a"><path d="M84 84C74 72 64 70 56 54" /></g>
+          <circle cx="100" cy="100" r="30" fill="#a3c93a" stroke="none" />
+        </g>
+        <circle cx="100" cy="100" r="17" fill="#F3F1EC" />
+        <g class="p"><circle cx="100" cy="100" r="9.5" fill="#0D0D0F" /><circle cx="97" cy="96" r="2.6" fill="#fff" /></g>
+      </svg>
+  </div>
   <p id="status" role="status"></p>
 
   <div id="offline" hidden style="width:100%;display:flex;flex-direction:column;gap:10px">
@@ -63,6 +90,7 @@
 
   function show(state, text) {
     $("connecting").hidden = state !== "connecting";
+    document.body.classList.toggle("connecting", state === "connecting");
     $("offline").hidden = state !== "offline";
     $("setup").hidden = state !== "setup";
     $("change").hidden = state !== "offline";

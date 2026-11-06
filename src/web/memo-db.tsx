@@ -86,7 +86,7 @@ export async function memoList(p: URLSearchParams): Promise<MemoList> {
 }
 
 export function localMemoList(p: URLSearchParams): Promise<MemoList> {
-  const o: LocalListOptions = { q: p.get("q") ?? "", project: p.get("project"), tag: p.get("tag"), archived: p.get("archived") === "1" };
+  const o: LocalListOptions = { q: p.get("q") ?? "", project: p.get("project"), tag: p.get("tag"), archived: p.get("archived") === "1", parent: Number(p.get("parent")) || null };
   return memoSync.list(o);
 }
 

@@ -1,4 +1,4 @@
-// 習慣: 繰り返すことと、日ごとのチェック。画面とレポートでチェックでき、AI は plasmod-task habits で読める。
+// ルーティーン: 繰り返すことと、日ごとのチェック。画面とレポートでチェックでき、AI は plasmod-task habits で読める。
 import type { Database } from "bun:sqlite";
 import type { Habit, HabitOverview } from "../shared/types";
 
@@ -49,7 +49,7 @@ export class HabitStore {
 
   private row(id: number): Row {
     const r = this.db.query("SELECT id, name, emoji FROM habits WHERE id = ? AND archived_at IS NULL").get(id) as Row | null;
-    if (!r) throw new HabitError("その習慣はありません", 404);
+    if (!r) throw new HabitError("そのルーティーンはありません", 404);
     return r;
   }
 
@@ -86,7 +86,7 @@ export class HabitStore {
     const today = dayOf(now);
     const rows = this.db.query("SELECT id, name, emoji FROM habits WHERE archived_at IS NULL ORDER BY COALESCE(position, id), id").all() as Row[];
     const from = shift(today, -(GRAPH_DAYS - 1));
-    // やめた習慣の記録も、草には残す
+    // やめたルーティーンの記録も、草には残す
     const counts = this.db.query("SELECT day, COUNT(*) AS n FROM habit_checks WHERE day >= ? AND day <= ? GROUP BY day").all(from, today) as { day: string; n: number }[];
     const byDay = new Map(counts.map((c) => [c.day, c.n]));
     return {
@@ -114,10 +114,10 @@ export class HabitStore {
     return this.toHabit(this.row(id), dayOf(now));
   }
 
-  /** 並べ替える。ids は今ある習慣すべて */
+  /** 並べ替える。ids は今あるルーティーンすべて */
   reorder(ids: unknown) {
     const cur = (this.db.query("SELECT id FROM habits WHERE archived_at IS NULL").all() as { id: number }[]).map((x) => x.id);
-    if (!Array.isArray(ids) || ids.length !== cur.length || new Set(ids).size !== ids.length || !ids.every((x) => cur.includes(x))) throw new HabitError("並びが今の習慣と合いません");
+    if (!Array.isArray(ids) || ids.length !== cur.length || new Set(ids).size !== ids.length || !ids.every((x) => cur.includes(x))) throw new HabitError("並びが今のルーティーンと合いません");
     this.db.transaction(() => {
       ids.forEach((id, i) => this.db.query("UPDATE habits SET position = ? WHERE id = ?").run(i + 1, id));
     })();

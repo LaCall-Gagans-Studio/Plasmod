@@ -13,6 +13,13 @@ const PATHS: Record<string, ReactNode> = {
     </>
   ),
   check: <path d="M5 12.5l4.5 4.5L19 7" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  archive: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="4" rx="1" />
+      <path d="M5.5 8.5V19a1 1 0 001 1h11a1 1 0 001-1V8.5M10 12.5h4" />
+    </>
+  ),
   undo: <path d="M8 5L4 9l4 4M4 9h10a6 6 0 010 12h-3" />,
   skip: (
     <>

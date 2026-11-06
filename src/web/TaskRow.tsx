@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { AppTask, AppTaskLinks, AppTaskStatus, Snapshot } from "../shared/types";
 import { FolderIcon, json } from "./memo-fields";
+import { fetchTask } from "./task-db";
 import { openTaskMenu } from "./taskmenu";
 import { CopyRef, useLongPress } from "./touch";
 import { Avatar, profileOf } from "./ui";
@@ -130,8 +131,7 @@ export function TaskNode({ t, snap, onToggle, onChanged, href = (x) => `#/todo/$
   const has = (t.openChildren ?? 0) > 0;
   useEffect(() => {
     if (!open) return;
-    fetch(`/api/apptasks/${t.id}`)
-      .then((r) => json<{ links: AppTaskLinks }>(r))
+    fetchTask(t.id)
       .then((r) => setChildren(r.links.children))
       .catch(() => setChildren([]));
   }, [open, t.id, t.openChildren, t.updatedAt, bump]);

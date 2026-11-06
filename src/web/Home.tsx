@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { type AppTask, type AppTaskList, type MemoList, type MemoSummary, hoursLabel, staleHours, type Snapshot } from "../shared/types";
 import { SessionPanel } from "./Session";
+import { fetchTaskList } from "./task-db";
 import { Avatar, COL, Icon, Nav, RAIL, profileOf } from "./ui";
 import { getAbout } from "./identity";
 
@@ -39,9 +40,8 @@ function HomeAside({ snap }: { snap: Snapshot }) {
   // 今日まで・期限切れのタスク（やる・任せ中）。一覧が変わるたび（snap）に取り直す
   const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
   useEffect(() => {
-    fetch("/api/apptasks?status=todo,doing")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((l: AppTaskList | null) => l && setDue(l.tasks.filter((t) => t.due && t.due <= today)))
+    fetchTaskList(new URLSearchParams({ status: "todo,doing" }))
+      .then((l: AppTaskList) => setDue(l.tasks.filter((t) => t.due && t.due <= today)))
       .catch(() => {});
   }, [snap, today]);
   return (
@@ -125,6 +125,15 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
               </span>
               <span className="text-[11px]">レポート</span>
             </a>
+            {/* root の承認はいちばん左（カードより先） */}
+            {snap &&
+              roots.map((r) => (
+                <a key={r.id} href={`#/root/${r.id}`} className="flex w-[68px] flex-none flex-col items-center gap-1" role="listitem" title={r.title}>
+                  <Avatar p={profileOf(snap.agents, REQUESTER[r.requester ?? ""] ?? r.requester ?? "root")} size={64} ring="var(--color-red-ink)" />
+                  <span className={SHORT}>{shortTitle(r.title)}</span>
+                  <span className="max-w-[68px] truncate text-[11px] font-semibold text-red-ink">root 承認</span>
+                </a>
+              ))}
             {snap?.cards.map((c) => {
               const p = profileOf(snap.agents, c.agent);
               const h = staleHours(c);
@@ -152,14 +161,6 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
                 </a>
               );
             })}
-            {snap &&
-              roots.map((r) => (
-                <a key={r.id} href={`#/root/${r.id}`} className="flex w-[68px] flex-none flex-col items-center gap-1" role="listitem" title={r.title}>
-                  <Avatar p={profileOf(snap.agents, REQUESTER[r.requester ?? ""] ?? r.requester ?? "root")} size={64} ring="var(--color-red-ink)" />
-                  <span className={SHORT}>{shortTitle(r.title)}</span>
-                  <span className="max-w-[68px] truncate text-[11px] font-semibold text-red-ink">root 承認</span>
-                </a>
-              ))}
             {snap && snap.cards.length === 0 && !snap.snoozed?.length && roots.length === 0 && (
               <div className="flex items-center text-xs text-mute">判断待ちはありません</div>
             )}

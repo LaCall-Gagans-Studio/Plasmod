@@ -1,9 +1,12 @@
 // メモ
 import { type Context } from "hono";
+import { MEMO_BOX_HEADERS, MEMO_BOX_HTML } from "../memo-box";
 import { MemoError } from "../memos";
 import type { RouteContext } from "./context";
 
 export function memosRoutes({ app, memos }: RouteContext) {
+  // メモの ```html の箱の中身を出すページ（sandbox の iframe からだけ開く）
+  app.get("/memo-box", () => new Response(MEMO_BOX_HTML, { headers: MEMO_BOX_HEADERS }));
   // ---- メモ（TASK-174）----
   const memoFail = (c: Context, e: unknown) =>
     c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, e instanceof MemoError ? e.status : 500);
@@ -12,7 +15,7 @@ export function memosRoutes({ app, memos }: RouteContext) {
     if (!Number.isSafeInteger(id) || id <= 0) throw new MemoError("不正なメモID", 400);
     return id;
   };
-  type MemoBody = { title?: unknown; body?: unknown; project?: unknown; tags?: unknown; baseUpdatedAt?: unknown };
+  type MemoBody = { title?: unknown; body?: unknown; project?: unknown; tags?: unknown; baseUpdatedAt?: unknown; parentId?: unknown };
   const memoInput = (b: MemoBody) => ({
     title: typeof b.title === "string" ? b.title : undefined,
     body: typeof b.body === "string" ? b.body : undefined,
@@ -33,6 +36,7 @@ export function memosRoutes({ app, memos }: RouteContext) {
         project: project === undefined ? null : project,
         tag: c.req.query("tag") || null,
         archived: c.req.query("archived") === "1",
+        parent: Number(c.req.query("parent")) || null,
       }),
     );
   });
@@ -55,7 +59,8 @@ export function memosRoutes({ app, memos }: RouteContext) {
   app.post("/api/memos", async (c) => {
     try {
       if (!memos) throw new MemoError("メモは使えない", 404);
-      return c.json(memos.create(memoInput(await c.req.json<MemoBody>().catch(() => ({}))), "app"));
+      const b = await c.req.json<MemoBody>().catch(() => ({}) as MemoBody);
+      return c.json(memos.create({ ...memoInput(b), parentId: typeof b.parentId === "number" && b.parentId > 0 ? b.parentId : null }, "app"));
     } catch (e) {
       return memoFail(c, e);
     }
@@ -64,6 +69,16 @@ export function memosRoutes({ app, memos }: RouteContext) {
     try {
       if (!memos) throw new MemoError("メモは使えない", 404);
       return c.json(memos.update(memoId(c), memoInput(await c.req.json<MemoBody>().catch(() => ({}))), "app"));
+    } catch (e) {
+      return memoFail(c, e);
+    }
+  });
+  app.post("/api/memos/:id/parent", async (c) => {
+    try {
+      if (!memos) throw new MemoError("メモは使えない", 404);
+      const b = await c.req.json<{ parent?: unknown }>().catch(() => ({}) as { parent?: unknown });
+      if (b.parent !== null && !(typeof b.parent === "number" && Number.isSafeInteger(b.parent) && b.parent > 0)) throw new MemoError("親の指定が不正", 400);
+      return c.json(memos.setParent(memoId(c), b.parent as number | null));
     } catch (e) {
       return memoFail(c, e);
     }

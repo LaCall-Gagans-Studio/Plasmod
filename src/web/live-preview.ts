@@ -5,7 +5,9 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorSelection, type EditorState, type Extension, Facet, type Range, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, keymap, placeholder, WidgetType } from "@codemirror/view";
+import { memoIdOf } from "../shared/memo-ref";
 import { lookupIssue } from "./badges";
+import { type Attribution, humanRanges, nextVersion } from "./memo-authorship";
 import { parseBlocks } from "./markdown";
 
 /** チェックの行（- [ ] …）をタスクにする関数（メモの画面が渡す）。作ったタスクの番号を返す */
@@ -16,7 +18,7 @@ const makeTaskFacet = Facet.define<((title: string) => Promise<string | null>) |
 const TASK_REF = /\[\[([A-Z][A-Z0-9]{1,9}-\d{1,6})\]\]/g;
 const STATE_CLS: Record<string, string> = { completed: "is-done", canceled: "is-done", started: "is-doing" };
 
-/** [[TASK-123]]: タスクの番号・題・状態のチップ。押すとタスクを開く */
+/** [[TASK-123]]・[[MEMO-9]]: 番号・題・状態のチップ。押すとタスク・メモを開く */
 class TaskRefWidget extends WidgetType {
   constructor(
     readonly ref: string,
@@ -217,6 +219,102 @@ class TableWidget extends WidgetType {
   }
 }
 
+/** ![名前](https://…): 写真を本文の中に出す。押すと Markdown に戻して編集できる */
+class ImageWidget extends WidgetType {
+  constructor(
+    readonly url: string,
+    readonly alt: string,
+  ) {
+    super();
+  }
+  eq(o: ImageWidget) {
+    return o.url === this.url && o.alt === this.alt;
+  }
+  toDOM(view: EditorView) {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-lp-img";
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.referrerPolicy = "no-referrer";
+    img.alt = this.alt;
+    img.src = this.url;
+    img.addEventListener("error", () => {
+      wrap.className = "cm-lp-img-missing";
+      wrap.textContent = `写真を読み込めません${this.alt ? `: ${this.alt}` : ""}`;
+    });
+    // 読み込みで高さが変わるので、エディタに測り直してもらう
+    img.addEventListener("load", () => view.requestMeasure());
+    wrap.append(img);
+    wrap.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      view.dispatch({ selection: EditorSelection.cursor(view.posAtDOM(wrap)) });
+      view.focus();
+    });
+    return wrap;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/** 長い読み物も枠の中でスクロールさせない */
+const BOX_MAX_HEIGHT = 30000;
+/** 箱から開けるのは別のメモだけ */
+export const isMemoHash = (h: unknown): h is string => typeof h === "string" && /^#\/memo\/\d+$/.test(h);
+
+/** ```html の箱: 隔離した枠の中で表示する。スクリプトは動くが、アプリの中身・API には届かない */
+class HtmlBoxWidget extends WidgetType {
+  private off: (() => void) | null = null;
+  constructor(readonly source: string) {
+    super();
+  }
+  eq(o: HtmlBoxWidget) {
+    return o.source === this.source;
+  }
+  get estimatedHeight() {
+    return 240;
+  }
+  toDOM(view: EditorView) {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-box";
+    const frame = document.createElement("iframe");
+    // 人が押した外部リンクだけ別の画面で開く。allow-same-origin は付けない（アプリの中身に触れさせない）
+    frame.setAttribute("sandbox", "allow-scripts allow-popups allow-popups-to-escape-sandbox");
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.title = "HTML の表示";
+    frame.src = "/memo-box";
+    frame.style.height = "200px";
+    const dark = document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+    const on = (e: MessageEvent) => {
+      if (e.source !== frame.contentWindow) return;
+      const d = e.data as { plasmodBox?: string; h?: unknown; hash?: unknown };
+      if (d?.plasmodBox === "ready") frame.contentWindow?.postMessage({ html: this.source, dark }, "*");
+      else if (d?.plasmodBox === "height" && typeof d.h === "number") {
+        frame.style.height = `${Math.min(BOX_MAX_HEIGHT, Math.max(48, Math.ceil(d.h)))}px`;
+        view.requestMeasure();
+      } else if (d?.plasmodBox === "open" && isMemoHash(d.hash)) location.hash = d.hash;
+    };
+    addEventListener("message", on);
+    this.off = () => removeEventListener("message", on);
+    const edit = document.createElement("button");
+    edit.className = "cm-lp-box-edit";
+    edit.textContent = "HTML を編集";
+    edit.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      view.dispatch({ selection: EditorSelection.cursor(view.posAtDOM(wrap)) });
+      view.focus();
+    });
+    wrap.append(frame, edit);
+    return wrap;
+  }
+  destroy() {
+    this.off?.();
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
 const hide = Decoration.replace({});
 const line = (cls: string) => Decoration.line({ class: cls });
 const mark = (cls: string) => Decoration.mark({ class: cls });
@@ -284,8 +382,21 @@ function build(state: EditorState): DecorationSet {
           }
           return false;
         }
+        case "Image": {
+          // カーソルの無い行では写真に。https の URL だけ（http は画面の守りで止まる）
+          const url = n.node.getChild("URL");
+          const src = url ? doc.sliceString(url.from, url.to) : "";
+          if (isActive(from, to) || !/^https:\/\//i.test(src)) {
+            deco.push(mark("cm-lp-link-raw").range(from, to));
+            return false;
+          }
+          const marks = n.node.getChildren("LinkMark");
+          const alt = marks.length >= 2 ? doc.sliceString(marks[0].to, marks[1].from) : "";
+          deco.push(Decoration.replace({ widget: new ImageWidget(src, alt) }).range(from, to));
+          return false;
+        }
         case "URL":
-          if (n.node.parent?.name !== "Link") deco.push(mark("cm-lp-link").range(from, to));
+          if (n.node.parent?.name !== "Link" && n.node.parent?.name !== "Image") deco.push(mark("cm-lp-link").range(from, to));
           return;
         case "Blockquote":
           for (let p = from; p <= to; ) {
@@ -324,6 +435,17 @@ function build(state: EditorState): DecorationSet {
           if (!isActive(from, to)) deco.push(Decoration.replace({ widget: new RuleWidget() }).range(from, to));
           return;
         case "FencedCode": {
+          const info = n.node.getChild("CodeInfo");
+          if (info && doc.sliceString(info.from, info.to).trim().toLowerCase() === "html") {
+            const a = doc.lineAt(from);
+            const b = doc.lineAt(to);
+            if (!touched(a.from, b.to)) {
+              const closed = b.number > a.number && /^\s*(`{3,}|~{3,})\s*$/.test(b.text);
+              const inner = doc.sliceString(Math.min(a.to + 1, doc.length), closed ? b.from : b.to);
+              deco.push(Decoration.replace({ widget: new HtmlBoxWidget(inner), block: true }).range(a.from, b.to));
+              return false;
+            }
+          }
           const first = doc.lineAt(from).number;
           const last = doc.lineAt(to).number;
           const inside = isActive(from, to);
@@ -345,7 +467,7 @@ function build(state: EditorState): DecorationSet {
       }
     },
   });
-  // [[TASK-123]]: カーソルの無い行ではチップにする
+  // [[TASK-123]]・[[MEMO-9]]: カーソルの無い行ではチップにする
   const make = state.facet(makeTaskFacet);
   for (let n = 1; n <= doc.lines; n++) {
     const l = doc.line(n);
@@ -353,9 +475,11 @@ function build(state: EditorState): DecorationSet {
     const isActive = active.has(n);
     let hasRef = false;
     for (const m of l.text.matchAll(TASK_REF)) {
-      hasRef = true;
+      // メモへのつながりは、その行がタスクになっている印ではない。チェックの行でもメモの題は見せる
+      const isMemo = memoIdOf(m[1]) !== null;
+      if (!isMemo) hasRef = true;
       const from = l.from + (m.index ?? 0);
-      if (!isActive) deco.push(Decoration.replace({ widget: new TaskRefWidget(m[1], /^\s*[-*+]\s+\[[ xX]\]\s+/.test(l.text)) }).range(from, from + m[0].length));
+      if (!isActive) deco.push(Decoration.replace({ widget: new TaskRefWidget(m[1], !isMemo && /^\s*[-*+]\s+\[[ xX]\]\s+/.test(l.text)) }).range(from, from + m[0].length));
       else deco.push(mark("cm-lp-taskref-raw").range(from, from + m[0].length));
     }
     // まだタスクにしていないチェックの行: カーソルがあるとき、右端に「タスクにする」
@@ -371,7 +495,31 @@ const livePreview = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+/** 手書きのハイライト。効果で書き分けを渡すと、以後の入力は人が書いたものとして足していく。null で消す */
+export const setAuthorship = StateEffect.define<Attribution | null>();
+const humanMark = Decoration.mark({ class: "cm-lp-human" });
+const humanDeco = (attr: Attribution | null) =>
+  attr ? Decoration.set(humanRanges(attr).map((r) => humanMark.range(r.from, r.to)), true) : Decoration.none;
+const humanHighlight = StateField.define<{ attr: Attribution | null; deco: DecorationSet }>({
+  create: () => ({ attr: null, deco: Decoration.none }),
+  update: (v, tr) => {
+    let attr = v.attr;
+    let changed = false;
+    for (const e of tr.effects)
+      if (e.is(setAuthorship)) {
+        attr = e.value;
+        changed = true;
+      }
+    if (attr && tr.docChanged) changed = true;
+    // 渡された版と今の本文の差、そのあとの入力は、この画面で人が書いたもの
+    if (attr && changed) attr = nextVersion(attr, tr.state.doc.toString(), true);
+    return changed ? { attr, deco: humanDeco(attr) } : v;
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
 const theme = EditorView.theme({
+  ".cm-lp-human": { backgroundColor: "var(--color-yellow-soft)", boxShadow: "inset 0 -2px 0 color-mix(in srgb, var(--color-orange) 45%, transparent)", borderRadius: "2px" },
   "&": { fontSize: "15px", color: "var(--color-ink)", backgroundColor: "transparent" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": { fontFamily: "var(--font-sans)", lineHeight: "1.75", overflow: "visible" },
@@ -391,6 +539,12 @@ const theme = EditorView.theme({
   ".cm-lp-code": { fontFamily: "var(--font-mono)", fontSize: "0.86em", backgroundColor: "var(--color-chip)", borderRadius: "4px", padding: "0.1em 0.3em" },
   ".cm-lp-link": { color: "var(--color-blue)", textDecoration: "underline", textDecorationColor: "color-mix(in srgb, var(--color-blue) 40%, transparent)", textUnderlineOffset: "3px" },
   ".cm-lp-link-raw": { color: "var(--color-mute)" },
+  ".cm-lp-box": { margin: "0.5em 0", border: "1px solid var(--color-line)", borderRadius: "10px", overflow: "hidden", backgroundColor: "var(--color-panel)" },
+  ".cm-lp-box iframe": { display: "block", width: "100%", border: "0" },
+  ".cm-lp-box-edit": { display: "block", width: "100%", minHeight: "32px", borderTop: "1px solid var(--color-line)", fontSize: "11.5px", color: "var(--color-mute)", background: "transparent" },
+  ".cm-lp-img": { display: "block", margin: "0.4em 0" },
+  ".cm-lp-img img": { display: "block", maxWidth: "100%", maxHeight: "70vh", borderRadius: "8px" },
+  ".cm-lp-img-missing": { display: "block", margin: "0.4em 0", padding: "0.6em 0.8em", borderRadius: "8px", fontSize: "0.85em", backgroundColor: "var(--color-chip)", color: "var(--color-mute)" },
   ".cm-lp-bullet": { display: "inline-block", width: "1em", color: "var(--color-mute)", textAlign: "center", fontWeight: "700" },
   ".cm-lp-listmark": { color: "var(--color-mute)" },
   ".cm-lp-check": {
@@ -479,6 +633,7 @@ export function memoExtensions(onChange: (text: string) => void, hint: string, m
     focused,
     focusTracker,
     livePreview,
+    humanHighlight,
     theme,
     EditorView.contentAttributes.of({ "aria-label": "本文", autocapitalize: "sentences", spellcheck: "false" }),
     EditorView.updateListener.of((u) => {

@@ -133,6 +133,7 @@ class Config:
         self.repo_dir = "/opt/plasmod"  # skill.sync の元（root 所有のコード）
         self.hermes_python = "/usr/bin/python3"
         self.hermes_bin = "/home/hermes/.local/bin/hermes"
+        self.reconnect_path = "/usr/local/bin:/usr/bin:/bin"
         self.as_hermes = ["/usr/sbin/runuser", "-u", "hermes", "--"]  # 絶対パス: hermes に渡す PATH には sbin が無く、そこから探される
         self.systemctl = "systemctl"
         self.journalctl = "journalctl"
@@ -1113,6 +1114,33 @@ ACTION_ARG_RE = {
     "value": re.compile(r"^[A-Za-z0-9_.-]{1,32}$"),
 }
 ACTION_TIMEOUT = 300
+RECONNECT_TIMEOUT = 120
+# Nous のログイン: hermes の権限で `hermes auth add nous` を裏で動かし、出てきたリンクとコードを返す。
+# ダッシュボードはログインゲートがあり、外から API を呼べない。CLI は承認されるまで待つので、切り離して残す
+NOUS_LOGIN_HELPER = r'''
+import json, os, re, subprocess, sys, tempfile, time
+hermes, home = sys.argv[1:3]
+def result(**kw):
+    print("PLASMOD_RESULT " + json.dumps(kw, ensure_ascii=False))
+out = tempfile.TemporaryFile(dir=home)
+proc = subprocess.Popen([hermes, "auth", "add", "nous", "--type", "oauth", "--no-browser"], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                        start_new_session=True, env={**os.environ, "HERMES_HOME": home})
+text = ""
+for _ in range(120):
+    text = os.pread(out.fileno(), 65536, 0).decode("utf-8", "replace")
+    url = re.search(r"1\. Open: (https://\S+)", text)
+    if url:
+        code = re.search(r"enter code: (\S+)", text)
+        result(ok=True, kind="nous", url=url.group(1), code=code.group(1) if code else None)
+        sys.exit(0)
+    if proc.poll() is not None:
+        break
+    time.sleep(0.25)
+if proc.poll() is None:
+    proc.terminate()
+result(ok=False, error="ログイン先を取得できない")
+sys.exit(1)
+'''
 OWNER_COMMAND_MAX = 8000
 UNDO_PREVIEW_LINES = 400
 
@@ -1356,6 +1384,47 @@ class Actions:
             self.engine.reject(r["id"], by)
             raise
 
+    def nous_login_for_app(self, approver_uid, password, by):
+        """Nous のログインを始める。受け口は承認の app.sock だけ。
+        エージェントからは始められない。パスワードが違えば何もしない"""
+        hh = self.cfg.hermes_home
+        prefix = " ".join(sh(x) for x in self.cfg.as_hermes)
+        script = "\n".join([
+            "#!/bin/bash",
+            "# Nous のログイン（plasmod-rootd が組み立てた）",
+            "set -euo pipefail",
+            "exec 2>&1",
+            f"{prefix} env -i HOME={sh(os.path.dirname(hh))} PATH={sh(self.cfg.reconnect_path)} LANG=C.UTF-8 {sh(self.cfg.hermes_python)} -I - "
+            + " ".join(sh(x) for x in (self.cfg.hermes_bin, hh))
+            + " <<'PLASMOD_HELPER'",
+            NOUS_LOGIN_HELPER.strip(),
+            "PLASMOD_HELPER",
+            "",
+        ])
+        req = {
+            "title": "Nous のログイン",
+            "reason": f"アプリで押した（{str(by)[:40]}）",
+            "timeout": RECONNECT_TIMEOUT,
+            "script_b64": base64.b64encode(script.encode()).decode(),
+            "files": [],
+        }
+        r = self.engine.submit(approver_uid, "app", req, notify=False)
+        try:
+            return {**self.engine.approve(r["id"], r["digest"], password, by), "id": r["id"]}
+        except Refuse:
+            self.engine.reject(r["id"], by)
+            raise
+
+    def mcp_toggle_for_app(self, approver_uid, profile, name, enable, password, by):
+        """MCP の有効・無効。部品の mcp.enable / mcp.disable を、同じパスワードで承認まで行う"""
+        action = "mcp.enable" if enable is True else "mcp.disable"
+        r = self.submit(approver_uid, "app", action, [profile, name], f"アプリの接続の画面（{str(by)[:40]}）")
+        try:
+            return {**self.engine.approve(r["id"], r["digest"], password, by), "id": r["id"]}
+        except Refuse:
+            self.engine.reject(r["id"], by)
+            raise
+
     def undo_for_app(self, approver_uid, rid, password, by):
         """アプリの「元に戻す」: 依頼を作って、同じパスワードで承認する（パスワードの照合は approve と同じ）"""
         if not isinstance(rid, str) or not ID_RE.match(rid):
@@ -1418,6 +1487,10 @@ class Handlers:
                     return {"ok": True, **self.engine.reject(req.get("id"), str(req.get("by", "")))}
                 if op == "run":
                     return {"ok": True, **self.actions.run_for_owner(uid, req.get("command"), req.get("password"), str(req.get("by", "")))}
+                if op == "nous_login":
+                    return {"ok": True, **self.actions.nous_login_for_app(uid, req.get("password"), str(req.get("by", "")))}
+                if op == "mcp_toggle":
+                    return {"ok": True, **self.actions.mcp_toggle_for_app(uid, req.get("profile"), req.get("name"), req.get("enable"), req.get("password"), str(req.get("by", "")))}
                 if op == "undo":
                     return {"ok": True, **self.actions.undo_for_app(uid, req.get("id"), req.get("password"), str(req.get("by", "")))}
                 if op == "approve":

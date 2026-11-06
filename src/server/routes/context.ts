@@ -11,6 +11,7 @@ import type { ProjectStore } from "../projects";
 import type { RootClient } from "../root";
 import type { SessionService } from "../sessions";
 import type { ShareStore } from "../share";
+import type { ConnectionWatch } from "../connections";
 import type { Store } from "../store";
 import type { SystemService } from "../system";
 import type { TaskSync } from "../task-sync";
@@ -32,6 +33,7 @@ export interface AppServices {
   projects?: ProjectStore;
   habits?: HabitStore;
   feed?: NotifyFeed;
+  connections?: ConnectionWatch;
 }
 
 export interface RouteContext extends AppServices {

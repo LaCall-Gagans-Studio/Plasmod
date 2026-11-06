@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { AppTask } from "../shared/types";
 import { ConfirmDelete, DangerButton, Glyph, Sheet, SheetCard, TileButton, TileLink, Tiles } from "./sheet";
+import { patchTask } from "./task-db";
 import { CopyRef, haptic, writeClipboard } from "./touch";
 
 type Open = { t: AppTask; onChanged?: () => void } | null;
@@ -65,7 +66,11 @@ export function TaskMenu() {
       setBusy(false);
     }
   };
-  const patch = (body: Record<string, unknown>) => run(() => fetch(`/api/apptasks/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
+  const patch = (body: Record<string, unknown>) =>
+    run(async () => {
+      await patchTask(t.id, body);
+      return new Response("{}");
+    });
   const remove = () =>
     run(async () => {
       const r = await fetch(`/api/apptasks/${t.id}`, { method: "DELETE" });

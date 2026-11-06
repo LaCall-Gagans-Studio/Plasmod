@@ -3,6 +3,8 @@
 import type { AgentInfo, CronJob, FsList, FsRead, ModelEntry, NousCredits, Schedules, TimerInfo, UsageSnapshot, VpsStatus } from "../shared/types";
 import type { BridgeClient } from "./bridge";
 import { type HostReader, readVps, realHost } from "./vps";
+import { SERIES_EVERY_MS, VpsSeries } from "./vps-series";
+import type { RawClaude, RawConnections, RawHermes } from "./connections";
 
 export type BrokerCall = (...args: string[]) => Promise<string>;
 
@@ -66,6 +68,20 @@ export class SystemService {
     private host: HostReader = realHost,
   ) {}
 
+  private series: VpsSeries | null = null;
+
+  /** グラフ用の記録を始める（本番の起動時に1回）。メモリに持つだけ */
+  startSeries() {
+    if (this.series) return;
+    this.series = new VpsSeries(this.host);
+    this.series.sample();
+    setInterval(() => this.series?.sample(), SERIES_EVERY_MS).unref?.();
+  }
+
+  vpsSeries() {
+    return this.series?.all() ?? [];
+  }
+
   /** 設定の「VPS」。読むだけ */
   vps(): Promise<VpsStatus> {
     return readVps(this.host, this.systemctlCall);
@@ -87,6 +103,20 @@ export class SystemService {
   }
 
   /** Nous のクレジット。仲介が Hermes の中でアカウントの情報を読む（Nous に問い合わせるので5分はキャッシュ） */
+  /** 接続の状況の元（読むだけ）。片方が取れなくても、もう片方は返す */
+  async connectionsRaw(): Promise<RawConnections> {
+    const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+    const [hermes, claude] = await Promise.all([
+      this.broker
+        ? this.broker("connections").then((s) => JSON.parse(s) as RawHermes, (e) => ({ error: msg(e) }))
+        : Promise.resolve({ error: "仲介が設定されていない" }),
+      this.bridge
+        ? this.bridge.request({ type: "auth_status" }).then((r) => r.claude as RawClaude, (e) => ({ error: msg(e) }))
+        : Promise.resolve({ available: false } as RawClaude),
+    ]);
+    return { hermes, claude };
+  }
+
   async credits(force = false): Promise<NousCredits> {
     if (!force && this.creditsCache && Date.now() - this.creditsCache.at < 300_000) return this.creditsCache.value;
     const empty: NousCredits = { paidAccess: null, reason: null, plan: null, monthly: null, subscriptionRemaining: null, purchasedRemaining: null, totalRemaining: null, periodEnd: null, at: Date.now() };

@@ -1,6 +1,8 @@
 // 設定: 一般（表示・呼び名・このアプリ） / エージェント（名前と顔・モデル・スキル・定期実行） / 使用量 / VPS（状態・root 作業・ファイル）
 import { useEffect, useState } from "react";
-import type { AgentInfo, AgentProfile, FsList, FsRead, ModelEntry, NousCredits, PerfName, PerfRow, Snapshot, UsageSnapshot, VpsService, VpsStatus } from "../shared/types";
+import type { AgentInfo, FsList, FsRead, ModelEntry, NousCredits, PerfName, PerfRow, Snapshot, UsageSnapshot, VpsService, VpsStatus } from "../shared/types";
+import { type ManagedAgent, useAgentSettings, PlayerCard, ProfileEditor } from "./AgentSquad";
+import { Connections } from "./Connections";
 import { RichText } from "./markdown";
 import { Schedules } from "./Schedules";
 import { creditsUsed } from "./session-data";
@@ -8,6 +10,7 @@ import { type ThemePref, useTheme } from "./theme";
 import { Avatar, COL, Page, ago, profileOf } from "./ui";
 import { devAgentName, getAbout, saveOwner } from "./identity";
 import { toast } from "./touch";
+import { VpsChart } from "./VpsChart";
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -195,6 +198,7 @@ function Agents({ snap }: { snap: Snapshot | null }) {
   const [picking, setPicking] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [soulOpen, setSoulOpen] = useState<string | null>(null);
+  const settings = useAgentSettings();
   const [sheet, setSheet] = useState<{ root: "work" | "hermes"; path: string } | null>(null);
   useEffect(() => {
     const get = async <T,>(url: string): Promise<T> => {
@@ -220,34 +224,29 @@ function Agents({ snap }: { snap: Snapshot | null }) {
       setMsg({ ok: true, text: `${m.name} を ${label} にした（次のセッション・次のカードから）` });
     } else setMsg({ ok: false, text: b.error ?? `HTTP ${r.status}` });
   };
-  // 並びはプロファイルの順（ハブ・開発エージェント・アオ・経理エージェント）
-  const order = (id: string) => {
-    const i = snap?.agents.findIndex((a) => profileOf(snap.agents, id).name === a.name) ?? -1;
-    return i < 0 ? 99 : i;
-  };
-  const sorted = (list ?? []).slice().sort((a, b) => order(a.id) - order(b.id));
+  // 並びはプロファイルの順。隠しているエージェントも出す（編集は開いた中で）
+  const fromList = (i: AgentInfo): ManagedAgent => (snap ? profileOf(snap.agents, i.id) : { id: i.id, name: i.id, initial: i.id.slice(0, 1).toUpperCase(), color: "#2f6fdb" });
+  const squad: ManagedAgent[] = settings.agents ?? (list ?? []).map(fromList);
+  const extra = (list ?? []).filter((i) => !squad.some((p) => p.id === i.id)).map(fromList);
+  const players = [...squad, ...extra];
   return (
-    <div className="flex flex-col gap-2.5 px-4 pb-4 pt-2.5 lg:grid lg:grid-cols-2 lg:items-start">
+    <div className="flex flex-col gap-3 px-4 pb-4 pt-2.5 lg:grid lg:grid-cols-2 lg:items-start">
       {list === null && <div className="text-sm text-mute">読み込み中…</div>}
       {listError && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{listError}</div>}
+      {settings.error && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{settings.error}</div>}
       {msg && <div className={`rounded-xl px-3 py-2 text-xs lg:col-span-2 ${msg.ok ? "bg-lime-soft text-lime-ink" : "bg-orange/10 text-orange-ink"}`}>{msg.text}</div>}
-      {sorted.map((a) => {
-        const p = snap ? profileOf(snap.agents, a.id) : null;
-        const isOpen = open === a.id;
-        const cats = [...new Set(a.skills.map((s) => s.category))];
+      {players.map((p, n) => {
+        const a = (list ?? []).find((i) => i.id === p.id);
+        const isOpen = open === p.id;
+        const cats = a ? [...new Set(a.skills.map((s) => s.category))] : [];
         return (
-          <div key={a.id} className={`overflow-hidden rounded-xl border bg-panel ${isOpen ? "border-lime-line" : "border-line"}`}>
-            <button onClick={() => setOpen(isOpen ? null : a.id)} className="flex min-h-[60px] w-full items-center gap-2.5 px-3 text-left">
-              {p && <Avatar p={p} size={36} />}
-              <span className="flex min-w-0 flex-col">
-                <span className="text-sm font-bold">{p?.name ?? a.id}{p?.role && <span className="ml-1.5 text-[11px] font-normal text-ink-2">{p.role}</span>}</span>
-                <span className="truncate font-mono text-[11px] text-mute">{a.model}</span>
-              </span>
-              <span className="ml-auto flex-none text-[11px] text-mute">スキル {a.skills.length} {isOpen ? "▴" : "▾"}</span>
-            </button>
-            {a.error && <div className="px-3 pb-2 text-[11px] text-orange-ink">{a.error}</div>}
+          <div key={p.id} className={`overflow-hidden rounded-2xl border bg-panel ${isOpen ? "border-lime-line" : "border-line"}`}>
+            <PlayerCard a={p} info={a} no={n + 1} open={isOpen} onToggle={() => setOpen(isOpen ? null : p.id)} />
+            {a?.error && <div className="px-3 pt-2 text-[11px] text-orange-ink">{a.error}</div>}
             {isOpen && (
-              <div className="flex flex-col gap-3 border-t border-line p-3">
+              <div className="flex flex-col gap-3 p-3">
+                {settings.agents && <ProfileEditor a={p} patch={settings.patch} upload={settings.upload} />}
+                {a && <>
                 {/* モデル（許可リストの中から変えられる） */}
                 <div className="flex flex-col gap-1">
                   <div className="text-[11px] text-mute">モデル</div>
@@ -305,12 +304,13 @@ function Agents({ snap }: { snap: Snapshot | null }) {
                     </div>
                   ))}
                 </div>
+                </>}
               </div>
             )}
           </div>
         );
       })}
-      <p className="text-[11px] text-mute lg:col-span-2">モデルは許可リストの中からだけ選べる。人格・スキル・設定ファイルは読むだけ（変えるときはエージェントに頼む）。</p>
+      <p className="text-[11px] text-mute lg:col-span-2">カードを開くと、顔・名前・役割・色を変えられる。モデルは許可リストの中からだけ選べる。人格・スキル・設定ファイルは読むだけ（変えるときはエージェントに頼む）。</p>
       {sheet && <FileSheet root={sheet.root} path={sheet.path} onClose={() => setSheet(null)} />}
     </div>
   );
@@ -400,8 +400,6 @@ const span = (ms: number) => {
   const m = Math.floor(ms / 60_000);
   return m >= 1440 ? `${Math.floor(m / 1440)}日${Math.floor((m % 1440) / 60)}時間` : m >= 60 ? `${Math.floor(m / 60)}時間${m % 60}分` : `${m}分`;
 };
-/** 8割を超えたらオレンジ */
-const meterColor = (r: number | null) => (r !== null && r >= 0.8 ? "#FF8A3D" : "#C8F25A");
 
 function serviceState(s: VpsService): { label: string; tone: "ok" | "idle" | "bad" } {
   if (s.active === "failed" || (s.oneshot && s.result && s.result !== "success")) return { label: s.active === "failed" ? "失敗" : `前回 ${s.result}`, tone: "bad" };
@@ -455,8 +453,6 @@ function Vps() {
     };
   }, []);
   if (!v) return <div className="px-4 pt-3 text-sm text-mute">{error ?? "VPS の状態を読み込み中…"}</div>;
-  const loadRatio = v.load ? v.load[0] / v.cpus : null;
-  const memRatio = v.mem ? v.mem.used / v.mem.total : null;
   const bad = v.services.filter((s) => serviceState(s).tone === "bad");
   return (
     <div className="flex flex-col gap-3 px-4 pb-6 pt-2.5">
@@ -468,13 +464,7 @@ function Vps() {
           {v.deployed && ` · 本番 ${v.deployed.slice(0, 7)}`}
         </div>
       </div>
-      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2">
-        <Meter title="CPU" sub={`${v.cpus} コア`} value={v.load ? v.load.map((x) => x.toFixed(2)).join(" / ") : "?"} ratio={loadRatio} note="負荷（1分 / 5分 / 15分）。コア数を超えると詰まっている" color={meterColor(loadRatio)} />
-        <Meter title="メモリ" sub={v.swap ? `スワップ ${bytes(v.swap.used)} / ${bytes(v.swap.total)}` : "スワップなし"} value={v.mem ? `${bytes(v.mem.used)} / ${bytes(v.mem.total)}` : "?"} ratio={memRatio} note="使用中（キャッシュは除く）" color={meterColor(memRatio)} />
-        {v.disks.map((d) => (
-          <Meter key={d.path} title="ディスク" sub={d.path} value={`${bytes(d.used)} / ${bytes(d.total)}`} ratio={d.used / d.total} note={`空き ${bytes(d.avail)}`} color={meterColor(d.used / d.total)} />
-        ))}
-      </div>
+      <VpsChart v={v} />
       <PerfBox />
       {v.failed.length > 0 && (
         <div className="rounded-xl border border-orange/40 bg-panel p-3 text-[12.5px]">
@@ -505,7 +495,7 @@ function Vps() {
         {v.services.length === 0 && <div className="p-3 text-[12px] text-mute">サービスを読めなかった</div>}
       </div>
       {v.errors.length > 0 && <div className="rounded-xl bg-orange/10 px-3 py-2 text-[11.5px] text-orange-ink">{v.errors.map((e) => `${e.source}: ${e.error}`).join(" / ")}</div>}
-      <p className="text-[11px] text-mute">読むだけ（15秒ごとに更新）。止まっているサービスを動かすときは、{devAgentName()}に頼む</p>
+      <p className="text-[11px] text-mute">読むだけ（グラフは5秒、ほかは15秒ごとに更新）。止まっているサービスを動かすときは、{devAgentName()}に頼む</p>
     </div>
   );
 }
@@ -533,10 +523,11 @@ function ThemePicker() {
   );
 }
 
-type Tab = "general" | "agents" | "usage" | "vps";
+type Tab = "general" | "agents" | "connections" | "usage" | "vps";
 export const SETTINGS_TABS: { id: Tab; label: string }[] = [
   { id: "general", label: "一般" },
   { id: "agents", label: "エージェント" },
+  { id: "connections", label: "接続" },
   { id: "usage", label: "使用量" },
   { id: "vps", label: "VPS" },
 ];
@@ -594,52 +585,6 @@ function OwnerName() {
         />
       </label>
       {error && <div className="text-orange-ink">{error}</div>}
-    </section>
-  );
-}
-
-/** エージェントの名前・色・顔・隠す */
-function AgentIdentity() {
-  const [agents, setAgents] = useState<(AgentProfile & { hidden?: boolean })[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const take = async (r: Response) => {
-    const b = (await r.json().catch(() => ({}))) as { agents?: (AgentProfile & { hidden?: boolean })[]; error?: string };
-    if (!r.ok) throw new Error(b.error ?? `HTTP ${r.status}`);
-    if (b.agents) setAgents(b.agents);
-    setError(null);
-  };
-  useEffect(() => {
-    fetch("/api/agents-settings").then(take).catch((e) => setError(String(e.message ?? e)));
-  }, []);
-  const patch = (id: string, body: Record<string, unknown>) =>
-    fetch(`/api/agents-settings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(take).catch((e) => setError(String(e.message ?? e)));
-  const upload = (id: string, f: File | undefined) => {
-    if (!f) return;
-    const fd = new FormData();
-    fd.append("file", f);
-    void fetch(`/api/agents-settings/${id}/avatar`, { method: "POST", body: fd }).then(take).catch((e) => setError(String(e.message ?? e)));
-  };
-  return (
-    <section aria-label="名前と顔" className="mx-4 mt-2.5 flex flex-col gap-2 rounded-xl border border-line p-3.5 text-[13px]">
-      <div className="text-[12px] font-semibold text-mute">名前と顔</div>
-      {error && <div className="text-orange-ink">{error}</div>}
-      {agents?.map((a) => (
-        <div key={a.id} className={`flex items-center gap-2 border-t border-line pt-2 ${a.hidden ? "opacity-50" : ""}`}>
-          <label className="relative flex-none cursor-pointer" title="顔の画像を変える">
-            <Avatar p={a} size={36} />
-            <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${a.name}の顔の画像`} className="absolute inset-0 opacity-0" onChange={(e) => upload(a.id, e.target.files?.[0])} />
-          </label>
-          <input
-            defaultValue={a.name}
-            key={`${a.id}:${a.name}`}
-            onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== a.name && void patch(a.id, { name: e.target.value })}
-            aria-label={`${a.id} の名前`}
-            className="min-h-9 min-w-0 flex-1 rounded-lg border border-line-2 bg-transparent px-2.5 outline-none"
-          />
-          <input type="color" defaultValue={a.color.startsWith("#") ? a.color : "#888888"} onBlur={(e) => e.target.value !== a.color && void patch(a.id, { color: e.target.value })} aria-label={`${a.name}の色`} className="size-9 flex-none cursor-pointer rounded-lg border border-line-2 bg-transparent p-1" />
-          <button onClick={() => void patch(a.id, { hidden: !a.hidden })} className="min-h-9 flex-none rounded-lg border border-line-2 px-2.5 text-[12px] text-ink-2">{a.hidden ? "出す" : "隠す"}</button>
-        </div>
-      ))}
     </section>
   );
 }
@@ -706,11 +651,12 @@ export function System({ snap }: { snap: Snapshot | null }) {
         <Usage snap={snap} />
       ) : tab === "agents" ? (
         <>
-          <AgentIdentity />
           <Agents snap={snap} />
           <Section title="定期実行" />
           <Schedules snap={snap} />
         </>
+      ) : tab === "connections" ? (
+        <Connections />
       ) : tab === "vps" ? (
         <VpsTab />
       ) : (

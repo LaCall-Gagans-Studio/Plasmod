@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseMeminfo, readVps, type HostReader } from "../src/server/vps";
+import { parseCpu, parseDiskTicks, parseNetBytes, VpsSeries } from "../src/server/vps-series";
 
 const files: Record<string, string> = {
   "/proc/loadavg": "1.32 0.88 0.62 3/408 3739687\n",
@@ -100,5 +101,34 @@ describe("VPS の状態", () => {
     expect(v.services).toEqual([]);
     expect(v.load).not.toBeNull();
     expect(v.errors.map((e) => e.source)).toContain("サービス");
+  });
+});
+
+describe("VPS のグラフ（累計の差から出す）", () => {
+  const box = (s: Record<string, string>): HostReader => ({ read: (p) => { if (p in s) return s[p]; throw new Error("ENOENT"); }, statfs: () => ({ blocks: 1, bfree: 1, bavail: 1, bsize: 1 }), hostname: () => "x" });
+  test("読み取りの部品", () => {
+    expect(parseCpu("cpu  100 0 100 700 100 0 0 0 0 0\ncpu0 1 2 3 4\n")).toEqual({ total: 1000, idle: 800 });
+    expect(parseCpu("nonsense")).toBeNull();
+    expect(parseDiskTicks(" 8 0 sda 1 2 3 4 5 6 7 8 9 500 11\n 8 1 sda1 1 2 3 4 5 6 7 8 9 400 11\n 7 0 loop0 1 2 3 4 5 6 7 8 9 9 9\n259 0 nvme0n1 1 2 3 4 5 6 7 8 9 20 11\n")).toEqual({ sda: 500, nvme0n1: 20 });
+    expect(parseNetBytes("Inter-|\n face |\n lo: 999 0 0 0 0 0 0 0 999 0\n eth0: 100 0 0 0 0 0 0 0 50 0\n tailscale0: 70 0 0 0 0 0 0 0 70 0\n")).toBe(150);
+  });
+
+  test("2回目から CPU・ディスク・ネットが出る。読めないものは null で、上限を超えて持たない", () => {
+    const s: Record<string, string> = {
+      "/proc/stat": "cpu  100 0 100 800 0 0 0 0\n",
+      "/proc/meminfo": "MemTotal: 1000 kB\nMemAvailable: 250 kB\n",
+      "/proc/diskstats": " 8 0 sda 1 2 3 4 5 6 7 8 9 1000 11\n",
+      "/proc/net/dev": " eth0: 1000 0 0 0 0 0 0 0 0 0\n",
+    };
+    const v = new VpsSeries(box(s), 2);
+    const a = v.sample(1000);
+    expect(a).toEqual({ at: 1000, cpu: null, mem: 75, disk: null, net: null });
+    s["/proc/stat"] = "cpu  200 0 100 900 0 0 0 0\n";
+    s["/proc/diskstats"] = " 8 0 sda 1 2 3 4 5 6 7 8 9 3500 11\n";
+    s["/proc/net/dev"] = " eth0: 11000 0 0 0 0 0 0 0 0 0\n";
+    expect(v.sample(6000)).toEqual({ at: 6000, cpu: 50, mem: 75, disk: 50, net: 2000 });
+    delete s["/proc/net/dev"];
+    expect(v.sample(11000).net).toBeNull();
+    expect(v.all().map((x) => x.at)).toEqual([6000, 11000]);
   });
 });

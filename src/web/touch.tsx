@@ -1,6 +1,6 @@
 // 操作の共通部品（v2.0 D1）: 長押し・コピー・小さな知らせ・振動。
 // 動きの決まりは styles.css の「動きの決まり」にまとめている。
-import { type HTMLAttributes, type ReactNode, useRef, useSyncExternalStore } from "react";
+import { type HTMLAttributes, type ReactNode, useCallback, useRef, useState, useSyncExternalStore } from "react";
 
 const HAPTIC = { tap: 8, success: [10, 40, 10], error: [30, 50, 30] } as const;
 export function haptic(kind: keyof typeof HAPTIC = "tap") {
@@ -143,4 +143,86 @@ export function CopyRef({ text, children, className = "", ...rest }: { text: str
       {children ?? text}
     </span>
   );
+}
+
+// ---- 長押ししてから左右に引っ張る ----
+/** 引っ張りを確定させる長さ（px） */
+export const HOLD_SWIPE_PX = 56;
+
+/** 離したときに動く向き。-1 = 前へ（右に引いた）、1 = 次へ（左に引いた）、0 = 動かない */
+export const holdSwipeDirection = (dx: number) => (dx >= HOLD_SWIPE_PX ? -1 : dx <= -HOLD_SWIPE_PX ? 1 : 0);
+
+/**
+ * 長押しのあとに左右へ引っ張ると onMove が呼ばれる。ふつうの押す・縦に動かす操作はそのまま。
+ * 長押しが決まったら縦のスクロールを止める（pointercancel で途切れないように）。
+ */
+export function useHoldSwipe(onMove: (dir: -1 | 1) => void) {
+  const [state, setState] = useState<{ held: boolean; dx: number }>({ held: false, dx: 0 });
+  const ref = useRef<{ x: number; y: number; id: number; timer: ReturnType<typeof setTimeout> | null; held: boolean; dx: number; swallow: boolean } | null>(null);
+  const moveRef = useRef(onMove);
+  moveRef.current = onMove;
+  const nodeRef = useRef<HTMLElement | null>(null);
+  const reset = () => {
+    const r = ref.current;
+    if (r?.timer) clearTimeout(r.timer);
+    ref.current = null;
+    setState({ held: false, dx: 0 });
+  };
+  // 長押しが決まったあとは、ブラウザのスクロールを止める。React の onTouchMove は passive なのでここで付ける
+  const attach = useCallback((node: HTMLElement | null) => {
+    const stop = (e: TouchEvent) => {
+      if (ref.current?.held && e.cancelable) e.preventDefault();
+    };
+    nodeRef.current?.removeEventListener("touchmove", stop);
+    nodeRef.current = node;
+    node?.addEventListener("touchmove", stop, { passive: false });
+  }, []);
+  const swallowClick = useRef(false);
+  return {
+    held: state.held,
+    dx: state.dx,
+    bind: {
+      ref: attach,
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.button !== 0) return;
+        swallowClick.current = false;
+        const r = { x: e.clientX, y: e.clientY, id: e.pointerId, timer: null as ReturnType<typeof setTimeout> | null, held: false, dx: 0, swallow: false };
+        r.timer = setTimeout(() => {
+          r.held = true;
+          haptic("tap");
+          setState({ held: true, dx: 0 });
+        }, LONG_PRESS_MS);
+        ref.current = r;
+      },
+      onPointerMove: (e: React.PointerEvent) => {
+        const r = ref.current;
+        if (!r || r.id !== e.pointerId) return;
+        if (!r.held) {
+          if (Math.hypot(e.clientX - r.x, e.clientY - r.y) > 10) reset();
+          return;
+        }
+        r.dx = e.clientX - r.x;
+        setState({ held: true, dx: r.dx });
+      },
+      onPointerUp: () => {
+        const r = ref.current;
+        if (r?.held) {
+          // 長押しのあとの click（リンク・左右の押す場所）を起こさない
+          swallowClick.current = true;
+          const dir = holdSwipeDirection(r.dx);
+          if (dir) moveRef.current(dir as -1 | 1);
+        }
+        reset();
+      },
+      onPointerCancel: reset,
+      onClickCapture: (e: React.MouseEvent) => {
+        if (swallowClick.current) {
+          swallowClick.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    },
+  };
 }

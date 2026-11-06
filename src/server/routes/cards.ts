@@ -5,6 +5,7 @@ import type { SnoozeKind } from "../../shared/types";
 import { filterHits } from "../search";
 import type { RouteContext } from "./context";
 import { readForm } from "./form";
+import { memoIdOf } from "../../shared/memo-ref";
 
 const SNOOZE_KINDS: SnoozeKind[] = ["3h", "morning", "week"];
 
@@ -61,7 +62,15 @@ export function cardsRoutes({ app, hub, tasks, memos }: RouteContext) {
   });
 
   app.get("/api/search", (c) => {
-    const hits = hub.find((c.req.query("q") ?? "").slice(0, 200));
+    const q = (c.req.query("q") ?? "").slice(0, 200);
+    let hits = hub.find(q);
+    // 番号（MEMO-9）そのものなら、そのメモを一番上に（アーカイブ済みも番号なら引ける）
+    const memoId = memoIdOf(q);
+    const memo = memoId !== null ? memos?.get(memoId) : null;
+    if (memo) {
+      const own = hits.find((h) => h.kind === "memo" && h.ref === String(memo.id));
+      hits = [own ?? { kind: "memo", ref: String(memo.id), title: memo.title, snippet: `MEMO-${memo.id}`, at: memo.updatedAt }, ...hits.filter((h) => h !== own)];
+    }
     const days = Number(c.req.query("days") ?? 0);
     const agent = c.req.query("agent") ?? "";
     const project = c.req.query("project") ?? "";
