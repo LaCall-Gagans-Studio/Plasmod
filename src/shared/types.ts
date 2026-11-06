@@ -757,8 +757,8 @@ export interface AppNotice {
 }
 export type NoticeEvent = AppNotice | { id: number; at: number; type: "clear"; key: string };
 
-/** 速さの記録: startup＝起動から操作できるまで、session_new・session_reply＝話しかけてから最初の返事が見えるまで（新しいセッション・続き） */
-export type PerfName = "startup" | "session_new" | "session_reply";
+/** 速さの記録: startup_*＝起動の内訳（startupStages）、startup＝起動から操作できるまで、session_new・session_reply＝話しかけてから最初の返事が見えるまで（新しいセッション・続き） */
+export type PerfName = "startup" | "startup_entry" | "startup_doc" | "startup_script" | "startup_data" | "session_new" | "session_reply";
 export interface PerfRow {
   name: PerfName;
   via: "apk" | "browser";

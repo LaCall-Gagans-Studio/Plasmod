@@ -43,3 +43,23 @@ describe("速さの記録", () => {
     expect(replySeen(term([{ author: "owner", content: "やって", at: 1 }, { author: "dev", content: "了解", at: 2 }]), "やって")).toBe(true);
   });
 });
+
+describe("起動の内訳", () => {
+  test("足すと全体になり、入口の画面は APK のときだけ", async () => {
+    const { startupStages } = await import("../src/web/perf");
+    const s = startupStages({ launch: 1000, origin: 7000, responseEnd: 500, contentLoaded: 900, now: 1500 });
+    expect(s).toEqual([
+      { name: "startup_entry", ms: 6000 },
+      { name: "startup_doc", ms: 500 },
+      { name: "startup_script", ms: 400 },
+      { name: "startup_data", ms: 600 },
+    ]);
+    expect(s.reduce((a, x) => a + x.ms, 0)).toBe(7500);
+    expect(startupStages({ launch: 0, origin: 7000, responseEnd: 500, contentLoaded: 900, now: 1500 }).map((x) => x.name)).toEqual(["startup_doc", "startup_script", "startup_data"]);
+  });
+
+  test("まだ読み終わっていなくても負の値にしない", async () => {
+    const { startupStages } = await import("../src/web/perf");
+    expect(startupStages({ launch: 0, origin: 0, responseEnd: 500, contentLoaded: 0, now: 400 }).map((x) => x.ms)).toEqual([500, 0, 0]);
+  });
+});

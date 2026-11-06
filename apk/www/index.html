@@ -128,12 +128,13 @@
 
   async function connect(base) {
     show("connecting", "つないでいます…");
-    if (!(await reachable(base)) && openedBefore(base)) {
+    const ok = await reachable(base);
+    if (!ok && openedBefore(base)) {
       // 届かなくても、前に開いた画面はキャッシュから開ける（メモはオフラインで使える）
       location.replace(base + "/?launch=" + Math.round(performance.timeOrigin) + "#/memos");
       return;
     }
-    if (await reachable(base)) {
+    if (ok) {
       markOpened(base);
       save(base);
       let path = "";
