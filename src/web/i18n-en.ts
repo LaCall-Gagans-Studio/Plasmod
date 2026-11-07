@@ -70,6 +70,8 @@ export const EN: Record<string, string> = {
   色を変える: "Color",
   顔を外す: "Remove picture",
   カードを保存した: "Card saved",
+  リリースノート: "Release notes",
+  開発中: "In development",
   自動: "Auto",
   白: "Light",
   黒: "Dark",
