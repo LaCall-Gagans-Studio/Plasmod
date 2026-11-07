@@ -26,7 +26,7 @@ check() {
   [ "$(stat -c '%U:%G %a' /etc/plasmod/env)" = "root:plasmod 640" ] || ng "env の権限: $(stat -c '%U:%G %a' /etc/plasmod/env)"
   [ "$(stat -c '%a' /etc/plasmod-rootd)" = 700 ] || ng "rootd の設定の権限"
   sudo -u nobody test ! -r /etc/plasmod/env || ng "ほかのユーザーが env を読める"
-  grep -q '^PLASMOD_ALLOWED_LOGINS=ci@example.com$' /etc/plasmod/env || ng "ログインの設定"
+  grep -q '^PLASMOD_ALLOWED_LOGINS=ci@example.com$' /etc/plasmod/env || ng "ログインの設定: $(grep ALLOWED /etc/plasmod/env)"
   visudo -cf /etc/sudoers.d/plasmod >/dev/null || ng "sudoers"
 }
 check
