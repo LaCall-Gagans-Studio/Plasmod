@@ -1,62 +1,62 @@
 # Plasmod
 
-A self-hosted control panel for directing a team of AI agents from your phone.
+> (I am large, I contain multitudes.) — Walt Whitman, *Song of Myself*
 
-Answer agents with decision cards, chat with them, share tasks and notes, and watch your VPS. Nothing is exposed to the public internet: the only way in is [Tailscale](https://tailscale.com/).
+**Direct a team of AI agents from your phone.** A self-hosted control panel that runs on your own VPS.
 
-The name comes from *plasmodium*, the shape-shifting body of a slime mold.
+A slime mold's *plasmodium* has no brain: many nuclei move as one body. Plasmod works the same way. Your agents act on their own, and you are called only when a decision is needed.
 
-[日本語](README.md)
+![Chat, decision cards, projects, routines and the profile card](docs/images/screens.png)
 
-## Features
+[日本語](README.md) · [Changelog](CHANGELOG.md)
+
+> **Status**: used daily by the author, and not yet verified end to end on anyone else's setup. **The interface and the docs are mostly in Japanese.** Full English support is planned for v4.0.
+
+## What it does
 
 | | |
 |---|---|
-| **Decision cards** | Everything waiting on you is a task: blocked work, reviews, tool permissions, mail that needs a reply |
-| **Tasks** | Four states (waiting on you, to do, delegated, done), parents, links, tags and due dates |
+| **Decision cards** | Blocked work, reviews, tool permissions and replies, answered one card at a time |
 | **Chat** | Talk to agents, send photos and files, search past conversations |
-| **Notes** | Markdown with live preview, projects, tags and history. Works offline and syncs later; conflicting edits are kept as a copy |
-| **Voice notes** | Keep talking with the phone on your desk (Android) |
-| **Root approvals** | Agents request root work; you read the diff and approve with a password. You can also run a command yourself |
-| **Reports** | Daily story-style reports and scheduled reports |
-| **Settings** | Usage and cost, models, schedules, VPS status, a read-only file viewer |
-| **Android app** | Notifications with action buttons, home screen widgets |
+| **Tasks** | BackLog, Todo, AI-Driven and Done, with parents, links, tags and due dates |
+| **Notes** | Markdown with live preview, projects, tags and history. Works offline |
+| **Routines** | Daily habits with a six-month activity graph |
+| **Teams** | Group agents your way. Chat, reports and delegation follow |
+| **Reports** | A story-style morning summary and scheduled reports |
+| **Root approvals** | Agents request root work; you read it and approve with a password |
+| **Dev** | Pull requests, checks and deploys (when GitHub is configured) |
+| **Settings** | Usage and cost, models, schedules, connections and VPS status |
+
+## Devices
+
+**Android**: the APK from [Releases](../../releases), with actionable notifications. **iPhone**: open in Safari and use Add to Home Screen (iOS 16.4+). **Desktop**: any browser. All of them need Tailscale on.
+
+## How it works
+
+```mermaid
+flowchart LR
+  P["Android / iPhone / desktop"] -- "Tailscale only" --> A["Plasmod"]
+  A -- "fixed operations" --> H["Hermes<br/>agents (required)"]
+  A -- "private socket" --> C["Claude Code<br/>(optional)"]
+  A -- "password approval" --> R["plasmod-rootd<br/>root work"]
+```
+
+- **Nothing is exposed to the internet.** [Tailscale](https://tailscale.com/) is the only way in
+- **OS users separate privileges** for the app, the agents and root work
+- **Agents never hold the keys.** You approve root work with a password each time
+- **Your data stays on your VPS.** Only push notifications (encrypted) and services you configure leave it
 
 ## Install
 
-You need an Ubuntu VPS, [Tailscale](https://tailscale.com/) logged in, and [Hermes Agent](https://github.com/NousResearch/hermes-agent) installed.
+You need an Ubuntu VPS, [Tailscale](https://tailscale.com/) and [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
 ```sh
-git clone <this repository> plasmod && cd plasmod
-sudo ./setup.sh --check   # only checks the prerequisites
+git clone https://github.com/LaCall-Gagans-Studio/Plasmod.git plasmod && cd plasmod
+sudo ./setup.sh --check   # checks only
 sudo ./setup.sh
 ```
 
-It prints your address when done. Open it from a device on your tailnet, then set your name and your agents' names and avatars under **Settings → General**. Agents are found automatically from your Hermes profiles. Your personal settings stay on your VPS.
-
-The Android app is on the [Releases](../../releases) page; enter the address on its first screen.
-
-Details, optional parts and troubleshooting are in [docs/INSTALL.md](docs/INSTALL.md) (Japanese). The app's interface is currently Japanese only.
-
-> **Status**: used daily by the author. The install script has not yet been tested on a clean server.
-
-## How it stays safe
-
-- **Separate OS users** for the app, the agents and root work. An agent cannot approve its own request.
-- **No public port.** Tailscale identifies you; requests from the VPS itself are refused.
-- **Secrets are not given to agents.** Agents only get fixed operations through a small broker.
-- **Root work is approved one request at a time**, with a password, and is logged.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (Japanese) for diagrams.
-
-## Development
-
-```sh
-bun install
-bun run build
-PLASMOD_KANBAN_SOURCE=fixture PLASMOD_DEV_NO_AUTH=1 bun run src/server/index.ts   # http://127.0.0.1:8790
-bun test
-```
+It prints your address when it finishes. A first-run guide opens in the app.
 
 ## License
 
