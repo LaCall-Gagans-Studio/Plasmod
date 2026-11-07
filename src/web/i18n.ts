@@ -8,11 +8,12 @@ const KEY = "plasmod-lang";
 function initial(): Lang {
   try {
     const v = localStorage.getItem(KEY);
-    if (v === "ja" || v === "en") return v;
+    if (v === "en") return v;
   } catch {
-    /* 覚えられない端末は、端末の言語で決める */
+    /* 覚えられない端末は日本語 */
   }
-  return typeof navigator !== "undefined" && !navigator.language.toLowerCase().startsWith("ja") ? "en" : "ja";
+  // 英語の画面はまだ一部だけ（v4.0 で全部を移す）。選ばない限り日本語
+  return "ja";
 }
 
 export const lang: Lang = typeof localStorage === "undefined" ? "ja" : initial();

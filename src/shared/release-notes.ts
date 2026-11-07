@@ -51,3 +51,9 @@ export const RELEASE_NOTES: ReleaseNote[] = [
 
 /** 今の版の名前（2.0.0 → さらなる高みへ） */
 export const versionName = (version: string) => RELEASE_NOTES.find((n) => version.startsWith(`${n.version}.`) || version === n.version)?.name ?? "";
+
+/** CHANGELOG.md の中身。元はこのファイルだけにする */
+export function renderChangelog(): string {
+  const body = RELEASE_NOTES.map((n) => `## ${n.version}「${n.name}」${n.date ? ` — ${n.date}` : "（開発中）"}\n\n${n.items.map((x) => `- ${x}`).join("\n")}`).join("\n\n");
+  return `# 変更の記録\n\nアプリの設定 → 一般 → リリースノートと同じ内容です。元は \`src/shared/release-notes.ts\`（\`bun scripts/changelog.ts\` で作り直す）。\n\n${body}\n`;
+}

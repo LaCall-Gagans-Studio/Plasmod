@@ -23,3 +23,14 @@ describe("リリースノート", () => {
     for (const n of RELEASE_NOTES) expect(n.items.length).toBeGreaterThan(0);
   });
 });
+
+describe("変更の記録", () => {
+  test("CHANGELOG.md は、リリースノートから作ったものと同じ", async () => {
+    const { renderChangelog } = await import("../src/shared/release-notes");
+    expect(await Bun.file("CHANGELOG.md").text()).toBe(renderChangelog());
+  });
+  test("既定の言語は日本語", async () => {
+    const { lang } = await import("../src/web/i18n");
+    expect(lang).toBe("ja");
+  });
+});
