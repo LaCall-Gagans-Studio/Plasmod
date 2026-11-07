@@ -1,6 +1,7 @@
 // 設定: 一般（表示・呼び名・このアプリ） / エージェント（名前と顔・モデル・スキル・定期実行） / 使用量 / VPS（状態・root 作業・ファイル）
 import { useEffect, useState } from "react";
 import type { AgentInfo, FsList, FsRead, ModelEntry, NousCredits, PerfName, PerfRow, Snapshot, UsageSnapshot, VpsService, VpsStatus } from "../shared/types";
+import { OrchestrationGraph } from "./graph";
 import { type ManagedAgent, useAgentSettings, PlayerCard, ProfileEditor, TeamsEditor } from "./AgentSquad";
 import { Connections } from "./Connections";
 import { RichText } from "./markdown";
@@ -652,6 +653,12 @@ export function System({ snap }: { snap: Snapshot | null }) {
         <Usage snap={snap} />
       ) : tab === "agents" ? (
         <>
+          {snap && (
+            <>
+              <Section title="オーケストレーション" />
+              <OrchestrationGraph agents={snap.agents} tasks={snap.board?.tasks ?? []} />
+            </>
+          )}
           <Agents snap={snap} />
           <Section title="定期実行" />
           <Schedules snap={snap} />

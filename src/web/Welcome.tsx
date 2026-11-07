@@ -100,7 +100,7 @@ export function Welcome() {
               <li key={x.id} className="flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5 text-[13.5px]">
                 <span className="size-3 flex-none rounded-full" style={{ background: x.color }} aria-hidden="true" />
                 <span className="flex-1 font-semibold">{x.name}</span>
-                <span className="text-[12px] text-mute">{x.cadence === "weekly" ? t("週の報告") : t("毎日の報告")}</span>
+                <span className="text-[12px] text-mute">{x.delegable ? t("仕事を任せられる") : ""}</span>
               </li>
             ))}
           </ul>
@@ -113,7 +113,7 @@ export function Welcome() {
           <ul className="m-0 flex list-none flex-col gap-2 p-0">
             <Row ok={info ? !!info.publicUrl : null} title={t("アプリの住所")} note={info?.publicUrl || t("未設定（PLASMOD_PUBLIC_URL）")} />
             <Row ok={info?.rootd ?? null} title={t("root 作業の承認")} note={t("エージェントの root の依頼を、パスワードで承認します")} />
-            <Row ok={info?.github ?? null} title="GitHub" note={info?.github ? t("開発の画面で PR を見られます") : t("任意。設定すると開発の画面が出ます")} />
+            <Row ok={info?.github ?? null} title="GitHub" note={info?.github ? t("PR がタスクになります") : t("任意。設定すると PR がタスクになります")} />
           </ul>
           <p className="m-0 text-[13px] leading-relaxed text-ink-2">{t("Android では、GitHub の Releases からアプリを入れて、最初の画面に上の住所を入れてください。通知もアプリで受け取ります。スマホの Tailscale をオンにしておいてください。")}</p>
         </div>

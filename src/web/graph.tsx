@@ -1,8 +1,9 @@
-// オーケストレーションの図（Obsidian のグラフビュー風）: オーナー・ハブ・エージェント・監察チーム・カンバンのカードを点と線にして、
-// ハブを通さないチームは、オーナーから直接（点線）。
+// オーケストレーションの図（Obsidian のグラフビュー風）: オーナー・エージェント・カンバンのカードを点と線にする。
+// 線は設定ではなく実際の依頼（カンバンの作成者→担当、この7日と開いているもの）。依頼が無いエージェントは、オーナーから点線でつなぐ。
 // ばね（線）と反発（点どうし）でゆらゆら動かす。点はつまんで引っぱれる。押すと、その点とつながる点だけを濃く出す。
 // 毎フレームの位置は React を通さず、ref で DOM を直接動かす（点は 30 個くらいまで）。
-import { DEFAULT_TEAMS, type Team, teamOfProfile } from "../shared/types";
+import { agentLinks, OWNER } from "../shared/orchestration";
+import { findProfile } from "../shared/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentNode, KanbanTask } from "../shared/types";
 import { Avatar } from "./ui";
@@ -15,36 +16,35 @@ const TASK_DOT: Partial<Record<KanbanTask["status"], string>> = { running: "#9FD
 const TASK_LIMIT = 24;
 
 type GNode = { id: string; kind: "me" | "hub" | "agent" | "task"; r: number; charge: number; agent?: AgentNode; task?: KanbanTask };
-type GEdge = { a: string; b: string; len: number; live: boolean; watch?: boolean };
+type GEdge = { a: string; b: string; len: number; live: boolean; quiet?: boolean; count?: number };
 type Body = { x: number; y: number; vx: number; vy: number; phase: number; pinned: boolean };
 
-function build(agents: AgentNode[], tasks: KanbanTask[], teams: Team[]): { nodes: GNode[]; edges: GEdge[] } {
-  const hub = agents.find((a) => a.hub);
+function build(agents: AgentNode[], tasks: KanbanTask[]): { nodes: GNode[]; edges: GEdge[] } {
   const nodes: GNode[] = [{ id: "me", kind: "me", r: 17, charge: 1 }];
   const edges: GEdge[] = [];
-  if (hub) {
-    nodes.push({ id: `a:${hub.id}`, kind: "hub", r: 23, charge: 1.4, agent: hub });
-    edges.push({ a: "me", b: `a:${hub.id}`, len: 86, live: false });
+  const links = agentLinks(agents, tasks);
+  const node = (id: string) => (id === OWNER ? "me" : `a:${id}`);
+  for (const a of agents) {
+    const asked = links.some((l) => l.to === a.id);
+    nodes.push({ id: `a:${a.id}`, kind: a.hub ? "hub" : "agent", r: a.hub ? 23 : asked ? 17 : 15, charge: a.hub ? 1.4 : 1, agent: a });
+    if (!asked) edges.push({ a: "me", b: `a:${a.id}`, len: 110, live: false, quiet: true });
   }
-  for (const a of agents.filter((x) => !x.hub)) {
-    const watch = !teamOfProfile(a, teams).viaHub;
-    nodes.push({ id: `a:${a.id}`, kind: "agent", r: watch ? 15 : 17, charge: 1, agent: a });
-    edges.push({ a: watch || !hub ? "me" : `a:${hub.id}`, b: `a:${a.id}`, len: watch ? 84 : 92, live: a.state === "running", watch });
-  }
+  for (const l of links) edges.push({ a: node(l.from), b: node(l.to), len: 92, live: l.live, count: l.count });
   // 開いているカード（止まっている・動いているものを先に）
   const order: KanbanTask["status"][] = ["blocked", "running", "review", "ready", "todo", "triage", "scheduled"];
   const open = tasks.filter((t) => order.includes(t.status)).sort((x, y) => order.indexOf(x.status) - order.indexOf(y.status)).slice(0, TASK_LIMIT);
   const ids = new Set(nodes.map((n) => n.id));
   for (const t of open) {
-    const owner = t.assignee && ids.has(`a:${t.assignee}`) ? `a:${t.assignee}` : hub ? `a:${hub.id}` : "me";
+    const assignee = t.assignee ? findProfile(agents, t.assignee)?.id : undefined;
+    const owner = assignee && ids.has(`a:${assignee}`) ? `a:${assignee}` : "me";
     nodes.push({ id: `t:${t.id}`, kind: "task", r: t.status === "running" || t.status === "blocked" ? 5.5 : 4, charge: 0.35, task: t });
     edges.push({ a: owner, b: `t:${t.id}`, len: 40, live: t.status === "running" });
   }
   return { nodes, edges };
 }
 
-export function OrchestrationGraph({ agents, tasks, teams = DEFAULT_TEAMS }: { agents: AgentNode[]; tasks: KanbanTask[]; teams?: Team[] }) {
-  const { nodes, edges } = useMemo(() => build(agents, tasks, teams), [agents, tasks, teams]);
+export function OrchestrationGraph({ agents, tasks }: { agents: AgentNode[]; tasks: KanbanTask[] }) {
+  const { nodes, edges } = useMemo(() => build(agents, tasks), [agents, tasks]);
   const box = useRef<HTMLDivElement>(null);
   const bodies = useRef(new Map<string, Body>());
   const nodeEls = useRef(new Map<string, HTMLDivElement>());
@@ -231,10 +231,10 @@ export function OrchestrationGraph({ agents, tasks, teams = DEFAULT_TEAMS }: { a
               <line
                 key={`${e.a}>${e.b}`}
                 ref={(el) => void (el ? edgeEls.current.set(`${e.a}>${e.b}`, el) : edgeEls.current.delete(`${e.a}>${e.b}`))}
-                stroke={e.live ? "var(--color-ring-lime)" : e.watch ? "#B8A1FF" : "var(--color-track)"}
-                strokeWidth={e.b.startsWith("t:") ? 1 : 1.6}
-                strokeDasharray={e.live ? "6 4" : e.watch ? "2 4" : undefined}
-                strokeLinecap={e.watch ? "round" : undefined}
+                stroke={e.live ? "var(--color-ring-lime)" : "var(--color-track)"}
+                strokeWidth={e.b.startsWith("t:") ? 1 : Math.min(1.4 + (e.count ?? 0) * 0.4, 4)}
+                strokeDasharray={e.live ? "6 4" : e.quiet ? "2 4" : undefined}
+                strokeLinecap={e.quiet ? "round" : undefined}
                 className={`gh-anim transition-opacity duration-300 ${on ? "opacity-100" : "opacity-15"}`}
                 style={e.live ? { animation: "gh-flow 1.1s linear infinite" } : undefined}
               />
@@ -295,7 +295,7 @@ export function OrchestrationGraph({ agents, tasks, teams = DEFAULT_TEAMS }: { a
             <span className="flex items-center gap-1 whitespace-nowrap"><span className="size-2 rounded-full" style={{ background: TASK_DOT.running }} />実行中</span>
             <span className="flex items-center gap-1 whitespace-nowrap"><span className="size-2 rounded-full" style={{ background: TASK_DOT.blocked }} />停止</span>
             <span className="flex items-center gap-1 whitespace-nowrap"><span className="size-2 rounded-full bg-line-2" />待ち</span>
-            <span className="flex items-center gap-1 whitespace-nowrap"><span className="w-3 border-t-2 border-dotted" style={{ borderColor: "#B8A1FF" }} />ハブを通さない</span>
+            <span className="flex items-center gap-1 whitespace-nowrap"><span className="w-3 border-t-2 border-dotted border-line-2" />この7日の依頼なし</span>
             <span className="ml-auto hidden truncate sm:inline">点を押すと、つながりだけ出す</span>
           </>
         )}

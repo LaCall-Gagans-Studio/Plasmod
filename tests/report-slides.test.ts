@@ -26,6 +26,6 @@ describe("レポートと下のメニューの数字", () => {
     const n = (await (await app.request("/api/badges")).json()) as NavBadges;
     expect(n.home).toBeGreaterThan(0);
     expect(n.watching).toBe(1);
-    expect(n).toMatchObject({ dev: 0, system: 0 });
+    expect(n).toMatchObject({ system: 0 });
   });
 });

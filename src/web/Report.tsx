@@ -198,12 +198,11 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
       return (
         <div className="mt-3 flex flex-col gap-3">
           <Badge name="watch" />
-          <div className="gh-rise mb-1 mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>{s.title ?? "今週の報告"}</div>
-          {s.error && <div className="rounded-xl bg-on/10 p-3 text-[13px]">読めなかった: {s.error}</div>}
+          <div className="gh-rise mb-1 mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>今週の報告</div>
           {s.items.map((r, k) => {
             const p = snap ? profileOf(snap.agents, r.agent) : null;
             return (
-              <div key={`${r.agent}:${r.at}`} className="gh-rise flex flex-col gap-2 rounded-2xl bg-[#17171a] p-4 text-white shadow-[0_6px_18px_rgba(0,0,0,0.18)]" style={delay(k + 1)}>
+              <div key={`${r.agent}:${r.job}`} className="gh-rise flex flex-col gap-2 rounded-2xl bg-[#17171a] p-4 text-white shadow-[0_6px_18px_rgba(0,0,0,0.18)]" style={delay(k + 1)}>
                 <div className="flex items-center gap-2">
                   {p && <Avatar p={p} size={26} />}
                   <span className="flex-none whitespace-nowrap text-sm font-bold">{p?.name ?? r.agent}</span>

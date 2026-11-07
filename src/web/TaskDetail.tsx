@@ -8,6 +8,7 @@ import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, OPEN, UNDONE_LABEL, taskDot, du
 import { createTask, fetchTask, patchTask } from "./task-db";
 import { KANBAN_STATUS } from "./Task";
 import { CopyRef } from "./touch";
+import { PrPanel } from "./PrPanel";
 import { Skeleton } from "./loading";
 import { ownerName } from "./identity";
 
@@ -414,6 +415,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
                     </span>
                   </div>
                 )}
+                {task.source === "github" && task.url && !closed && <PrPanel url={task.url} />}
                 {task.kanbanId && (
                   <div className="flex items-center gap-3">
                     <span className="flex w-28 flex-none items-center gap-2 text-mute">カンバン</span>

@@ -1,4 +1,4 @@
-// Dev ページ（TASK-160）: GitHub の開いている PR・チェック・デプロイを、読み取り専用のトークンで集める。
+// GitHub の開いている PR・チェック・デプロイを、読み取り専用のトークンで集める。PR はタスクになる（TaskStore.syncPrs）。
 // 書き込み（マージ・差し戻し）はしない。開発エージェントに依頼として送り、マージは従来どおり承認ボタンを通す。
 import type { DevPr, DevSnapshot } from "../shared/types";
 import { config } from "./config";
@@ -61,6 +61,8 @@ export function checksState(runs: Json[], combined: Json | null): DevPr["checks"
 export class DevService {
   private cache: DevSnapshot = { prs: [], fetchedAt: 0, error: null };
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** 取得できたときに呼ぶ。complete は開いている PR を全部読めたか（読めていなければ閉じる判断をしない） */
+  onPrs: (prs: DevPr[], complete: boolean) => void = () => {};
 
   constructor(
     private gh: GitHub | null,
@@ -89,7 +91,9 @@ export class DevService {
       const search = await this.gh.get(`/search/issues?q=${encodeURIComponent(`org:${this.owner} is:pr is:open archived:false`)}&per_page=30&sort=updated`);
       const items = (search.items as Json[]) ?? [];
       const prs = await Promise.all(items.map((it) => this.pr(it)));
-      this.cache = { prs: prs.filter((p): p is DevPr => !!p), fetchedAt: Date.now(), error: null };
+      const list = prs.filter((p): p is DevPr => !!p);
+      this.cache = { prs: list, fetchedAt: Date.now(), error: null };
+      this.onPrs(list, list.length === items.length && Number(search.total_count ?? 0) <= items.length);
     } catch (e) {
       this.cache = { ...this.cache, error: e instanceof Error ? e.message : String(e) };
     }
@@ -147,6 +151,6 @@ export class DevService {
 export function devRequestText(action: "merge" | "revise", prs: { repo: string; number: number; url?: string }[], note: string): string {
   const list = prs.map((p) => `- ${p.repo}#${p.number}${p.url ? ` ${p.url}` : ""}`).join("\n");
   if (action === "merge")
-    return `次の PR をマージしてほしい（Plasmod の Dev ページから）。CI が通っていることを確かめてから、1件ずつ承認を求めて進めて。\n${list}${note ? `\n\nメモ: ${note}` : ""}`;
+    return `次の PR をマージしてほしい（Plasmod のタスクから）。CI が通っていることを確かめてから、1件ずつ承認を求めて進めて。\n${list}${note ? `\n\nメモ: ${note}` : ""}`;
   return `次の PR を差し戻し。指摘に対応して、PR を更新して。\n${list}\n\n指摘: ${note}`;
 }
