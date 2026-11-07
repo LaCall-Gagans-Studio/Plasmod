@@ -6,6 +6,7 @@ import { BodyEditor, FolderIcon, json, TagField } from "./memo-fields";
 import { Icon, ago, profileOf } from "./ui";
 import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, OPEN, UNDONE_LABEL, taskDot, dueLabel, DUE_CLS, TaskRow } from "./TaskRow";
 import { createTask, fetchTask, patchTask } from "./task-db";
+import { KANBAN_STATUS } from "./Task";
 import { CopyRef } from "./touch";
 import { Skeleton } from "./loading";
 import { ownerName } from "./identity";
@@ -217,9 +218,9 @@ function StatusButton({ status, on, outlined, onPick }: { status: AppTaskStatus;
       role="radio"
       aria-checked={on}
       onClick={() => !on && onPick()}
-      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] ${on ? "border-ink bg-ink font-semibold text-paper" : `${outlined ? "border-line-2" : "border-transparent"} text-ink-2 hover:border-ink`}`}
+      className={`flex flex-none items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-1.5 text-[12px] min-[390px]:px-2 ${on ? "border-ink bg-ink font-semibold text-paper" : `${outlined ? "border-line-2" : "border-transparent"} text-ink-2 hover:border-ink`}`}
     >
-      <span className="size-2 rounded-full" style={{ background: STATUS_DOT[status] }} />
+      <span className="size-1.5 flex-none rounded-full" style={{ background: STATUS_DOT[status] }} />
       {STATUS_LABEL[status]}
     </button>
   );
@@ -329,6 +330,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
   // 前のツールから移したものは出どころを出さない
   const src = task ? (task.source === "imported" ? "" : (SOURCE_LABEL[task.source] ?? task.source)) : "";
   const closed = task?.status === "done";
+  const kanbanCard = task?.kanbanId ? snap?.board?.tasks.find((b) => b.id === task.kanbanId) : undefined;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-ground">
@@ -369,24 +371,24 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
               />
 
               {/* 状態 */}
-              <div className="mt-4 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="状態">
-                <div className={`flex flex-wrap items-center gap-0.5 rounded-full border p-0.5 ${closed ? "border-line" : "border-ink"}`} role="group" aria-label={UNDONE_LABEL}>
-                  <span className={`pl-2.5 pr-1 text-[11px] font-semibold ${closed ? "text-mute" : "text-ink"}`}>{UNDONE_LABEL}</span>
+              <div className="mt-5 flex max-w-[440px] items-center gap-1" role="radiogroup" aria-label="状態">
+                <div className={`relative flex min-w-0 flex-1 items-center justify-between rounded-full border p-0.5 ${closed ? "border-line" : "border-ink"}`} role="group" aria-label={UNDONE_LABEL}>
+                  <span className={`absolute -top-2 left-3 bg-ground px-1 text-[10px] font-semibold leading-none ${closed ? "text-mute" : "text-ink"}`}>{UNDONE_LABEL}</span>
                   {OPEN.map((s) => (
                     <StatusButton key={s} status={s} on={task.status === s} onPick={() => void setStatus(s)} />
                   ))}
                 </div>
                 <StatusButton status="done" on={task.status === "done"} outlined onPick={() => void setStatus("done")} />
-                {closed && (
-                  <button
-                    aria-pressed={task.doneReason === "unneeded"}
-                    onClick={() => void patch({ status: "done", doneReason: task.doneReason === "unneeded" ? null : "unneeded" })}
-                    className={`rounded-full border px-3 py-1.5 text-[12.5px] ${task.doneReason === "unneeded" ? "border-ink font-semibold text-ink" : "border-line text-mute hover:border-ink"}`}
-                  >
-                    不要
-                  </button>
-                )}
               </div>
+              {closed && (
+                <button
+                  aria-pressed={task.doneReason === "unneeded"}
+                  onClick={() => void patch({ status: "done", doneReason: task.doneReason === "unneeded" ? null : "unneeded" })}
+                  className={`mt-1.5 rounded-full border px-3 py-1 text-[12px] ${task.doneReason === "unneeded" ? "border-ink font-semibold text-ink" : "border-line text-mute hover:border-ink"}`}
+                >
+                  理由: 不要
+                </button>
+              )}
 
               {/* プロパティ */}
               <div className="mt-4 flex flex-col gap-0.5 border-b border-line pb-4 text-[13.5px]">
@@ -415,7 +417,14 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
                 {task.kanbanId && (
                   <div className="flex items-center gap-3">
                     <span className="flex w-28 flex-none items-center gap-2 text-mute">カンバン</span>
-                    <a href={`#/task/${encodeURIComponent(task.kanbanId)}`} className="text-blue">{task.kanbanId}{task.agent && snap ? `（${profileOf(snap.agents, task.agent).name}）` : ""}</a>
+                    <a href={`#/task/${encodeURIComponent(task.kanbanId)}`} className="min-w-0 truncate text-blue">{task.kanbanId}{task.agent && snap ? `（${profileOf(snap.agents, task.agent).name}）` : ""}</a>
+                    {kanbanCard && <span className={`flex-none rounded-full px-2 py-0.5 text-[10.5px] ${KANBAN_STATUS[kanbanCard.status]?.cls ?? "bg-chip text-mute"}`}>{KANBAN_STATUS[kanbanCard.status]?.label ?? kanbanCard.status}</span>}
+                  </div>
+                )}
+                {task.status === "doing" && !task.kanbanId && (
+                  <div className="flex items-center gap-3">
+                    <span className="flex w-28 flex-none items-center gap-2 text-mute">カンバン</span>
+                    <span className="text-mute">なし（エージェントが直接進めている）</span>
                   </div>
                 )}
               </div>

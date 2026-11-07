@@ -1,8 +1,11 @@
 // タスク。メール・Beeper・ops から見回りが拾ったものは、まずここに「元の ID 付き」で登録する。
-// ホームのカードは、判断待ち（inbox）のタスクの見え方の1つ。判断はタスクに残るので、同じ元がまた来ても起こし直さない。
+// ホームのカードは、BackLog（inbox）のタスクの見え方の1つ。判断はタスクに残るので、同じ元がまた来ても起こし直さない。
 //
+const KANBAN_ACTIVE = ["todo", "ready", "running", "scheduled"];
+const KANBAN_GONE_GRACE_MS = 10 * 60_000;
+
 // 状態（4つ）: inbox BackLog（＝カード）／todo やる（オーナー）／doing 任せ中（エージェントがカンバンで）／
-//       done 完了（理由が不要なら done_reason = unneeded）。完了でも、同じ元に判断より新しい動きがあれば判断待ちに戻る
+//       done 完了（理由が不要なら done_reason = unneeded）。完了でも、同じ元に判断より新しい動きがあれば BackLog に戻る
 //       （不要は、キーがぴったり同じときだけ。言い換え・似た題名では戻さない）
 import type { Database } from "bun:sqlite";
 import type { AppTaskLinks, AppTaskList, TaskSummaryItem } from "../shared/types";
@@ -99,7 +102,7 @@ export class TaskStore {
       );
       CREATE INDEX IF NOT EXISTS task_deleted_source ON task_deleted(source, source_key);
     `);
-    // 2026-10-29: 返事待ちをやめた → 完了へ（元に新しい動きがあれば、これまでどおり判断待ちに戻る）
+    // 2026-10-29: 返事待ちをやめた → 完了へ（元に新しい動きがあれば、これまでどおり BackLog に戻る）
     const waiting = db.query("SELECT id FROM tasks WHERE status = 'waiting'").all() as { id: number }[];
     for (const w of waiting) {
       const now = Date.now();
@@ -284,7 +287,7 @@ export class TaskStore {
       const newer = v.eventAt !== null && v.eventAt > (cur.decidedAt ?? cur.createdAt) && v.eventAt > (cur.eventAt ?? 0);
       if (cur.status === "done" && !newer) return { action: "ignored", reason: "完了（判断のあとに元の新しい動きが無い）", task: cur };
       const changed = v.title !== cur.title || v.body !== cur.body || v.url !== cur.url || v.due !== cur.due;
-      // 完了したものは、元に新しい動きがあれば判断待ちに戻す（返事が来た・催促が来た。オーナーの手が要るかもしれない）
+      // 完了したものは、元に新しい動きがあれば BackLog に戻す（返事が来た・催促が来た。オーナーの手が要るかもしれない）
       const reopen = cur.status === "done" && newer;
       if (!changed && !reopen && !(v.eventAt && v.eventAt > (cur.eventAt ?? 0))) return { action: "unchanged", task: cur };
       const at = Math.max(now, cur.updatedAt + 1);
@@ -294,18 +297,18 @@ export class TaskStore {
              event_at = MAX(COALESCE(event_at, 0), COALESCE(?, 0)), status = ?, inbox_at = ?, updated_at = ? WHERE id = ?`,
         )
         .run(v.title, v.body, v.url, v.due, v.kind, v.agent, JSON.stringify(v.propose), v.eventAt, reopen ? "inbox" : cur.status, reopen ? at : cur.inboxAt, at, cur.id);
-      this.event(cur.id, reopen ? "reopen" : "update", author, reopen ? "元に新しい動きがあったので、判断待ちに戻した" : "見回りが中身を更新した", at);
+      this.event(cur.id, reopen ? "reopen" : "update", author, reopen ? "元に新しい動きがあったので、BackLog に戻した" : "見回りが中身を更新した", at);
       return { action: reopen ? "reopened" : "updated", task: this.fresh(cur.id) };
     })();
   }
 
   /**
-   * カード（カンバン・承認依頼・メモ）を判断待ちのタスクに写す。何度呼んでも同じ（変わったときだけ書く）。
-   *   無い → 判断待ちで作る
-   *   判断待ち → 中身を合わせる（アプリのタスクから任せたものは、題・本文はアプリの方を残す）
-   *   閉じている（不要も） → カードが判断より新しい（また止まった）か、元が消えて自動で閉じていたなら、判断待ちに戻す
+   * カード（カンバン・承認依頼・メモ）を BackLog のタスクに写す。何度呼んでも同じ（変わったときだけ書く）。
+   *   無い → BackLog で作る
+   *   BackLog → 中身を合わせる（アプリのタスクから任せたものは、題・本文はアプリの方を残す）
+   *   閉じている（不要も） → カードが判断より新しい（また止まった）か、元が消えて自動で閉じていたなら、BackLog に戻す
    *   削除済み → 戻さない（カードも出ない）
-   * healthy の元（取得できている元）で、もうカードの無い判断待ちのタスクは閉じる:
+   * healthy の元（取得できている元）で、もうカードの無い BackLog のタスクは閉じる:
    *   カンバンにつながっているもの → 任せた（カンバンが進んだ）、ほか → 済み
    * 返すのはカードの key → タスク
    */
@@ -347,7 +350,7 @@ export class TaskStore {
         seen.add(t.id);
         out.set(i.cardKey, t);
       }
-      // もうカードの無い判断待ち（元で片付いた）
+      // もうカードの無い BackLog（元で片付いた）
       const rows = this.db.query("SELECT id, source, kanban_id FROM tasks WHERE status = 'inbox' AND (source IN ('kanban', 'perm', 'note') OR kanban_id IS NOT NULL)").all() as { id: number; source: string; kanban_id: string | null }[];
       for (const r of rows) {
         if (seen.has(r.id)) continue;
@@ -372,7 +375,7 @@ export class TaskStore {
 
   /**
    * エージェント（plasmod-task）が状態を動かす。誰が登録したタスクでも動かせる。誰が動かしたかは記録に残る。
-   * 計画の子を判断待ちから外す・作業が終わったら完了・実態に合わせて直す、のため
+   * 計画の子を BackLog から外す・作業が終わったら完了・実態に合わせて直す、のため
    */
   setStatusBy(id: number, input: string, note: string, author: string, now = Date.now()): Task {
     const t = this.must(id);
@@ -499,20 +502,50 @@ export class TaskStore {
     return this.must(id);
   }
 
-  /** カンバンのカードが終わったら、つないだタスクも済みにする */
-  syncKanban(board: { id: string; status: string; result?: string | null }[], now = Date.now()): number {
-    const done = new Map(board.filter((b) => b.status === "done").map((b) => [b.id, b.result ?? ""]));
-    if (!done.size) return 0;
-    const rows = this.db.query("SELECT id, kanban_id FROM tasks WHERE status = 'doing' AND kanban_id IS NOT NULL").all() as { id: number; kanban_id: string }[];
-    let n = 0;
-    for (const r of rows) {
-      if (!done.has(r.kanban_id)) continue;
-      this.db.query("UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?").run(now, r.id);
-      this.event(r.id, "done", "kanban", `カンバン ${r.kanban_id} が完了${done.get(r.kanban_id) ? `: ${done.get(r.kanban_id)!.slice(0, 2000)}` : ""}`, now);
-      this.fresh(r.id);
-      n++;
-    }
-    return n;
+  /**
+   * タスクを正本にして、カンバンの動きを写す（読めたカンバンの一覧を渡す）:
+   *   進行中でタスクの無いカード → AI-Driven のタスクを作る（止まったカードは mirror が BackLog で作る）
+   *   カードが完了 → つないだタスクも Done
+   *   カードが一覧から消えた（アーカイブ・古い完了） → つないだタスクも Done
+   */
+  syncKanban(board: { id: string; title?: string; body?: string | null; status: string; assignee?: string | null; created_by?: string | null; result?: string | null }[], now = Date.now(), ownerAssignees: string[] = []): number {
+    return this.db.transaction(() => {
+      let n = 0;
+      const known = new Set((this.db.query("SELECT kanban_id FROM tasks WHERE kanban_id IS NOT NULL").all() as { kanban_id: string }[]).map((r) => r.kanban_id));
+      for (const b of board) {
+        if (known.has(b.id) || !KANBAN_ACTIVE.includes(b.status) || !b.title) continue;
+        if ((b.assignee && ownerAssignees.includes(b.assignee.toLowerCase())) || this.wasDeleted("kanban", b.id) || this.bySource("kanban", b.id)) continue;
+        const r = this.db
+          .query(
+            `INSERT INTO tasks (ref, title, body, kind, status, source, source_key, agent, created_by, kanban_id, inbox_at, created_at, updated_at)
+             VALUES (?, ?, ?, 'todo', 'doing', 'kanban', ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(this.nextRef(), clean(b.title).slice(0, 200) || b.id, (b.body ?? "").trim().slice(0, 20_000), b.id, b.assignee ?? null, b.created_by || "kanban", b.id, now, now, now);
+        const id = Number(r.lastInsertRowid);
+        this.event(id, "create", "kanban", `カンバン ${b.id} の作業を写した`, now);
+        this.fresh(id);
+        n++;
+      }
+      const onBoard = new Map(board.map((b) => [b.id, b]));
+      const rows = this.db.query("SELECT id, kanban_id, updated_at FROM tasks WHERE status = 'doing' AND kanban_id IS NOT NULL").all() as { id: number; kanban_id: string; updated_at: number }[];
+      for (const r of rows) {
+        const card = onBoard.get(r.kanban_id);
+        // 任せた直後は、読み始めが作成より前の一覧に載っていないことがある
+        const gone = !card && now - r.updated_at > KANBAN_GONE_GRACE_MS;
+        if (card?.status !== "done" && card?.status !== "archived" && !gone) continue;
+        const text = card?.status === "done" ? `カンバン ${r.kanban_id} が完了${card.result ? `: ${card.result.slice(0, 2000)}` : ""}` : `カンバン ${r.kanban_id} が片付いた（アーカイブなど）`;
+        this.db.query("UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?").run(now, r.id);
+        this.event(r.id, "done", "kanban", text, now);
+        this.fresh(r.id);
+        n++;
+      }
+      return n;
+    })();
+  }
+
+  /** カンバンのカードにつながるタスク（カード画面からタスクへ戻るため） */
+  byKanban(kanbanId: string): Task | null {
+    return this.row("t.kanban_id = ? ORDER BY t.updated_at DESC", kanbanId);
   }
 
   events(id: number): TaskEvent[] {
@@ -634,15 +667,17 @@ export class TaskStore {
     return new Map(rows.map((r) => [r.p, r.n]));
   }
 
-  /** 判断待ち（カードにするもの） */
+  /** BackLog（カードにするもの） */
   inbox(): Task[] {
     return (this.db.query(`SELECT t.*, p.name AS project, ${TAGS} FROM tasks t LEFT JOIN memo_projects p ON p.id = t.project_id WHERE t.status = 'inbox' ORDER BY t.inbox_at`).all() as Row[]).map(toTask);
   }
 
   /** 状態の絞り込み以外（プロジェクト・元・語）の条件 */
-  private filters(opts: { source?: string; q?: string; project?: string | null; tag?: string | null }) {
+  private filters(opts: { source?: string; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean }) {
     const where: string[] = [];
     const args: (string | number)[] = [];
+    // 片付いた承認依頼は記録なので、Done の一覧では既定で見せない（まだカードの承認依頼は残す）
+    if (opts.hideDoneApprovals) where.push("NOT (t.source = 'perm' AND t.status = 'done')");
     if (opts.tag) {
       where.push("EXISTS (SELECT 1 FROM task_tags x WHERE x.task_id = t.id AND x.tag = ?)");
       args.push(opts.tag);
@@ -664,7 +699,7 @@ export class TaskStore {
     return { where, args };
   }
 
-  list(opts: { status?: (TaskStatus | typeof LEGACY_DISMISSED)[]; source?: string; q?: string; project?: string | null; tag?: string | null; limit?: number } = {}): Task[] {
+  list(opts: { status?: (TaskStatus | typeof LEGACY_DISMISSED)[]; source?: string; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean; limit?: number } = {}): Task[] {
     const { where, args } = this.filters(opts);
     const wanted = opts.status ?? OPEN;
     const statuses = wanted.filter((s): s is TaskStatus => (TASK_STATUSES as string[]).includes(s));
@@ -684,9 +719,9 @@ export class TaskStore {
   }
 
   /** 画面の一覧: タスクと、状態ごとの件数・プロジェクトごとの件数（開いているもの） */
-  view(opts: { status?: TaskStatus[]; q?: string; project?: string | null; tag?: string | null }): AppTaskList {
+  view(opts: { status?: TaskStatus[]; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean }): AppTaskList {
     const tasks = this.list({ ...opts, limit: 300 });
-    const { where, args } = this.filters({ q: opts.q, project: opts.project, tag: opts.tag });
+    const { where, args } = this.filters({ q: opts.q, project: opts.project, tag: opts.tag, hideDoneApprovals: opts.hideDoneApprovals });
     const rows = this.db
       .query(`SELECT t.status AS status, COUNT(*) AS n FROM tasks t LEFT JOIN memo_projects p ON p.id = t.project_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY t.status`)
       .all(...args) as { status: TaskStatus; n: number }[];

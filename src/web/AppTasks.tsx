@@ -54,11 +54,19 @@ type Scope = "open" | "inbox" | "todo" | "doing" | "done";
 /** Undone の中の状態。一覧の絞り込みでは Undone の枠の中に並べて、関係が見えるようにする */
 const UNDONE_SCOPES = OPEN as ("inbox" | "todo" | "doing")[];
 
+function ChipToggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button aria-pressed={on} onClick={onClick} className={`flex h-9 flex-none items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] ${on ? "border-ink font-semibold text-ink" : "border-line text-mute"}`}>
+      {children}
+    </button>
+  );
+}
+
 function ScopeTab({ label, n, on, onPick }: { label: string; n: number; on: boolean; onPick: () => void }) {
   return (
-    <button role="tab" aria-selected={on} onClick={onPick} className={`flex flex-none items-center gap-1 rounded-full px-2 py-1.5 text-[12.5px] ${on ? "bg-ink font-semibold text-paper" : "text-ink-2 hover:bg-chip"}`}>
+    <button role="tab" aria-selected={on} onClick={onPick} className={`flex flex-none items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-1.5 text-[12px] min-[390px]:px-2 ${on ? "bg-ink font-semibold text-paper" : "text-ink-2 hover:bg-chip"}`}>
       {label}
-      {n > 0 && <span className={`text-[11px] tabular-nums ${on ? "opacity-70" : "text-mute"}`}>{n}</span>}
+      {n > 0 && <span className={`text-[10.5px] tabular-nums ${on ? "opacity-70 max-[359px]:hidden" : "text-mute max-[412px]:hidden"}`}>{n}</span>}
     </button>
   );
 }
@@ -68,6 +76,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
   const raw = params.get("s");
   const scope: Scope = raw === "inbox" || raw === "todo" || raw === "doing" || raw === "done" ? raw : "open";
   const project = params.get("project");
+  const showApprovals = params.get("approvals") === "1";
   const tag = params.get("tag");
   const byDue = params.get("sort") === "due";
   const [q, setQ] = useState("");
@@ -83,6 +92,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
     p.set("status", scope === "open" ? OPEN.join(",") : scope);
     if (project !== null) p.set("project", project);
     if (tag) p.set("tag", tag);
+    if (showApprovals) p.set("approvals", "1");
     if (q.trim()) p.set("q", q.trim());
     const t = setTimeout(
       () =>
@@ -95,7 +105,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
       q ? 200 : 0,
     );
     return () => clearTimeout(t);
-  }, [scope, project, tag, q, bump, snap]);
+  }, [scope, project, tag, q, bump, snap, showApprovals]);
   useEffect(() => taskSync.onEvent((e) => e.type === "synced" && reload()), [reload]);
 
   const go = (k: string, v: string | null, keepId = true) => {
@@ -152,15 +162,20 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
             className="w-full min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute"
           />
         </label>
-        <label className="relative flex h-9 items-center gap-2 rounded-lg bg-chip px-3 text-mute">
-          <Icon name="search" size={14} />
-          <span className="sr-only">タスクを探す</span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="探す" className="w-full min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute" />
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label className="relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-chip px-3 text-mute">
+            <Icon name="search" size={14} />
+            <span className="sr-only">タスクを探す</span>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="探す" className="w-full min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute" />
+          </label>
+          {scope === "done" && <ChipToggle on={showApprovals} onClick={() => go("approvals", showApprovals ? null : "1", false)}>承認も表示</ChipToggle>}
+          <ChipToggle on={byDue} onClick={() => go("sort", byDue ? null : "due", false)}>期限順</ChipToggle>
+        </div>
       </div>
-      <div className="flex gap-1 overflow-x-auto px-4 pb-1 [scrollbar-width:none]" role="tablist" aria-label="状態">
+      {/* 必ず1行。横にスクロールさせない。幅が足りないときは件数を落とす */}
+      <div className="flex max-w-[440px] items-center gap-1 px-4 pb-1" role="tablist" aria-label="状態">
         {/* Undone は枠。枠の頭を押すと全部、中の状態を押すとそれだけ */}
-        <div className={`flex flex-none items-center gap-0.5 rounded-full border p-0.5 ${scope === "done" ? "border-line" : "border-line-2"}`}>
+        <div className={`flex min-w-0 flex-1 items-center justify-between rounded-full border p-0.5 ${scope === "done" ? "border-line" : "border-line-2"}`}>
           <ScopeTab label={UNDONE_LABEL} n={OPEN.reduce((a, k) => a + (list?.counts[k] ?? 0), 0)} on={scope === "open"} onPick={() => go("s", null, false)} />
           <span className="h-4 w-px flex-none bg-line" aria-hidden="true" />
           {UNDONE_SCOPES.map((s) => (
@@ -168,7 +183,6 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
           ))}
         </div>
         <ScopeTab label={STATUS_LABEL.done} n={0} on={scope === "done"} onPick={() => go("s", "done", false)} />
-        <button aria-pressed={byDue} onClick={() => go("sort", byDue ? null : "due", false)} className={`ml-auto flex flex-none items-center rounded-full border px-3 py-1.5 text-[12.5px] ${byDue ? "border-ink font-semibold text-ink" : "border-line text-mute"}`}>期限順</button>
       </div>
       {tag && (
         <div className="flex px-4 pb-1">

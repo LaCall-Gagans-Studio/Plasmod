@@ -1,4 +1,4 @@
-// 判断待ちのカード・検索・メモカード
+// BackLog のカード・検索・メモカード
 import { ActError } from "../hub";
 import { type ShareFile, checkFiles } from "../share";
 import type { SnoozeKind } from "../../shared/types";

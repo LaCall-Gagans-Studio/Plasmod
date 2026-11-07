@@ -7,7 +7,7 @@ import type { MirrorInput, Task } from "./tasks";
 import { config } from "./config";
 import { tzOffsetMs } from "../shared/time";
 
-// ボタンの言葉（2026-10-29）: 押すとタスクがどの状態に移るかで揃える。状態は 判断待ち・やる・任せ中・完了 の4つ。
+// ボタンの言葉（2026-10-29）: 押すとタスクがどの状態に移るかで揃える。状態は BackLog・やる・任せ中・完了 の4つ。
 // hint は「→ 移る先。起きること」の形
 const LATER: CardOption = { id: "later", label: "あとで", tone: "quiet", hint: "BackLog のまま、しばらく伏せる" };
 const DISMISS: CardOption = { id: "dismiss", label: "不要", tone: "quiet", hint: "→ Done（不要）。誰にも頼まない" };
@@ -146,7 +146,7 @@ export function snoozeUntil(kind: SnoozeKind, now = Date.now()): number {
   return today8 + days * day;
 }
 
-/** 受信箱: オーナー宛て（assignee）のカードは、実行者のいない「見てほしい」カード。判断待ちの blocked/review とは別に扱う */
+/** 受信箱: オーナー宛て（assignee）のカードは、実行者のいない「見てほしい」カード。BackLog の blocked/review とは別に扱う */
 export const INBOX_ASSIGNEES = ["owner", "me", ...config.ownerAssignees];
 export const INBOX_KINDS: InboxKind[] = ["confirm", "reply", "todo"];
 export const isInboxKind = (k: string): k is InboxKind => (INBOX_KINDS as string[]).includes(k);
@@ -212,7 +212,7 @@ export function inboxCard(t: KanbanTask, profiles: AgentProfile[], hub = "defaul
   };
 }
 
-/** アプリのタスク（判断待ち）から作るカード。選択肢は受信箱と同じに「自分でやる」を足す */
+/** アプリのタスク（BackLog）から作るカード。選択肢は受信箱と同じに「自分でやる」を足す */
 export function appTaskCard(t: Task, profiles: AgentProfile[], hub = "default"): Card {
   const m: InboxMeta = { kind: t.kind, agent: t.agent ?? undefined, ref: t.sourceKey ?? undefined, url: t.url ?? undefined, source: t.source, propose: t.propose, text: t.body };
   const delegateName = profileOf(profiles, m.agent ?? hub).name;
@@ -282,9 +282,9 @@ export function mirrorInput(c: Card): MirrorInput {
 }
 
 /**
- * 判断待ちのカード。mirror を渡すと「カード＝判断待ちのタスク」（2026-10-29、例外なし）:
- * カンバンが止まった・承認依頼・メモは、判断待ちのタスクとして投げる（または元のタスクを判断待ちに移す）。
- * カードは判断待ちのタスクの見え方で、元のカードがあれば元に合わせた選択肢（recordTaskId でつなぐ）、無ければタスクのカード
+ * BackLog のカード。mirror を渡すと「カード＝BackLog のタスク」（2026-10-29、例外なし）:
+ * カンバンが止まった・承認依頼・メモは、BackLog のタスクとして投げる（または元のタスクを BackLog に移す）。
+ * カードは BackLog のタスクの見え方で、元のカードがあれば元に合わせた選択肢（recordTaskId でつなぐ）、無ければタスクのカード
  */
 export function deriveCards(
   board: Board | null,
@@ -293,7 +293,7 @@ export function deriveCards(
   filter: CardFilter,
   now = Date.now(),
   notes: NoteLike[] = [],
-  /** 関数なら、写し終えてから読む（写すと判断待ちが増えたり閉じたりする） */
+  /** 関数なら、写し終えてから読む（写すと BackLog が増えたり閉じたりする） */
   appTasks: Task[] | (() => Task[]) = [],
   hub = "default",
   mirror?: (items: MirrorInput[]) => Map<string, Task>,
@@ -322,7 +322,7 @@ export function deriveCards(
   let own = typeof appTasks === "function" ? appTasks() : appTasks;
   if (rec) {
     const ids = new Set([...rec.values()].map((t) => t.id));
-    // 判断待ちのタスクは必ずカードにする: 元のカードがあればそれ（元に合わせた選択肢）、無ければタスクのカード
+    // BackLog のタスクは必ずカードにする: 元のカードがあればそれ（元に合わせた選択肢）、無ければタスクのカード
     own = own.filter((t) => !ids.has(t.id));
   }
   const cards = [...origin, ...own.map((t) => appTaskCard(t, profiles, hub))];

@@ -219,7 +219,7 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
       return (
         <div className="mt-3 flex flex-col gap-3.5">
           <Badge name="hourglass" />
-          <div className="gh-rise mb-1.5 mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>{ownerName()}の<br />判断待ち</div>
+          <div className="gh-rise mb-1.5 mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>{ownerName()}の<br />BackLog</div>
           {s.items.length === 0 && <div className="gh-rise text-base" style={delay(1)}>いまは何もありません</div>}
           {s.items.map((i, k) => (
             <a key={i.key} href={`#/card/${encodeURIComponent(i.key)}`} className="gh-rise flex items-center gap-3 rounded-2xl bg-[#17171a] p-4 text-white shadow-[0_6px_18px_rgba(0,0,0,0.18)]" style={delay(k + 1)}>
@@ -236,7 +236,7 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
 }
 
 function slideTitle(s: ReportSlide): string {
-  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日のルーティーン", waiting: "判断待ち", tasks: "今日と今週のタスク", mine: "自分のタスク", watch: "今週の報告", routine: "今日の定期報告" }[s.kind];
+  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日のルーティーン", waiting: "BackLog", tasks: "今日と今週のタスク", mine: "自分のタスク", watch: "今週の報告", routine: "今日の定期報告" }[s.kind];
 }
 
 export function Report({ snap }: { snap: Snapshot | null }) {

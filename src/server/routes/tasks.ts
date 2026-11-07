@@ -24,7 +24,7 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
       ),
     });
   });
-  // カード（メモ・判断待ち・承認依頼・受信箱）から、オーナーのタスクを作る
+  // カード（メモ・BackLog・承認依頼・受信箱）から、オーナーのタスクを作る
   app.post("/api/apptasks/from-card", async (c) => {
     const body = await c.req.json<{ key?: string; note?: string }>().catch(() => ({}) as { key?: string; note?: string });
     const card = [...hub.cards(), ...hub.cards("only")].find((x) => x.key === body.key);
@@ -53,7 +53,11 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
     if (!tasks) return c.json({ ok: false, error: "タスクは使えない" }, 404);
     const status = (c.req.query("status") ?? "").split(",").map(statusOf).filter((s): s is TaskStatus => !!s);
     const project = c.req.query("project");
-    return c.json(tasks.view({ status: status.length ? status : undefined, q: (c.req.query("q") ?? "").slice(0, 200), project: project === undefined ? null : project, tag: c.req.query("tag") || null }));
+    return c.json(tasks.view({ status: status.length ? status : undefined, q: (c.req.query("q") ?? "").slice(0, 200), project: project === undefined ? null : project, tag: c.req.query("tag") || null, hideDoneApprovals: c.req.query("approvals") !== "1" }));
+  });
+  app.get("/api/apptasks-by-kanban/:id", (c) => {
+    const t = tasks?.byKanban(c.req.param("id"));
+    return t ? c.json({ id: t.id, ref: t.ref }) : c.json({ ok: false, error: "つながるタスクは無い" }, 404);
   });
   // PR のマージでタスクを閉じる処理の様子。画面のタスクの一覧の下に出す
   app.get("/api/apptasks-sync", (c) =>
@@ -128,7 +132,7 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
       return taskFail(c, e);
     }
   });
-  // 消す（長押しのメニュー）。判断待ちのカードも一緒に消える
+  // 消す（長押しのメニュー）。BackLog のカードも一緒に消える
   app.delete("/api/apptasks/:id", (c) => {
     try {
       if (!tasks) throw new TaskError("タスクは使えない", 404);

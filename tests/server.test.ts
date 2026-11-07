@@ -318,7 +318,7 @@ describe("認証（入口は Tailscale だけ）", () => {
 });
 
 describe("レポート", () => {
-  test("判断待ちと、24時間の実績をまとめた1枚ができる", async () => {
+  test("BackLog と、24時間の実績をまとめた1枚ができる", async () => {
     const { hub } = await setup();
     const now = (1792310000 + 3600) * 1000; // t_a004 が片付いた1時間後
     const { buildReport } = await import("../src/server/report");
@@ -331,7 +331,7 @@ describe("レポート", () => {
     expect(waiting.items.map((i) => i.key)).toEqual(["task:t_8f2a", "task:t_91c0"]);
   });
 
-  test("何も片付いていなくても、判断待ちとまとめは出る", async () => {
+  test("何も片付いていなくても、BackLog とまとめは出る", async () => {
     const { hub } = await setup();
     const { buildReport } = await import("../src/server/report");
     const r = buildReport(hub.board, [], cfg.profiles, Date.now() + 30 * 86400_000);
@@ -357,7 +357,7 @@ describe("検索・メモ", () => {
     const { hub } = await setup();
     hub.report();
     hub.report();
-    expect(hub.find("判断待ち").filter((h) => h.kind === "report").length).toBe(1);
+    expect(hub.find("BackLog").filter((h) => h.kind === "report").length).toBe(1);
   });
 
   test("Hermes の承認待ちはカードになり、許可は「今回だけ」、拒否は deny で返す", async () => {

@@ -3,8 +3,8 @@
 
   python3 tasks_report_json.py [--as default] | python3 format_task_report.py --today YYYY-MM-DD --mode morning
 
-- 開いているタスク（判断待ち・やる・任せた・返事待ち）と、直近24時間に済み・不要になったタスク
-- 状態は一般的な名前に寄せる: 判断待ち・やる → Todo、任せた → In Progress、返事待ち → In Review、済み → Done、不要 → Canceled
+- 開いているタスク（BackLog・やる・任せた・返事待ち）と、直近24時間に済み・不要になったタスク
+- 状態は一般的な名前に寄せる: BackLog・やる → Todo、任せた → In Progress、返事待ち → In Review、済み → Done、不要 → Canceled
 - id は番号（TASK-123）、parentId は親の番号。本文に ID を出さないのは format_task_report.py の役目
 """
 import argparse

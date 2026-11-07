@@ -77,7 +77,7 @@ describe("APK の通知（TASK-250）", () => {
 });
 
 describe("ウィジェット（TASK-249）", () => {
-  test("/api/widget: 判断待ちの枚数と一番上の1枚（行き先つき）。無ければ top は null", async () => {
+  test("/api/widget: BackLog の枚数と一番上の1枚（行き先つき）。無ければ top は null", async () => {
     const store = new Store(":memory:");
     let cards: Card[] = [card("task:k1"), card("perm:t:r")];
     const hub = { snapshot: () => ({}), subscribe: () => () => {}, cards: () => cards };

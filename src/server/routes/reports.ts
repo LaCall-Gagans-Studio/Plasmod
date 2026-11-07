@@ -4,7 +4,7 @@ import { PerfLog } from "../perf";
 import type { RouteContext } from "./context";
 
 export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch, tasks, memos, habits }: RouteContext) {
-  // レポート: 今日のタスク → 自分のタスク → メモ → ルーティーン → 判断待ち → 定期報告 → 監察 → まとめ（実績はここに1枚）
+  // レポート: 今日のタスク → 自分のタスク → メモ → ルーティーン → BackLog → 定期報告 → 監察 → まとめ（実績はここに1枚）
   app.get("/api/report", async (c) => {
     const r = hub.report();
     // 毎日のチームの定期報告と、週次のチームの報告は、最後のまとめの前に、この順で
@@ -40,7 +40,7 @@ export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch,
     return c.json(await watch.all(c.req.query("force") === "1"));
   });
 
-  // 下のメニューの数字: ホーム＝判断待ちのカード＋root の承認待ち、Dev＝下書きでない PR、ウォッチング＝止まっているカード、システム＝root の承認待ち
+  // 下のメニューの数字: ホーム＝BackLog のカード＋root の承認待ち、Dev＝下書きでない PR、ウォッチング＝止まっているカード、システム＝root の承認待ち
   // 速さの記録（設定の VPS に出す）
   let perfLog: PerfLog | null = null;
   const perf = () => (perfLog ??= new PerfLog(store.db));
@@ -51,7 +51,7 @@ export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch,
   });
   app.get("/api/perf", (c) => c.json(perf().summary()));
 
-  // ホーム画面のウィジェット（APK、TASK-249）: 判断待ちの枚数と一番上の1枚だけ。軽く返す
+  // ホーム画面のウィジェット（APK、TASK-249）: BackLog の枚数と一番上の1枚だけ。軽く返す
   app.get("/api/widget", (c) => {
     const cards = hub.cards();
     const top = cards[0];

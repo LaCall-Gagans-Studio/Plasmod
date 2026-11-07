@@ -4,8 +4,8 @@
     <string name="title_activity_main">Plasmod</string>
     <string name="package_name">dev.plasmod.app</string>
     <string name="custom_url_scheme">dev.plasmod.app</string>
-    <string name="widget_cards_name">判断待ち</string>
-    <string name="widget_cards_desc">判断待ちの枚数と一番上の1枚。押すとそのカードを開く</string>
+    <string name="widget_cards_name">BackLog</string>
+    <string name="widget_cards_desc">BackLog の枚数と一番上の1枚。押すとそのカードを開く</string>
     <string name="widget_quick_name">すぐ書く</string>
     <string name="widget_quick_desc">音声メモ（そのままメモへ）・アシスタントに頼む</string>
 </resources>

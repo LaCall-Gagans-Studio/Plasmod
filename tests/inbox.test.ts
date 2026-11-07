@@ -33,7 +33,7 @@ describe("受信箱のカード", () => {
     expect(c.delegate).toBeUndefined();
   });
 
-  test("判断待ち・承認依頼より後ろ、メモより前。エージェントの数には入らない", () => {
+  test("BackLog・承認依頼より後ろ、メモより前。エージェントの数には入らない", () => {
     const board = { latest_event_id: 1, links: [], active_runs: [], fetched_at: 0, tasks: [
       task({ id: "t_b", title: "新しい", created_at: NOW + 60 }),
       task({ id: "t_c", title: "別", created_at: NOW + 30 }),

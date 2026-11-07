@@ -63,7 +63,7 @@ export class Hub {
     };
   }
 
-  /** 判断待ちのカード。snoozed="only" で「あとで」で伏せているものだけ */
+  /** BackLog のカード。snoozed="only" で「あとで」で伏せているものだけ */
   cards(snoozed: "hide" | "only" = "hide"): Card[] {
     return this.withParents(deriveCards(
       this.board,
@@ -136,7 +136,7 @@ export class Hub {
   }
 
   private tasks: TaskStore | null = null;
-  /** アプリのタスク（TASK-173）。判断待ちのものがカードになる */
+  /** アプリのタスク（TASK-173）。BackLog のものがカードになる */
   setTasks(t: TaskStore | null) {
     this.tasks = t;
   }
@@ -158,7 +158,7 @@ export class Hub {
   }
 
   /**
-   * カード（判断待ち・承認依頼・カードのメモ・カンバンの受信箱）から、オーナーのタスク（やる）を作る。
+   * カード（BackLog・承認依頼・カードのメモ・カンバンの受信箱）から、オーナーのタスク（やる）を作る。
    * 元のカードの本文・元・カンバンの番号を本文に残す。タスクのカードなら、そのタスクを「やる」にするだけ
    */
   taskFromCard(card: Card, note: string): Task {
@@ -215,8 +215,8 @@ export class Hub {
       this.board = await this.source.board();
       this.lastEventId = this.board.latest_event_id;
       this.boardError = null;
-      // 任せたタスクは、カンバンのカードが終わったら済みにする
-      this.tasks?.syncKanban(this.board.tasks);
+      // タスクが正本: カンバンの作業はタスクに写し、カードが終わったら Done にする
+      this.tasks?.syncKanban(this.board.tasks, Date.now(), INBOX_ASSIGNEES);
     } catch (e) {
       this.boardError = e instanceof Error ? e.message : String(e);
     }
@@ -390,7 +390,7 @@ export class Hub {
         tasks.decide(id, "done", note, "app", Date.now(), label);
         return;
       case "dismiss":
-        // 完了（不要）。元（同じメールのスレッドなど）に新しい動きがあったときだけ、また判断待ちに戻る
+        // 完了（不要）。元（同じメールのスレッドなど）に新しい動きがあったときだけ、また BackLog に戻る
         tasks.decide(id, "done", note, "app", Date.now(), label, "unneeded");
         return;
       case "mine":

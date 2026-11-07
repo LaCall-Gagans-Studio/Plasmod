@@ -15,7 +15,7 @@ const fresh = () => new TaskStore(new Store(":memory:").db);
 const mail = (over: Record<string, unknown> = {}) => ({ source: "mail", key: "thread-1", title: "田中商事 請求書", body: "返信の要否", kind: "reply", ...over });
 
 describe("タスクの登録（同じ元は1件）", () => {
-  test("初回は判断待ち、同じ元は1件のまま、中身が変われば更新", () => {
+  test("初回は BackLog、同じ元は1件のまま、中身が変われば更新", () => {
     const s = fresh();
     const a = s.upsert(mail(), "hermes/default", 1000);
     expect(a).toMatchObject({ action: "created", task: { status: "inbox", kind: "reply", sourceKey: "thread-1", createdBy: "hermes/default" } });
@@ -24,7 +24,7 @@ describe("タスクの登録（同じ元は1件）", () => {
     expect(s.list().length).toBe(1);
   });
 
-  test("完了（不要）は、同じ元に新しい動きが無ければ起こさない。新しい動きがあれば判断待ちに戻す（2026-10-29 から）", () => {
+  test("完了（不要）は、同じ元に新しい動きが無ければ起こさない。新しい動きがあれば BackLog に戻す（2026-10-29 から）", () => {
     const s = fresh();
     const { task } = s.upsert(mail(), "hermes/default", 1000);
     s.decide(task.id, "done", "", "app", 2000, "", "unneeded");
@@ -116,6 +116,45 @@ describe("タスクの登録（同じ元は1件）", () => {
     expect(s.upsert(mail({ eventAt: 3000 }), "hermes/default", 3000)).toMatchObject({ action: "reopened", task: { status: "inbox", doneReason: null } });
   });
 
+  test("カンバンをタスクに写す: 進行中は AI-Driven で1件、完了で Done、消えたら猶予のあと Done。オーナー宛て・止まった・消したものは写さない", () => {
+    const s = fresh();
+    const card = (id: string, status: string, over: Record<string, unknown> = {}) => ({ id, title: `作業 ${id}`, body: "本文", status, assignee: "dev", created_by: "default", ...over });
+    const board = [card("a", "running"), card("b", "blocked"), card("c", "done"), card("d", "ready", { assignee: "owner" }), card("e", "archived")];
+    expect(s.syncKanban(board, 1000, ["owner"])).toBe(1);
+    const a = s.byKanban("a")!;
+    expect(a).toMatchObject({ status: "doing", source: "kanban", sourceKey: "a", kanbanId: "a", agent: "dev" });
+    for (const id of ["b", "c", "d", "e"]) expect(s.byKanban(id)).toBeNull();
+    expect(s.syncKanban(board, 2000, ["owner"])).toBe(0);
+    expect(s.syncKanban([card("a", "done", { result: "できた" })], 3000)).toBe(1);
+    expect(s.get(a.id)?.status).toBe("done");
+
+    s.syncKanban([card("f", "running")], 10_000);
+    const f = s.byKanban("f")!;
+    expect(s.syncKanban([], 10_000 + 60_000)).toBe(0); // 猶予の内は閉じない
+    expect(s.syncKanban([], 10_000 + 11 * 60_000)).toBe(1);
+    expect(s.get(f.id)?.status).toBe("done");
+
+    s.syncKanban([card("g", "running")], 20_000);
+    s.remove(s.byKanban("g")!.id, "app", 21_000);
+    expect(s.syncKanban([card("g", "running")], 22_000)).toBe(0); // 消したものは写し直さない
+    expect(s.byKanban("g")).toBeNull();
+  });
+
+  test("Done の一覧は既定で承認の記録を外す。未完了の承認依頼は残り、件数も合う", () => {
+    const store = new Store(":memory:");
+    const s = new TaskStore(store.db);
+    s.upsert({ source: "mail", key: "m", title: "メール" }, "hermes/default", 1000);
+    const done = s.upsert({ source: "mail", key: "n", title: "済みメール" }, "hermes/default", 1000).task;
+    s.decide(done.id, "done", "", "app", 2000);
+    const mk = (key: string, status: string) => store.db.query("INSERT INTO tasks (title, body, kind, status, source, source_key, created_by, inbox_at, created_at, updated_at) VALUES (?, '', 'confirm', ?, 'perm', ?, 'dev', 1, 1, 1)").run(key, status, key);
+    mk("p1", "done");
+    mk("p2", "inbox");
+    const hidden = s.view({ status: ["done"], hideDoneApprovals: true });
+    expect(hidden.tasks.map((t) => t.title)).toEqual(["済みメール"]);
+    expect(hidden.counts).toMatchObject({ inbox: 2, done: 1 });
+    expect(s.view({ status: ["done"] }).tasks.length).toBe(2);
+  });
+
   test("カードで「不要」にした件は、別のキーで来ても新しい動きがあっても開き直さない", () => {
     const s = fresh();
     const t = s.upsert({ source: "mail", key: "1921", title: "LINE LIFF SDK v2.31.1 更新（11/24 の外部ブラウザ制限前）", eventAt: 900 }, "hermes/default", 1000).task;
@@ -129,7 +168,7 @@ describe("タスクの登録（同じ元は1件）", () => {
     expect(s.upsert({ source: "beeper", key: "79:2", title: "田中さん：YouTube外部公開URLの反映報告（①②の回答）", eventAt: 3000 }, "hermes/default", 3000)).toMatchObject({ action: "reopened", task: { id: u.id } });
   });
 
-  test("済みは、判断より後に元の動きがあったときだけ判断待ちに戻す", () => {
+  test("済みは、判断より後に元の動きがあったときだけ BackLog に戻す", () => {
     const s = fresh();
     const { task } = s.upsert(mail({ eventAt: 500 }), "hermes/default", 1000);
     s.decide(task.id, "done", "確認", "app", 2000);
@@ -141,7 +180,7 @@ describe("タスクの登録（同じ元は1件）", () => {
     expect(s.events(task.id).map((e) => e.kind)).toEqual(["reopen", "decide", "create"]);
   });
 
-  test("完了は、新しい動き（返事が来た）で判断待ちに戻る。自分でやる（todo）は戻さない", () => {
+  test("完了は、新しい動き（返事が来た）で BackLog に戻る。自分でやる（todo）は戻さない", () => {
     const s = fresh();
     const a = s.upsert(mail(), "x", 1000).task;
     s.decide(a.id, "done", "", "app", 2000);
@@ -181,7 +220,7 @@ describe("タスクからカード", () => {
     return { hub, tasks, source };
   }
 
-  test("判断待ちのタスクがカードになり、「不要」（完了・不要）で消えて、同じ元は新しい動きがあったときだけ戻る", async () => {
+  test("BackLog のタスクがカードになり、「不要」（完了・不要）で消えて、同じ元は新しい動きがあったときだけ戻る", async () => {
     const { hub, tasks } = await setup();
     tasks.upsert(mail({ propose: ["kanban"], agent: "acct" }), "hermes/default");
     const card = hub.cards().find((c) => c.key.startsWith("apptask:"))!;
@@ -209,7 +248,7 @@ describe("タスクからカード", () => {
     expect(tasks.get(task.id)!.status).toBe("done");
   });
 
-  test("「自分でやる」は todo に、「あとで」は伏せるだけ（タスクは判断待ちのまま）", async () => {
+  test("「自分でやる」は todo に、「あとで」は伏せるだけ（タスクは BackLog のまま）", async () => {
     const { hub, tasks } = await setup();
     const a = tasks.upsert(mail({ key: "a" }), "x").task;
     const b = tasks.upsert(mail({ key: "b", title: "山田工業 見積" }), "x").task;
@@ -274,7 +313,7 @@ describe("plasmod-task", () => {
       const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
       return { out, err, code };
     };
-    // 計画の子は判断待ちにしない（カードにならない）
+    // 計画の子は BackLog にしない（カードにならない）
     const a = await run(["add", "--source", "dev", "--key", "plan:1", "--title", "段1", "--status", "doing", "本文"]);
     expect(a.out).toContain("登録した: TASK-1（AI-Driven）段1");
     expect(tasks.inbox()).toEqual([]);
@@ -420,7 +459,7 @@ describe("状態は4つ（2026-10-29）", () => {
     const b = new TaskStore(db);
     expect(b.get(t.id)?.status).toBe("done");
     expect(b.events(t.id)[0].text).toBe("返事待ちから完了へ（状態を4つにしたため）");
-    // 新しい動きがあれば、これまでの返事待ちと同じく判断待ちに戻る
+    // 新しい動きがあれば、これまでの返事待ちと同じく BackLog に戻る
     expect(b.upsert({ source: "mail", key: "w1", title: "返事待ちだったもの", eventAt: Date.now() + 1000 }, "x").action).toBe("reopened");
   });
 });

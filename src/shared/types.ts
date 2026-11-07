@@ -257,7 +257,7 @@ export interface Card {
   snoozedUntil?: number;
   /** アプリのタスク（TASK-173）から作ったカード: タスクの番号 */
   appTaskId?: number;
-  /** カンバン・承認依頼・メモのカードを記録している、判断待ちのタスク（「カード＝判断待ちのタスク」） */
+  /** カンバン・承認依頼・メモのカードを記録している、BackLog のタスク（「カード＝BackLog のタスク」） */
   recordTaskId?: number;
   /** カードのタスクの番号（TASK-123）。右上に出して、押すとタスクを開く */
   recordRef?: string;
@@ -460,7 +460,7 @@ export interface MemoList {
 /** タスク（TASK-173）。見回りが元の ID 付きで登録したもの・オーナーが画面で足したもの */
 /**
  * タスクの状態は4つ: BackLog（inbox。ホームにカードが出る）・Todo（todo）・AI-Driven（doing）・Done（done）。前の3つをまとめて Undone と呼ぶ。
- * 「不要」は状態ではなく Done の理由（doneReason）。返事待ち（waiting）はやめた（完了にしておけば、元に新しい動きがあると判断待ちに戻る）
+ * 「不要」は状態ではなく Done の理由（doneReason）。返事待ち（waiting）はやめた（完了にしておけば、元に新しい動きがあると BackLog に戻る）
  */
 export type AppTaskStatus = "inbox" | "todo" | "doing" | "done";
 /** Done の理由。null は普通の完了 */
@@ -496,7 +496,7 @@ export interface AppTask {
   /** 元の最後の動き（新しいメールが来た時刻など） */
   eventAt: number | null;
   decidedAt: number | null;
-  /** 判断待ち（inbox）になった時刻 */
+  /** BackLog（inbox）になった時刻 */
   inboxAt: number;
   createdAt: number;
   updatedAt: number;
@@ -794,7 +794,7 @@ export interface AppNotice {
   id: number;
   at: number;
   type: "notice";
-  /** card＝判断待ち、reply＝エージェントの返事、system＝デプロイ・root など */
+  /** card＝BackLog、reply＝エージェントの返事、system＝デプロイ・root など */
   kind: "card" | "reply" | "system";
   /** 同じ key の通知は上書きし、clear で消す（カードの key など） */
   key: string;

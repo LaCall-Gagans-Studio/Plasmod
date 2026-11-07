@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ウィジェット「判断待ち」: 左に枚数、右に一番上の1枚 -->
+<!-- ウィジェット「BackLog」: 左に枚数、右に一番上の1枚 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -28,7 +28,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="判断待ち"
+            android:text="BackLog"
             android:textColor="#8A8A90"
             android:textSize="11sp" />
     </LinearLayout>

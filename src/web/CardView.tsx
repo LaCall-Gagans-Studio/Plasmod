@@ -43,13 +43,13 @@ const DOT: Record<Card["kind"], string> = {
 };
 const MAX_DOTS = 14;
 
-/** 残りの判断待ち（このカードを含む）。1枚＝1つの印で、色はカードの種類（ホームの輪と同じ）。今のカードは大きく */
+/** 残りの BackLog（このカードを含む）。1枚＝1つの印で、色はカードの種類（ホームの輪と同じ）。今のカードは大きく */
 function Remaining({ cards, current }: { cards: Card[]; current: string }) {
   const n = cards.length;
   const isCurrent = cards.some((c) => c.key === current);
   const shown = cards.slice(0, MAX_DOTS);
   return (
-    <div className="flex items-center gap-2.5 px-4 pt-[max(env(safe-area-inset-top),14px)]" role="status" aria-label={isCurrent ? `残り ${n} 枚（このカードを含む）` : `判断待ち ${n} 枚`}>
+    <div className="flex items-center gap-2.5 px-4 pt-[max(env(safe-area-inset-top),14px)]" role="status" aria-label={isCurrent ? `残り ${n} 枚（このカードを含む）` : `BackLog ${n} 枚`}>
       <div className="flex min-w-0 flex-1 items-center gap-1" aria-hidden="true">
         {shown.map((c) => (
           <span
@@ -60,12 +60,12 @@ function Remaining({ cards, current }: { cards: Card[]; current: string }) {
         ))}
         {n > MAX_DOTS && <span className="flex-none text-[11px] text-mute">+{n - MAX_DOTS}</span>}
       </div>
-      <span className="flex-none text-xs font-bold tabular-nums text-ink-2">{isCurrent ? (n === 1 ? "これで最後" : `残り ${n} 枚`) : n ? `判断待ち ${n} 枚` : "判断待ちなし"}</span>
+      <span className="flex-none text-xs font-bold tabular-nums text-ink-2">{isCurrent ? (n === 1 ? "これで最後" : `残り ${n} 枚`) : n ? `BackLog ${n} 枚` : "BackLog なし"}</span>
     </div>
   );
 }
 
-/** カードが無いとき: 次の判断待ちがあればそこへ、無ければチャットへ */
+/** カードが無いとき: 次の BackLog があればそこへ、無ければチャットへ */
 function NextOrHome({ snap }: { snap: Snapshot }) {
   const first = snap.cards[0];
   return first ? (
@@ -184,7 +184,7 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
   /** 押したら、もう判断済みだった */
   const [stale, setStale] = useState(false);
 
-  // 伏せているカードも開ける（並びは判断待ちのあと）
+  // 伏せているカードも開ける（並びは BackLog のあと）
   const cards = [...(snap?.cards ?? []), ...(snap?.snoozed ?? [])];
   const idx = cards.findIndex((c) => c.key === cardKey);
   const card = idx >= 0 ? cards[idx] : null;

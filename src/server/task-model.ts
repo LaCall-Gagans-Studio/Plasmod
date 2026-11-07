@@ -39,14 +39,14 @@ export interface TaskInput {
   /** 元の最後の動き（ms）。完了したタスクは、これが判断より後のときだけ開き直す */
   eventAt?: number | null;
   /**
-   * 新しく作るときの状態（既定は判断待ち）。判断待ちに入れるのは、オーナーに決めてほしい問いだけ。
+   * 新しく作るときの状態（既定は BackLog）。BackLog に入れるのは、オーナーに決めてほしい問いだけ。
    * 計画の段・子は todo（オーナーがやる）か doing（エージェントがやる）で入れる。もうあるタスクの状態は変えない
    */
   status?: "inbox" | "todo" | "doing";
 }
 
 /**
- * カンバン・承認依頼・カードのメモのカードを、判断待ちのタスクとして記録するための入力（2026-10-29「判断待ち＝カード、例外なし」）。
+ * カンバン・承認依頼・カードのメモのカードを、BackLog のタスクとして記録するための入力（2026-10-29「BackLog＝カード、例外なし」）。
  * source は kanban / perm / note、key はその元の ID
  */
 export interface MirrorInput {
@@ -58,10 +58,10 @@ export interface MirrorInput {
   kind: InboxKind;
   /** カードを出した人（created_by に入れる） */
   agent: string;
-  /** カードの時刻（ms）。判断より新しければ、閉じたタスクを判断待ちに戻す */
+  /** カードの時刻（ms）。判断より新しければ、閉じたタスクを BackLog に戻す */
   createdAt: number;
   url?: string | null;
-  /** カンバンのカードなら、その番号。アプリのタスクから任せたカードなら、元のタスクを判断待ちに戻す */
+  /** カンバンのカードなら、その番号。アプリのタスクから任せたカードなら、元のタスクを BackLog に戻す */
   kanbanId?: string;
   /** 開き直したときに記録に残す文 */
   reopenText: string;

@@ -3,9 +3,9 @@
 
 見回りで拾ったもの（メール・Beeper・ops）は、カードを直接作らず、ここに「元の ID 付き」で登録する。
 同じ元（--source と --key）は何度登録しても 1 件にまとまり、オーナーの判断（完了・不要など）が残る。
-判断待ちのものだけが、アプリのホームにカードとして出る。状態は 判断待ち・やる・任せ中・完了 の4つ。
+BackLog のものだけが、アプリのホームにカードとして出る。状態は BackLog・Todo・AI-Driven・Done の4つ。
 
-判断待ちに入れるのは、オーナーに決めてほしい問いだけ。題は問いの形（〜してよいか？）、本文は
+BackLog に入れるのは、オーナーに決めてほしい問いだけ。題は問いの形（〜してよいか？）、本文は
 「何の話か／選択肢／おすすめ」の3行で、オーナーが読んで分かる言葉にする。
 計画の段・子タスクは --status todo（オーナーがやる）か doing（エージェントがやる）で入れる。
 
@@ -35,7 +35,7 @@ import uuid
 SPOOL = os.environ.get("PLASMOD_MEMO_SPOOL", "/var/lib/plasmod-spool/memo")
 TIMEOUT = float(os.environ.get("PLASMOD_MEMO_TIMEOUT", "15"))
 STATUS_JA = {"inbox": "BackLog", "todo": "Todo", "doing": "AI-Driven", "done": "Done"}
-ACTION_JA = {"created": "登録した", "updated": "更新した", "unchanged": "変わらず", "reopened": "判断待ちに戻した", "ignored": "登録しなかった"}
+ACTION_JA = {"created": "登録した", "updated": "更新した", "unchanged": "変わらず", "reopened": "BackLog に戻した", "ignored": "登録しなかった"}
 
 
 def call(op, args, as_=None):
@@ -117,7 +117,7 @@ def main():
     s.add_argument("--due", help="YYYY-MM-DD")
     s.add_argument("--event-at", help="元の最後の動きの時刻（新しい返信が来た時刻など）")
     s.add_argument("--parent", help="親のタスク（TASK-123 か #の数字）")
-    s.add_argument("--status", default="inbox", choices=["inbox", "todo", "doing"], help="新しく作るときの状態。判断待ち（既定）はオーナーに決めてほしい問いだけ。計画の子は todo（オーナー）か doing（エージェント）")
+    s.add_argument("--status", default="inbox", choices=["inbox", "todo", "doing"], help="新しく作るときの状態。BackLog（既定）はオーナーに決めてほしい問いだけ。計画の子は todo（オーナー）か doing（エージェント）")
     s.add_argument("body", nargs="?")
 
     s = sub.add_parser("status", help="タスクの状態を動かす（誰が登録したものでも）")
