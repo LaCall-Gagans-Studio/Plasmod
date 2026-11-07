@@ -40,7 +40,7 @@ cron では最初の行に `[CRON_FAILURE]` を書き、次の行に上の一文
 1. `terminal` で JST の今日 `YYYY-MM-DD` を確認する。
 2. `terminal`（本文は **スクリプトにだけ** 作らせる。手で Markdown を組まない）:
    `python3 <this-skill>/scripts/tasks_report_json.py --as default | python3 <this-skill>/scripts/format_task_report.py --today YYYY-MM-DD --mode todo|morning|evening`
-   - `tasks_report_json.py` は、開いているタスク（判断待ち・やる・任せた・返事待ち）と直近24時間に済み・不要になったタスクを、`format_task_report.py` が読む形（`issues` 配列）にする。状態は 判断待ち・やる→Todo、任せた→In Progress、返事待ち→In Review、済み→Done、不要→Canceled
+   - `tasks_report_json.py` は、開いているタスク（BackLog・やる・任せた・返事待ち）と直近24時間に済み・不要になったタスクを、`format_task_report.py` が読む形（`issues` 配列）にする。状態は BackLog・やる→Todo、任せた→In Progress、返事待ち→In Review、済み→Done、不要→Canceled
 3. stdout をそのまま投稿する。**タスク番号の の番号は本文に出さない**（スクリプトが保証）。
 4. スナップショットは `--snapshot --fetched-at 'YYYY-MM-DD HH:MM JST'` の stdout で `~/work/タスク報告_前回.md` を上書きする（同じく `tasks_report_json.py` の出力を入れる）。ここだけ番号を残す。
 
@@ -65,7 +65,7 @@ cron では最初の行に `[CRON_FAILURE]` を書き、次の行に上の一文
 🧳 **夏の旅行**
 - タイトル
 
-## ToDo　※判断待ち・やる。h2。アイコンなし
+## ToDo　※BackLog・やる。h2。アイコンなし
 🛍️ **example**
 - タイトル
 

@@ -1,5 +1,5 @@
 // レポート（ストーリー型のスライド）をボードから組み立てる（純粋関数）。
-// 先に実務（タスク・メモ・ルーティーン・判断待ち）を見せ、カンバンとエージェントの実績は最後の「まとめ」1枚に寄せる。
+// 先に実務（タスク・メモ・ルーティーン・BackLog）を見せ、カンバンとエージェントの実績は最後の「まとめ」1枚に寄せる。
 import type { AgentProfile, Board, Card, Report, ReportSlide } from "../shared/types";
 import { isInboxTask, profileOf } from "./model";
 
@@ -58,7 +58,7 @@ export function reportText(r: Report): string {
         case "digest":
           return [`片付いた ${s.done} 件・実行中 ${s.running} 件`, ...s.cards.map((c) => `${c.name}（${c.agent}）`), ...s.agents.map((a) => `${a.name}: ${a.done}件`)].join("\n");
         case "waiting":
-          return `判断待ち ${s.items.length} 件\n${s.items.map((i) => `${i.agent} ${i.label}: ${i.title}`).join("\n")}`;
+          return `BackLog ${s.items.length} 件\n${s.items.map((i) => `${i.agent} ${i.label}: ${i.title}`).join("\n")}`;
       }
     })
     .join("\n");

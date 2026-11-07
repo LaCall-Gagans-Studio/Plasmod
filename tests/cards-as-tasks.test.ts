@@ -4,7 +4,7 @@ import { Store } from "../src/server/store";
 import { TaskStore } from "../src/server/tasks";
 import type { Board, KanbanTask, PermissionRequest } from "../src/shared/types";
 
-// 「カード＝判断待ちのタスク」（2026-10-29、例外なし）: カンバン・承認依頼・メモのカードもタスクに写す
+// 「カード＝BackLog のタスク」（2026-10-29、例外なし）: カンバン・承認依頼・メモのカードもタスクに写す
 const NOW = 1_793_000_000_000;
 const NONE = { snoozedUntil: new Map<string, number>(), decidedAt: new Map<string, number>() };
 const PROFILES = [{ id: "default", name: "ハブ", initial: "ミ", color: "#000" }];
@@ -24,8 +24,8 @@ function setup() {
   return { tasks, cards };
 }
 
-describe("カード＝判断待ちのタスク", () => {
-  test("承認依頼・カンバン・メモのカードは、どれも判断待ちのタスクになり、カードにその番号が付く（二重には出ない）", () => {
+describe("カード＝BackLog のタスク", () => {
+  test("承認依頼・カンバン・メモのカードは、どれも BackLog のタスクになり、カードにその番号が付く（二重には出ない）", () => {
     const { tasks, cards } = setup();
     const memo = [{ id: 4, title: "メモ", body: "あとで見る", created_at: NOW - 5 }];
     const cs = cards(board(kt({})), [perm], memo);
@@ -42,18 +42,18 @@ describe("カード＝判断待ちのタスク", () => {
   test("元で片付いたら閉じる。ただし読めていない元（bridge が切れた・カンバンが読めない）は閉じない（カードは出し続ける）", () => {
     const { tasks, cards } = setup();
     cards(board(kt({})), [perm]);
-    // bridge が切れて承認依頼が見えない・カンバンも読めない: タスクは判断待ちのまま、カード（タスクのカード）も出る
+    // bridge が切れて承認依頼が見えない・カンバンも読めない: タスクは BackLog のまま、カード（タスクのカード）も出る
     expect(cards(null, [], [], new Set(["note"])).map((c) => c.key).sort()).toEqual(tasks.inbox().map((t) => `apptask:${t.id}`).sort());
     expect(tasks.inbox()).toHaveLength(2);
     cards(board(kt({ status: "running" })), []);
-    const all = tasks.list({ status: ["inbox", "todo", "doing", "done", "dismissed"] });
+    const all = tasks.list({ status: ["inbox", "todo", "doing", "done"] });
     expect(all.find((t) => t.source === "perm")?.status).toBe("done");
     // カンバンにつながっているものは「任せた」（カンバンが終われば syncKanban で済み）
     expect(all.find((t) => t.source === "kanban")?.status).toBe("doing");
     expect(cards(board(kt({ status: "running" })), [])).toHaveLength(0);
   });
 
-  test("アプリのタスクから任せたカンバンが止まったら、新しく作らず元のタスクを判断待ちに戻す", () => {
+  test("アプリのタスクから任せたカンバンが止まったら、新しく作らず元のタスクを BackLog に戻す", () => {
     const { tasks, cards } = setup();
     const t = tasks.upsert({ source: "mail", key: "m1", title: "見積の返信" }, "default", NOW - 100_000).task;
     tasks.linkKanban(t.id, "k9", "acct", "", "app", NOW - 90_000);
@@ -64,7 +64,7 @@ describe("カード＝判断待ちのタスク", () => {
     // 題・本文はアプリのタスクのまま、記録に止まった理由
     expect(back).toMatchObject({ status: "inbox", title: "見積の返信", source: "mail" });
     expect(tasks.events(t.id).some((e) => e.kind === "reopen" && e.text.includes("カンバン k9 が止まった: 宛先が分からない"))).toBe(true);
-    expect(tasks.list({ status: ["inbox", "todo", "doing", "done", "dismissed"] })).toHaveLength(1);
+    expect(tasks.list({ status: ["inbox", "todo", "doing", "done"] })).toHaveLength(1);
   });
 
   test("タスクの側で閉じたら、元のカードが残っていても出さない。また止まったら（カードが新しくなったら）戻す", () => {
@@ -80,7 +80,7 @@ describe("カード＝判断待ちのタスク", () => {
   test("不要（完了）は、元のカードが新しくなったときだけ戻す。削除したタスクは戻さない（カードも出ない）", () => {
     const { tasks, cards } = setup();
     const [c] = cards(null, [perm]);
-    tasks.decide(c.recordTaskId!, "dismissed", "", "app", NOW + 10);
+    tasks.decide(c.recordTaskId!, "done", "", "app", NOW + 10, "", "unneeded");
     expect(cards(null, [perm])).toHaveLength(0);
     expect(cards(null, [{ ...perm, created_at: NOW + 1000 }])).toHaveLength(1);
     const [n] = cards(null, [], [{ id: 7, title: "メモ", body: "", created_at: NOW }]);
@@ -119,7 +119,7 @@ describe("カードの判断はタスクに残る（Hub）", () => {
   });
 });
 
-describe("仕分け待ち（triage）も判断待ちのタスク", () => {
+describe("仕分け待ち（triage）も BackLog のタスク", () => {
   test("カードになり、実働のエージェントごとの「〇〇に任せる」（今の担当が先頭）・不要・あとで", () => {
     const { tasks, cards } = setup();
     const profiles = [...PROFILES, { id: "dev", name: "開発くん", initial: "つ", color: "#000" }, { id: "audit", name: "監査", initial: "監", color: "#000", team: "watch" as const }];
@@ -155,7 +155,7 @@ describe("仕分け待ち（triage）も判断待ちのタスク", () => {
     expect(source.log).toContain("specify k6 dev");
     expect(source.log).toContain("archive k7");
     expect(tasks.get(a.recordTaskId!)).toMatchObject({ status: "doing", kanbanId: "k6" });
-    expect(tasks.get(b.recordTaskId!)?.status).toBe("dismissed");
+    expect(tasks.get(b.recordTaskId!)).toMatchObject({ status: "done", doneReason: "unneeded" });
     await expect(hub.act(hub.cards()[0]?.key ?? "x", "to-../x", "", "app")).rejects.toThrow();
   });
 });
@@ -190,7 +190,7 @@ describe("カードの操作（2026-10-29）", () => {
     const r = hub.cards().find((x) => x.key === "task:t_91c0")!;
     await hub.act(r.key, "dismiss", "", "app");
     expect(source.log).toContain("archive t_91c0");
-    expect(tasks.get(r.recordTaskId!)?.status).toBe("dismissed");
+    expect(tasks.get(r.recordTaskId!)).toMatchObject({ status: "done", doneReason: "unneeded" });
   });
 
   test("カードに番号と親が付く。コメントだけ書くと、タスクの記録とカンバンの両方に残る", async () => {

@@ -8,8 +8,10 @@ import { CopyRef, useLongPress } from "./touch";
 import { Avatar, profileOf } from "./ui";
 import { localDay, tzOffsetMs } from "../shared/time";
 
-/** 状態は4つ（Inbox・Todo・AI-Driven・Done）。不要は Done の理由なので、札では Done にまとめて小さく添える */
-export const STATUS_LABEL: Record<AppTaskStatus, string> = { inbox: "Inbox", todo: "Todo", doing: "AI-Driven", done: "Done", dismissed: "Done" };
+/** 状態は4つ（BackLog・Todo・AI-Driven・Done）。前の3つをまとめて Undone。不要は Done の理由なので、札では小さく添える */
+export const STATUS_LABEL: Record<AppTaskStatus, string> = { inbox: "BackLog", todo: "Todo", doing: "AI-Driven", done: "Done" };
+
+export const UNDONE_LABEL = "Undone";
 
 export const OPEN: AppTaskStatus[] = ["inbox", "todo", "doing"];
 
@@ -20,8 +22,10 @@ export const STATUS_DOT: Record<AppTaskStatus, string> = {
   todo: "var(--color-ink)",
   doing: "var(--color-ring-lime)",
   done: "var(--color-dot-done)",
-  dismissed: "var(--color-line-2)",
 };
+
+/** 不要で閉じたものは色を落とす */
+export const taskDot = (t: Pick<AppTask, "status" | "doneReason">) => (t.doneReason === "unneeded" ? "var(--color-line-2)" : STATUS_DOT[t.status]);
 
 /** 今日の YYYY-MM-DD */
 /** 期限順の区切り */
@@ -58,7 +62,7 @@ export const DUE_CLS = { late: "text-red-ink font-semibold", today: "text-orange
 
 /** 状態の丸。押すと完了（完了なら「やる」に戻す）。開いているサブタスクがあれば、その数を中に出す */
 export function CheckDot({ t, onToggle }: { t: AppTask; onToggle: () => void }) {
-  const done = t.status === "done" || t.status === "dismissed";
+  const done = t.status === "done";
   const n = done ? 0 : (t.openChildren ?? 0);
   return (
     <button
@@ -69,7 +73,7 @@ export function CheckDot({ t, onToggle }: { t: AppTask; onToggle: () => void }) 
       }}
       aria-label={done ? `「${t.title}」をやるに戻す` : `「${t.title}」を完了にする${n ? `（サブタスク ${n} 件）` : ""}`}
       className={`flex size-5 flex-none items-center justify-center rounded-full border-[1.5px] font-bold tabular-nums leading-none ${n > 9 ? "text-[8.5px]" : "text-[10px]"}`}
-      style={{ borderColor: STATUS_DOT[t.status], background: done ? STATUS_DOT[t.status] : "transparent", color: done ? "var(--color-paper)" : "var(--color-ink-2)" }}
+      style={{ borderColor: taskDot(t), background: done ? taskDot(t) : "transparent", color: done ? "var(--color-paper)" : "var(--color-ink-2)" }}
     >
       {done ? "✓" : n ? (n > 99 ? "99" : n) : ""}
     </button>
@@ -86,11 +90,11 @@ export function TaskRow({ t, selected, href, onToggle, snap, expand, onChanged }
     <a href={href} {...press} aria-current={selected ? "page" : undefined} className={`mx-2 flex min-w-0 select-none items-start gap-2.5 rounded-lg px-2.5 py-2 text-ink no-underline [-webkit-touch-callout:none] ${selected ? "bg-chip" : "hover:bg-chip/60"}`}>
       <span className="pt-0.5"><CheckDot t={t} onToggle={onToggle} /></span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className={`text-[13.5px] leading-snug ${t.status === "done" || t.status === "dismissed" ? "text-mute line-through" : "font-medium"}`}>{t.title}</span>
+        <span className={`text-[13.5px] leading-snug ${t.status === "done" ? "text-mute line-through" : "font-medium"}`}>{t.title}</span>
         <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-mute">
           {t.ref && <CopyRef text={t.ref} className="font-mono text-[10.5px]" />}
-          {t.status === "inbox" && <span className="font-semibold text-orange-ink">Inbox</span>}
-          {t.status === "dismissed" && <span>不要</span>}
+          {t.status === "inbox" && <span className="font-semibold text-orange-ink">BackLog</span>}
+          {t.doneReason === "unneeded" && <span>不要</span>}
           {d && <span className={DUE_CLS[d.tone]}>{d.text}</span>}
           {t.project && <span className="flex items-center gap-1"><FolderIcon size={11} />{t.project}</span>}
           {t.tags?.map((g) => <span key={g} className="text-blue">#{g}</span>)}

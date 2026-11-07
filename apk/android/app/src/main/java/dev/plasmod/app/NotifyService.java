@@ -59,7 +59,7 @@ public class NotifyService extends Service {
         NotificationChannel conn = new NotificationChannel(CH_CONN, "接続中の表示", NotificationManager.IMPORTANCE_MIN);
         conn.setDescription("VPS につながっている間の常駐表示（音・バイブなし）");
         nm.createNotificationChannel(conn);
-        nm.createNotificationChannel(new NotificationChannel(CH_CARD, "判断待ち", NotificationManager.IMPORTANCE_HIGH));
+        nm.createNotificationChannel(new NotificationChannel(CH_CARD, "BackLog", NotificationManager.IMPORTANCE_HIGH));
         nm.createNotificationChannel(new NotificationChannel(CH_REPLY, "エージェントの返事", NotificationManager.IMPORTANCE_DEFAULT));
         nm.createNotificationChannel(new NotificationChannel(CH_SYSTEM, "デプロイ・root など", NotificationManager.IMPORTANCE_DEFAULT));
     }
@@ -199,7 +199,7 @@ public class NotifyService extends Service {
             long id = o.optLong("id", -1);
             if (event.equals("notice")) show(o);
             else if (event.equals("clear")) NotificationManagerCompat.from(this).cancel(idFor(o.optString("key")));
-            // 判断待ちが増えた・減ったら、ウィジェットも読み直す
+            // BackLog が増えた・減ったら、ウィジェットも読み直す
             if (event.equals("clear") || "card".equals(o.optString("kind"))) CardsWidget.refresh(this);
             if (id > Prefs.lastId(this)) Prefs.setLastId(this, id);
         } catch (Exception e) {

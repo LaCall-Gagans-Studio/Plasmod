@@ -8,7 +8,7 @@ import { UploadBar, upload } from "./upload";
 import { Avatar, COL, Icon, ago, profileOf } from "./ui";
 import { Skeleton } from "./loading";
 
-const STATUS: Record<string, { label: string; cls: string }> = {
+export const KANBAN_STATUS: Record<string, { label: string; cls: string }> = {
   running: { label: "実行中", cls: "bg-lime-soft text-lime-ink" },
   blocked: { label: "止まっている", cls: "bg-orange-soft text-orange-ink" },
   review: { label: "レビュー待ち", cls: "bg-yellow-soft text-yellow-ink" },
@@ -44,7 +44,7 @@ function Ref({ r, snap }: { r: TaskRef; snap: Snapshot }) {
     <a href={`#/task/${encodeURIComponent(r.id)}`} className="flex min-h-10 items-center gap-2 rounded-lg border border-line bg-panel px-2.5 text-[13px] text-ink no-underline">
       {r.assignee && <Avatar p={profileOf(snap.agents, r.assignee)} size={20} />}
       <span className="min-w-0 flex-1 truncate">{r.title}</span>
-      {r.status && <span className={`rounded-full px-2 py-0.5 text-[10.5px] ${STATUS[r.status]?.cls ?? "bg-chip text-mute"}`}>{STATUS[r.status]?.label ?? r.status}</span>}
+      {r.status && <span className={`rounded-full px-2 py-0.5 text-[10.5px] ${KANBAN_STATUS[r.status]?.cls ?? "bg-chip text-mute"}`}>{KANBAN_STATUS[r.status]?.label ?? r.status}</span>}
     </a>
   );
 }
@@ -159,6 +159,14 @@ export function TaskView({ snap, id }: { snap: Snapshot | null; id: string }) {
   const who = (a: string | null | undefined) => (snap ? profileOf(snap.agents, a === "owner" ? "me" : (a ?? "unassigned")) : null);
   const assignee = t && who(t.assignee);
   const card = snap?.cards.find((c) => c.taskId === id);
+  const [owner, setOwner] = useState<{ id: number; ref: string | null } | null>(null);
+  useEffect(() => {
+    setOwner(null);
+    void fetch(`/api/apptasks-by-kanban/${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((t: { id: number; ref: string | null } | null) => setOwner(t))
+      .catch(() => {});
+  }, [id]);
   const files: MediaItem[] = (d?.attachments ?? []).map((a) => ({
     name: a.name,
     url: `/api/media/hermes?path=${encodeURIComponent(a.path)}`,
@@ -178,6 +186,7 @@ export function TaskView({ snap, id }: { snap: Snapshot | null; id: string }) {
         <a href="#/watching" aria-label="閉じる" className="ml-auto flex size-11 items-center justify-center"><Icon name="close" /></a>
       </div>
 
+      {owner && <a href={`#/todo/${owner.id}`} className="mx-4 mb-1 flex items-center gap-2 rounded-lg bg-chip px-3 py-2 text-[12.5px] text-ink-2 no-underline">タスク {owner.ref ?? `#${owner.id}`} の実行記録です <span className="ml-auto">タスクを開く ›</span></a>}
       {/* 長い URL などの切れ目の無い文字列も折り返す。横にはみ出すと画面ごと横にずれる */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto overflow-x-hidden px-[18px] pb-4 pt-2 [overflow-wrap:anywhere]">
         {error && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink" role="alert">{error}</div>}
@@ -187,7 +196,7 @@ export function TaskView({ snap, id }: { snap: Snapshot | null; id: string }) {
           <div className="flex min-w-0 flex-col gap-5">
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-3 py-1 text-xs font-bold ${STATUS[t.status]?.cls ?? "bg-chip text-mute"}`}>{STATUS[t.status]?.label ?? t.status}</span>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${KANBAN_STATUS[t.status]?.cls ?? "bg-chip text-mute"}`}>{KANBAN_STATUS[t.status]?.label ?? t.status}</span>
                 {t.priority > 0 && <span className="rounded-full border border-line-2 px-2.5 py-0.5 text-[11px]">優先 {t.priority}</span>}
                 {(t.skills ?? []).map((s) => <span key={s} className="rounded-full border border-line px-2.5 py-0.5 font-mono text-[11px] text-ink-2">{s}</span>)}
                 {card && <a href={`#/card/${encodeURIComponent(card.key)}`} className="ml-auto rounded-full bg-ink px-3 py-1 text-xs font-bold text-paper no-underline">判断する</a>}

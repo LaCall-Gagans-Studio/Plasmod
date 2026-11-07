@@ -10,7 +10,7 @@ import android.widget.RemoteViews;
 import org.json.JSONObject;
 
 /**
- * ホーム画面のウィジェット「判断待ち」: 枚数と一番上の1枚。押すとそのカード（無ければホーム）を開く。
+ * ホーム画面のウィジェット「BackLog」: 枚数と一番上の1枚。押すとそのカード（無ければホーム）を開く。
  * 30分おき（Android の決まり）と、通知が来たとき・アプリから戻ったときに読み直す
  */
 public class CardsWidget extends AppWidgetProvider {
@@ -50,7 +50,7 @@ public class CardsWidget extends AppWidgetProvider {
                 v.setViewVisibility(R.id.widget_meta, View.VISIBLE);
                 path = top.optString("path", "");
             } else {
-                v.setTextViewText(R.id.widget_title, "判断待ちはありません");
+                v.setTextViewText(R.id.widget_title, "BackLog はありません");
                 v.setViewVisibility(R.id.widget_meta, View.GONE);
             }
         } catch (Exception e) {

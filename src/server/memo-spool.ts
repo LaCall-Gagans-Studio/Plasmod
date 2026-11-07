@@ -241,13 +241,13 @@ export class MemoSpool {
         return t ? { ...t, events: tasks.events(t.id) } : null;
       }
       case "list": {
-        const status = Array.isArray(a.status) ? (a.status as string[]).filter((s): s is TaskStatus => (TASK_STATUSES as string[]).includes(s)) : undefined;
+        const status = Array.isArray(a.status) ? (a.status as string[]).filter((s): s is TaskStatus | "dismissed" => (TASK_STATUSES as string[]).includes(s) || s === "dismissed") : undefined;
         return tasks.list({ status: status?.length ? status : undefined, source: str("source"), q: str("q"), limit: Number(a.limit) || 50 });
       }
       case "comment":
         return tasks.comment(id(), str("text") ?? "", author);
       case "status": {
-        const t = tasks.setStatusBy(ref("id"), (str("status") ?? "") as TaskStatus, str("note") ?? "", author);
+        const t = tasks.setStatusBy(ref("id"), str("status") ?? "", str("note") ?? "", author);
         this.onTasks();
         return t;
       }

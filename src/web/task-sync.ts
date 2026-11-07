@@ -1,9 +1,9 @@
 // タスクのオフライン。未完了のタスクだけを端末に写し、オフラインで作る・変えると、つながったときに送る。
-// 完了（done・dismissed）は端末に置かない。変更の衝突は、題などの項目はこちらを優先し、本文は両方残す。
-import type { AppTask, AppTaskLinks, AppTaskList, AppTaskStatus } from "../shared/types";
+// 完了は端末に置かない。変更の衝突は、題などの項目はこちらを優先し、本文は両方残す。
+import type { AppTask, AppTaskDoneReason, AppTaskLinks, AppTaskList, AppTaskStatus } from "../shared/types";
 
 export const OPEN_STATUSES: AppTaskStatus[] = ["inbox", "todo", "doing"];
-const ALL_STATUSES: AppTaskStatus[] = ["inbox", "todo", "doing", "done", "dismissed"];
+const ALL_STATUSES: AppTaskStatus[] = ["inbox", "todo", "doing", "done"];
 export const isOpenTask = (t: Pick<AppTask, "status">) => OPEN_STATUSES.includes(t.status);
 
 export interface TaskFields {
@@ -12,6 +12,7 @@ export interface TaskFields {
   project?: string | null;
   due?: string | null;
   status?: AppTaskStatus;
+  doneReason?: AppTaskDoneReason | null;
   tags?: string[];
 }
 
@@ -150,6 +151,7 @@ export class TaskSync {
       body: input.body ?? "",
       kind: "todo",
       status: input.status ?? "todo",
+      doneReason: input.doneReason ?? null,
       source: "app",
       sourceKey: null,
       url: null,

@@ -22,7 +22,7 @@ const STATUS: Record<ProjectStatus, { label: string; cls: string }> = {
 };
 
 const toggleDone = async (t: AppTask) => {
-  const done = t.status === "done" || t.status === "dismissed";
+  const done = t.status === "done";
   await patchTask(t.id, { status: done ? "todo" : "done" });
 };
 

@@ -27,7 +27,7 @@ function useRootPending() {
   return items;
 }
 
-/** 広い画面（xl 以上）の右の列: 判断待ちを題名つきで並べる・最近のメモ */
+/** 広い画面（xl 以上）の右の列: BackLog を題名つきで並べる・最近のメモ */
 function HomeAside({ snap }: { snap: Snapshot }) {
   const [memos, setMemos] = useState<MemoSummary[]>([]);
   const [due, setDue] = useState<AppTask[]>([]);
@@ -45,10 +45,10 @@ function HomeAside({ snap }: { snap: Snapshot }) {
       .catch(() => {});
   }, [snap, today]);
   return (
-    <aside className="hidden w-[340px] flex-none flex-col gap-5 overflow-y-auto pr-4 xl:flex 2xl:w-[400px]" aria-label="判断待ちと最近のメモ">
+    <aside className="hidden w-[340px] flex-none flex-col gap-5 overflow-y-auto pr-4 xl:flex 2xl:w-[400px]" aria-label="BackLog と最近のメモ">
       <section className="flex flex-col gap-1.5">
         <div className="flex items-baseline px-1 text-[12px] font-semibold text-mute">
-          判断待ち<span className="ml-auto tabular-nums">{snap.cards.length}</span>
+          BackLog<span className="ml-auto tabular-nums">{snap.cards.length}</span>
         </div>
         {snap.cards.length === 0 && <div className="px-1 text-[12.5px] text-mute">ありません</div>}
         {snap.cards.map((c) => {
@@ -113,10 +113,10 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
   return (
     <div className={`h-full ${RAIL}`}>
       <div className={`${COL} flex h-full flex-col`}>
-        {/* 一番上の列: 左にレポート・判断待ちのカード、右端にアプリのアイコン・検索・接続状況の小さなマス */}
+        {/* 一番上の列: 左にレポート・BackLog のカード、右端にアプリのアイコン・検索・接続状況の小さなマス */}
         <div className="flex items-start gap-3 pb-4 pl-5 pr-4 pt-[max(env(safe-area-inset-top),14px)]">
           {/* 右端は薄くして、カードが続いていることを見せる（右上の小さなマスで切れて見えないように） */}
-          <div className="flex min-w-0 flex-1 gap-3.5 overflow-x-auto pr-4 [mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)] [scrollbar-width:none]" role="list" aria-label="判断待ちのカード">
+          <div className="flex min-w-0 flex-1 gap-3.5 overflow-x-auto pr-4 [mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)] [scrollbar-width:none]" role="list" aria-label="BackLog のカード">
             <a href="#/report" className="flex w-[68px] flex-none flex-col items-center gap-1.5" role="listitem">
               <span className="flex size-16 items-center justify-center rounded-full border-[3px] border-ring-lime p-[3px]">
                 <span className="flex size-full items-center justify-center rounded-full bg-ink text-paper"><Icon name="insights" size={26} /></span>
@@ -160,7 +160,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
               );
             })}
             {snap && snap.cards.length === 0 && !snap.snoozed?.length && roots.length === 0 && (
-              <div className="flex items-center text-xs text-mute">判断待ちはありません</div>
+              <div className="flex items-center text-xs text-mute">BackLog はありません</div>
             )}
           </div>
           {/* 右上は小さく: 検索と、稼働（色の丸＋数。何かおかしければ「!」） */}
@@ -192,7 +192,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
 
         <SessionPanel snap={snap} />
         </div>
-        {/* 広い画面: 右に判断待ちの一覧と最近のメモ */}
+        {/* 広い画面: 右に BackLog の一覧と最近のメモ */}
         {snap && <HomeAside snap={snap} />}
         </div>
 

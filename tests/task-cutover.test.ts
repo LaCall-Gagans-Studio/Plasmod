@@ -50,7 +50,7 @@ describe("タスクの番号・レポート・バッジ", () => {
     s.create({ title: "古い期限なし" }, "app", now - 30 * day);
     s.create({ title: "期限あり", due: "2026-11-20" }, "app", now);
     s.create({ title: "AI に任せた", status: "doing" }, "app", now);
-    s.create({ title: "判断待ち", status: "inbox" }, "app", now);
+    s.create({ title: "BackLog", status: "inbox" }, "app", now);
     const d = s.create({ title: "済んだ" }, "app", now);
     s.update(d.id, { status: "done" }, "app", now);
     const mine = s.summary(now).mine;
@@ -98,7 +98,7 @@ describe("タスクの番号・レポート・バッジ", () => {
     const b = await (await app.request(`/api/apptasks-badges?ids=${done.ref},TASK-404`)).json();
     expect(b.issues[done.ref!]).toMatchObject({ id: done.ref, state: "Done", stateType: "completed" });
     expect(b.issues["TASK-404"]).toBeNull();
-    // カードはどれも判断待ちのタスク。「タスクにする」は、そのタスクを「やる」にする
+    // カードはどれも BackLog のタスク。「タスクにする」は、そのタスクを「やる」にする
     const card = hub.cards()[0];
     expect(card.recordRef ?? `#${card.appTaskId}`).toMatch(/^(TASK-\d+|#\d+)$/);
     const r = await (await app.request("/api/apptasks/from-card", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: card.key, note: "来週やる" }) })).json();

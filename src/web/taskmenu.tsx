@@ -52,7 +52,7 @@ export function TaskMenu() {
   }, [m]);
   if (!m) return null;
   const { t } = m;
-  const done = t.status === "done" || t.status === "dismissed";
+  const done = t.status === "done";
 
   const run = async (req: () => Promise<Response>) => {
     setBusy(true);
@@ -113,7 +113,7 @@ export function TaskMenu() {
                   }}
                 />
               )}
-              {t.status !== "dismissed" && <TileButton icon="skip" label="不要" disabled={busy} onClick={() => void patch({ status: "dismissed" })} />}
+              {t.doneReason !== "unneeded" && <TileButton icon="skip" label="不要" disabled={busy} onClick={() => void patch({ status: "done", doneReason: "unneeded" })} />}
             </Tiles>
             <div className="flex items-center gap-2 px-3.5 pb-3.5 pt-0.5">
               <span className="flex flex-none items-center text-mute" title="期日"><Glyph name="calendar" size={18} /><span className="sr-only">期日</span></span>

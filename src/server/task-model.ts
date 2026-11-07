@@ -1,9 +1,14 @@
 // タスクの型・状態・同じ元を見分ける処理・DB の行の読み方
-import type { AppTask, AppTaskEvent, AppTaskStatus, InboxKind } from "../shared/types";
+import type { AppTask, AppTaskDoneReason, AppTaskEvent, AppTaskStatus, InboxKind } from "../shared/types";
 
 export type TaskStatus = AppTaskStatus;
 
-export const TASK_STATUSES: TaskStatus[] = ["inbox", "todo", "doing", "done", "dismissed"];
+export type TaskDoneReason = AppTaskDoneReason;
+
+export const TASK_STATUSES: TaskStatus[] = ["inbox", "todo", "doing", "done"];
+
+/** 古い端末や plasmod-task が送ってくる状態名。受け取ったら Done（理由は不要）として扱う */
+export const LEGACY_DISMISSED = "dismissed";
 
 export const OPEN: TaskStatus[] = ["inbox", "todo", "doing"];
 
@@ -34,14 +39,14 @@ export interface TaskInput {
   /** 元の最後の動き（ms）。完了したタスクは、これが判断より後のときだけ開き直す */
   eventAt?: number | null;
   /**
-   * 新しく作るときの状態（既定は判断待ち）。判断待ちに入れるのは、オーナーに決めてほしい問いだけ。
+   * 新しく作るときの状態（既定は BackLog）。BackLog に入れるのは、オーナーに決めてほしい問いだけ。
    * 計画の段・子は todo（オーナーがやる）か doing（エージェントがやる）で入れる。もうあるタスクの状態は変えない
    */
   status?: "inbox" | "todo" | "doing";
 }
 
 /**
- * カンバン・承認依頼・カードのメモのカードを、判断待ちのタスクとして記録するための入力（2026-10-29「判断待ち＝カード、例外なし」）。
+ * カンバン・承認依頼・カードのメモのカードを、BackLog のタスクとして記録するための入力（2026-10-29「BackLog＝カード、例外なし」）。
  * source は kanban / perm / note、key はその元の ID
  */
 export interface MirrorInput {
@@ -53,10 +58,10 @@ export interface MirrorInput {
   kind: InboxKind;
   /** カードを出した人（created_by に入れる） */
   agent: string;
-  /** カードの時刻（ms）。判断より新しければ、閉じたタスクを判断待ちに戻す */
+  /** カードの時刻（ms）。判断より新しければ、閉じたタスクを BackLog に戻す */
   createdAt: number;
   url?: string | null;
-  /** カンバンのカードなら、その番号。アプリのタスクから任せたカードなら、元のタスクを判断待ちに戻す */
+  /** カンバンのカードなら、その番号。アプリのタスクから任せたカードなら、元のタスクを BackLog に戻す */
   kanbanId?: string;
   /** 開き直したときに記録に残す文 */
   reopenText: string;
@@ -69,7 +74,9 @@ export type UpsertResult = { action: "created" | "updated" | "unchanged" | "reop
 
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
-export const STATUS_LABEL: Record<TaskStatus, string> = { inbox: "Inbox", todo: "Todo", doing: "AI-Driven", done: "Done", dismissed: "Done（不要）" };
+export const STATUS_LABEL: Record<TaskStatus, string> = { inbox: "BackLog", todo: "Todo", doing: "AI-Driven", done: "Done" };
+
+export const statusLabel = (status: TaskStatus, reason: TaskDoneReason | null) => (status === "done" && reason === "unneeded" ? "Done（不要）" : STATUS_LABEL[status]);
 
 export const KINDS: Record<string, InboxKind> = { confirm: "confirm", ops: "confirm", reply: "reply", todo: "todo" };
 
@@ -141,6 +148,7 @@ export interface Row {
   body: string;
   kind: InboxKind;
   status: TaskStatus;
+  done_reason: TaskDoneReason | null;
   source: string;
   source_key: string | null;
   url: string | null;
@@ -167,6 +175,7 @@ export const toTask = (r: Row): Task => ({
   body: r.body,
   kind: r.kind,
   status: r.status,
+  doneReason: r.done_reason ?? null,
   source: r.source,
   sourceKey: r.source_key,
   url: r.url,
