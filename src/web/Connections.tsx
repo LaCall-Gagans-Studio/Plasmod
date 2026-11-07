@@ -2,15 +2,24 @@
 // Nous はここからログインし直す（毎回 root のパスワード）。MCP のログインと追加は Hermes のダッシュボードで行う
 import { useCallback, useEffect, useState } from "react";
 import type { Connection, ConnectionState, ConnectionsView } from "../shared/types";
+import { fetchRetry } from "./api";
 import { ago } from "./ui";
 
-const STATE: Record<ConnectionState, { label: string; tone: string }> = {
-  ok: { label: "正常", tone: "bg-lime-soft text-lime-ink" },
-  soon: { label: "もうすぐ切れる", tone: "bg-orange-soft text-orange-ink" },
-  needs: { label: "つなぎ直しが必要", tone: "bg-red-soft text-red-ink" },
-  off: { label: "無効", tone: "bg-chip text-mute" },
-  unknown: { label: "要確認", tone: "bg-orange-soft text-orange-ink" },
+const STATE: Record<ConnectionState, { label: string; text: string; dot: string }> = {
+  ok: { label: "正常", text: "text-mute", dot: "var(--color-lime)" },
+  soon: { label: "もうすぐ切れる", text: "text-orange-ink", dot: "var(--color-ring-orange)" },
+  needs: { label: "つなぎ直しが必要", text: "text-red-ink", dot: "var(--color-red-ink)" },
+  off: { label: "無効", text: "text-mute", dot: "var(--color-line-2)" },
+  unknown: { label: "要確認", text: "text-orange-ink", dot: "var(--color-ring-orange)" },
 };
+
+/** 状態の丸。問題があるものは脈を打つ */
+function Dot({ state, size = 9 }: { state: ConnectionState; size?: number }) {
+  const bad = state === "needs" || state === "soon" || state === "unknown";
+  return (
+    <span className={`flex-none rounded-full ${bad ? "gh-pulse" : ""}`} style={{ width: size, height: size, background: STATE[state].dot, boxShadow: state === "off" ? undefined : `0 0 ${size}px ${STATE[state].dot}` }} aria-hidden="true" />
+  );
+}
 const ORDER: ConnectionState[] = ["needs", "soon", "unknown", "ok", "off"];
 
 const dateTime = (ms: number) =>
@@ -81,10 +90,10 @@ function Manage({ c, onChanged }: { c: Connection; onChanged: () => void }) {
       setBusy(false);
     }
   };
-  const button = "min-h-9 rounded-lg border border-line px-3 text-[12px] disabled:opacity-50";
+  const button = "min-h-9 rounded-full bg-chip/70 px-3.5 text-[12.5px] font-medium text-ink disabled:opacity-50";
   if (login) {
     return (
-      <div className="mt-2 rounded-lg bg-chip px-3 py-2 text-[12px]">
+      <div className="mt-2 rounded-xl bg-chip/70 px-3 py-2 text-[12px]">
         {login.code ? (
           <div className="mb-1">
             コード <span className="select-all font-mono text-[14px] font-semibold">{login.code}</span>
@@ -134,13 +143,13 @@ function Manage({ c, onChanged }: { c: Connection; onChanged: () => void }) {
         placeholder="root のパスワード"
         value={secret}
         onChange={(e) => setSecret(e.target.value)}
-        className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 text-[14px]"
+        className="min-h-9 min-w-0 flex-1 rounded-full bg-chip/70 px-3.5 text-[14px] outline-none focus:bg-chip"
       />
       <button type="submit" disabled={busy || !secret} className={button}>
         {busy ? "実行中…" : mode === "reconnect" ? "つなぎ直す" : off ? "有効にする" : "無効にする"}
       </button>
       <button type="button" disabled={busy} className={button} onClick={() => setMode(null)}>
-        やめる
+        キャンセル
       </button>
       {error ? <div className="w-full text-[12px] text-red-ink">{error}</div> : null}
     </form>
@@ -150,7 +159,7 @@ function Manage({ c, onChanged }: { c: Connection; onChanged: () => void }) {
 function Row({ c, onChanged }: { c: Connection; onChanged: () => void }) {
   const s = STATE[c.state];
   const facts = [
-    c.lastRefreshAt ? `最後の更新 ${ago(c.lastRefreshAt)}` : null,
+    c.lastRefreshAt ? `更新 ${ago(c.lastRefreshAt)}` : null,
     // 短い期限（MCP のアクセストークンなど）は見ても意味がないので、Claude だけ出す
     c.kind === "claude" && c.expiresAt ? `期限 ${dateTime(c.expiresAt)}` : null,
   ].filter(Boolean);
@@ -158,37 +167,48 @@ function Row({ c, onChanged }: { c: Connection; onChanged: () => void }) {
   const manageable = c.kind !== "claude";
   // 正常なものは畳んでおく（押すと開く）。直したいものは最初から開いている
   const [open, setOpen] = useState(false);
-  const shown = manageable && (open || c.state !== "ok");
+  const healthy = c.state === "ok" || c.state === "off";
+  const shown = manageable && (open || !healthy);
   return (
-    <li className="border-b border-line px-3.5 py-2.5 last:border-b-0">
+    <li className="px-3.5 py-3 [&:not(:last-child)]:border-b [&:not(:last-child)]:border-line">
       <div
-        className={`flex min-h-7 items-center gap-3 ${manageable && c.state === "ok" ? "cursor-pointer" : ""}`}
-        onClick={manageable && c.state === "ok" ? () => setOpen((v) => !v) : undefined}
+        className={`flex min-h-6 items-center gap-3 ${manageable && healthy ? "cursor-pointer" : ""}`}
+        onClick={manageable && healthy ? () => setOpen((v) => !v) : undefined}
       >
+        <Dot state={c.state} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px]">{c.name}</div>
-          {c.reason || facts.length ? (
-            <div className="mt-0.5 text-[11px] text-mute">{[c.reason, ...facts].filter(Boolean).join("・")}</div>
-          ) : null}
+          <div className="truncate text-[14px] font-medium">{c.name}</div>
+          {c.reason || facts.length ? <div className="mt-0.5 truncate text-[11.5px] text-mute">{[c.reason, ...facts].filter(Boolean).join(" · ")}</div> : null}
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ${s.tone}`}>{s.label}</span>
+        <span className={`shrink-0 text-[11.5px] ${s.text}`}>{s.label}</span>
       </div>
-      {shown ? <Manage c={c} onChanged={onChanged} /> : null}
+      {shown ? <div className="pl-[21px]"><Manage c={c} onChanged={onChanged} /></div> : null}
     </li>
   );
 }
 
-function Group({ title, items, onChanged }: { title: string; items: Connection[]; onChanged: () => void }) {
+const sortBy = (items: Connection[]) => [...items].sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.name.localeCompare(b.name));
+
+function Group({ title, items, onChanged, fold }: { title: string; items: Connection[]; onChanged: () => void; fold?: boolean }) {
+  const hasBad = items.some((c) => c.state === "needs" || c.state === "soon" || c.state === "unknown");
+  const [open, setOpen] = useState(false);
   if (!items.length) return null;
-  const sorted = [...items].sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.name.localeCompare(b.name));
+  const ok = items.filter((c) => c.state === "ok").length;
+  const expanded = !fold || open || hasBad;
   return (
-    <section>
-      <h2 className="m-0 mb-1.5 text-[12px] font-semibold text-mute">{title}</h2>
-      <ul className="m-0 list-none overflow-hidden rounded-xl border border-line bg-panel p-0">
-        {sorted.map((c) => (
-          <Row key={c.id} c={c} onChanged={onChanged} />
-        ))}
-      </ul>
+    <section className="overflow-hidden rounded-2xl border border-line bg-panel">
+      <button type="button" onClick={fold ? () => setOpen((v) => !v) : undefined} aria-expanded={fold ? expanded : undefined} className={`flex min-h-11 w-full items-center gap-2 px-3.5 text-left ${fold ? "" : "cursor-default"}`}>
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink-2">{title}</span>
+        <span className="flex-none text-[11.5px] tabular-nums text-mute">{ok} / {items.length} 正常</span>
+        {fold && (
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden="true" className={`flex-none text-mute transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}><path d="M9 6l6 6-6 6" /></svg>
+        )}
+      </button>
+      {expanded && (
+        <ul className="m-0 list-none border-t border-line p-0">
+          {sortBy(items).map((c) => <Row key={c.id} c={c} onChanged={onChanged} />)}
+        </ul>
+      )}
     </section>
   );
 }
@@ -200,7 +220,7 @@ export function Connections() {
   const load = useCallback(async (force: boolean) => {
     setBusy(true);
     try {
-      const r = await fetch(`/api/system/connections${force ? "?force=1" : ""}`);
+      const r = await fetchRetry(`/api/system/connections${force ? "?force=1" : ""}`);
       const b = await r.json();
       if (!r.ok) throw new Error(b.error ?? `HTTP ${r.status}`);
       setView(b);
@@ -220,18 +240,20 @@ export function Connections() {
   const main = view.connections.filter((c) => c.kind !== "mcp");
   const addUrl = dashboardUrl(location.hostname);
   const profiles = [...new Set(view.connections.filter((c) => c.kind === "mcp").map((c) => c.profile ?? ""))];
+  const total = view.connections.filter((c) => c.state !== "off").length;
   return (
-    <div className="flex flex-col gap-4 px-4 pb-6 pt-2.5">
-      <div className={`rounded-xl px-3.5 py-2.5 text-[13px] ${bad ? "bg-orange-soft text-orange-ink" : "bg-lime-soft text-lime-ink"}`}>
-        {bad ? `⚠ 確認したい接続 ${bad} 件` : "すべて正常です"}
-        <div className="mt-0.5 flex items-center justify-between text-[11px] opacity-80">
-          <span>確認 {ago(view.at)}</span>
-          <button type="button" disabled={busy} onClick={() => void load(true)} className="min-h-8 rounded-lg px-2 underline disabled:opacity-50">
-            {busy ? "確認中…" : "今すぐ確認"}
-          </button>
+    <div className="flex flex-col gap-3 px-4 pb-6 pt-2.5">
+      <div className="flex items-center gap-3.5 rounded-2xl bg-[#07080A] px-4 py-3.5 text-[#E8E8E2]">
+        <span className={`size-3.5 flex-none rounded-full ${bad ? "gh-pulse" : ""}`} style={{ background: bad ? "#FF8A3D" : "#C8F25A", boxShadow: `0 0 16px ${bad ? "#FF8A3D" : "#C8F25A"}` }} aria-hidden="true" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[17px] font-bold leading-snug">{bad ? `確認したい接続が ${bad} 件` : "すべて正常です"}</span>
+          <span className="font-mono text-[11px] opacity-60">{total} 接続 · 確認 {ago(view.at)}</span>
         </div>
+        <button type="button" disabled={busy} onClick={() => void load(true)} aria-label="今すぐ確認" className="min-h-9 flex-none rounded-full border border-white/25 px-3 text-[12px] disabled:opacity-50">
+          {busy ? "確認中…" : "今すぐ確認"}
+        </button>
       </div>
-      {error ? <div className="text-[12px] text-red-ink">{error}</div> : null}
+      {error ? <div className="rounded-xl bg-orange-soft px-3.5 py-2 text-[12px] text-red-ink">{error}</div> : null}
       {view.errors.map((e) => (
         <div key={e} className="rounded-xl bg-orange-soft px-3.5 py-2 text-[12px] text-orange-ink">
           取得できなかったもの: {e}
@@ -239,35 +261,36 @@ export function Connections() {
       ))}
       <Group title="ログイン" items={main} onChanged={() => void load(true)} />
       {profiles.map((p) => (
-        <Group key={p} title={`MCP（${p}）`} items={view.connections.filter((c) => c.kind === "mcp" && c.profile === p)} onChanged={() => void load(true)} />
+        <Group key={p} fold title={`MCP · ${p}`} items={view.connections.filter((c) => c.kind === "mcp" && c.profile === p)} onChanged={() => void load(true)} />
       ))}
       {addUrl ? (
-        <a href={addUrl} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-line bg-panel px-3.5 py-2.5 text-[14px] text-ink no-underline">
+        <a href={addUrl} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-between gap-3 rounded-2xl border border-dashed border-line-2 px-3.5 py-2.5 text-[13px] text-ink no-underline">
           <span className="flex min-w-0 flex-col">
-            <span>MCP を追加したい場合は</span>
-            <span className="mt-0.5 text-[11px] text-mute">Hermes のダッシュボードで追加できます。追加すると、ここに自動で並びます</span>
+            <span>MCP を追加する</span>
+            <span className="mt-0.5 text-[11.5px] text-mute">Hermes のダッシュボードで追加すると、ここに並びます</span>
           </span>
-          <span aria-hidden="true" className="shrink-0 text-mute">
-            ↗
-          </span>
+          <span aria-hidden="true" className="shrink-0 text-mute">↗</span>
         </a>
       ) : null}
       {view.events.length ? (
-        <section>
-          <h2 className="m-0 mb-1.5 text-[12px] font-semibold text-mute">変化の記録</h2>
-          <ul className="m-0 list-none overflow-hidden rounded-xl border border-line bg-panel p-0">
+        <details className="group overflow-hidden rounded-2xl border border-line bg-panel">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3.5 text-[12.5px] font-semibold text-ink-2 [&::-webkit-details-marker]:hidden">
+            <span className="flex-1">変化の記録</span>
+            <span className="text-[11.5px] font-normal tabular-nums text-mute">{view.events.length}</span>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden="true" className="text-mute transition-transform duration-200 group-open:rotate-90"><path d="M9 6l6 6-6 6" /></svg>
+          </summary>
+          <ul className="m-0 list-none border-t border-line p-0">
             {view.events.map((e) => (
-              <li key={e.id} className="border-b border-line px-3.5 py-2 text-[12px] last:border-b-0">
-                <span>{e.name}</span>
-                <span className="text-mute">
-                  {" "}
-                  → {STATE[e.toState].label}・{dateTime(e.at)}
-                  {e.reason ? `・${e.reason}` : ""}
+              <li key={e.id} className="flex items-baseline gap-2.5 px-3.5 py-2 text-[12px] [&:not(:last-child)]:border-b [&:not(:last-child)]:border-line">
+                <span className="relative top-[1px]"><Dot state={e.toState} size={7} /></span>
+                <span className="min-w-0 flex-1">
+                  {e.name} <span className="text-mute">→ {STATE[e.toState].label}{e.reason ? ` · ${e.reason}` : ""}</span>
                 </span>
+                <span className="flex-none font-mono text-[10.5px] text-mute">{dateTime(e.at)}</span>
               </li>
             ))}
           </ul>
-        </section>
+        </details>
       ) : null}
     </div>
   );

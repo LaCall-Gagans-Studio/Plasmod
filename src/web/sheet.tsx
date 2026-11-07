@@ -28,6 +28,14 @@ const PATHS: Record<string, ReactNode> = {
     </>
   ),
   trash: <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />,
+  download: <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />,
+  image: (
+    <>
+      <rect x="3.5" y="5" width="17" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M5 18l5-5 3 3 3-3 3 3" />
+    </>
+  ),
   calendar: (
     <>
       <rect x="3.5" y="5" width="17" height="15" rx="2" />

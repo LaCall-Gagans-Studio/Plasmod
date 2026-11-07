@@ -1,110 +1,114 @@
 // 持ち主のプロフィールカード。標本の図版のように、黒地に発光する線で描く。
-// アーチ形の窓の中に、名前から決まる形のアメーバ（目玉、節の連なり、節から伸びる細い触手）がいる。
-// 押すと編集できる。エージェントは選手紹介のカード（AgentSquad）のまま。
-import { useState } from "react";
+// アーチ形の窓の中を、名前から形が決まる生き物が這い回る。長押しでメニュー（編集・画像で保存）。
+// エージェントは選手紹介のカード（AgentSquad）のまま。
+import { useEffect, useMemo, useRef, useState } from "react";
 import { blobPath } from "./amoeba";
 import { t } from "./i18n";
-import { getAbout, loadAbout, saveOwner, useAbout } from "./identity";
+import { loadAbout, saveOwner, useAbout } from "./identity";
+import { DangerButton, Glyph, Sheet, SheetCard, TileButton, Tiles } from "./sheet";
+import { cardSvg, H, makeCreature, segAngle, step, W, wirePath, wirePoints } from "./specimen";
+import { toast, useLongPress } from "./touch";
 
 const fmtDay = (ms: number) => {
   const d = new Date(ms);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 };
 
-/** 名前から決まる乱数（同じ名前なら毎回同じ形） */
-function seeded(text: string) {
-  let h = 2166136261;
-  for (const c of text) h = Math.imul(h ^ c.codePointAt(0)!, 16777619);
-  return () => {
-    h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909);
-    return ((h ^= h >>> 16) >>> 0) / 4294967296;
-  };
-}
-
-const W = 300;
-const H = 290;
-
-/** 標本の図: 体（目玉）から節が弧を描いて連なり、節ごとに細い触手が枝分かれして、先に点がつく */
-function Specimen({ seed, color, avatar }: { seed: string; color: string; avatar?: string }) {
-  const r = seeded(seed || "plasmod");
-  const head: [number, number] = [W * 0.67, H * 0.71];
-  const radii = Array.from({ length: 14 }, () => 27 + r() * 9);
-  const segs: { x: number; y: number; deg: number }[] = [];
-  let x = head[0];
-  let y = head[1];
-  let dir = -2.7 - r() * 0.3;
-  const bend = 0.17 + r() * 0.06;
-  x += 34 * Math.cos(dir);
-  y += 34 * Math.sin(dir);
-  for (let i = 0; i < 11; i++) {
-    segs.push({ x, y, deg: (dir * 180) / Math.PI });
-    dir += bend;
-    x += 18 * Math.cos(dir);
-    y += 18 * Math.sin(dir);
-  }
-  const wires: { d: string; tips: [number, number][] }[] = [];
-  segs.forEach((g, i) => {
-    for (const side of [-1, 1]) {
-      const pts: [number, number][] = [[g.x, g.y]];
-      let a = (g.deg * Math.PI) / 180 + side * (1.25 + r() * 0.5);
-      let px = g.x;
-      let py = g.y;
-      const n = 2 + Math.floor(r() * 2);
-      for (let k = 0; k < n; k++) {
-        const len = 18 + r() * 26;
-        px += len * Math.cos(a);
-        py += len * Math.sin(a);
-        pts.push([px, py]);
-        a += (r() - 0.5) * 1.1;
+/** 枠の中を動く生き物 */
+function Specimen({ seed, color, avatar, svgRef }: { seed: string; color: string; avatar?: string; svgRef: React.RefObject<SVGSVGElement | null> }) {
+  const c = useMemo(() => makeCreature(seed), [seed]);
+  const clip = useMemo(() => `pl-av-${Math.random().toString(36).slice(2, 8)}`, []);
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const body = svg.querySelector<SVGGElement>("[data-body]")!;
+    const blob = svg.querySelector<SVGPathElement>("[data-blob]")!;
+    const pupil = svg.querySelector<SVGGElement>("[data-pupil]");
+    const lid = svg.querySelector<SVGGElement>("[data-lid]");
+    const segEls = [...svg.querySelectorAll<SVGGElement>("[data-seg]")];
+    const wireEls = [...svg.querySelectorAll<SVGPathElement>("[data-wire]")];
+    const tipEls = [...svg.querySelectorAll<SVGCircleElement>("[data-tip]")];
+    let raf = 0;
+    let visible = true;
+    let last = performance.now();
+    let drawn = 0;
+    let blinkAt = last + 2500;
+    const io = new IntersectionObserver((e) => (visible = e.some((x) => x.isIntersecting)));
+    io.observe(svg);
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame);
+      if (!visible || document.hidden || now - drawn < 33) {
+        if (!visible || document.hidden) last = now;
+        return;
       }
-      wires.push({ d: pts.map((p, k) => `${k ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(""), tips: pts.slice(1) });
-      // 途中から細い枝
-      if (i % 2 === 0) {
-        const b = pts[1];
-        const c: [number, number] = [b[0] + 14 * Math.cos(a + 1) + 6, b[1] + 14 * Math.sin(a + 1)];
-        wires.push({ d: `M${b[0].toFixed(1)},${b[1].toFixed(1)}L${c[0].toFixed(1)},${c[1].toFixed(1)}`, tips: [c] });
-      }
-    }
-  });
-  // 図のあちこちの、読み取りが乱れたようなかけら
-  const shards = Array.from({ length: 7 }, () => ({ x: r() * W, y: r() * H, w: 6 + r() * 26, h: 1.5 + r() * 3, o: 0.25 + r() * 0.5 }));
-  const clip = `pl-av-${[...seed].reduce((a, c) => a + c.codePointAt(0)!, 0)}`;
+      drawn = now;
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const time = now / 1000;
+      step(c, dt, time);
+      body.setAttribute("transform", `translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})`);
+      blob.setAttribute("d", blobPath(0, 0, c.radii.map((r, i) => r + 2.4 * Math.sin(time * 1.6 + i * 1.3)), c.dir));
+      // 進むほうを見る
+      pupil?.setAttribute("transform", `translate(${(Math.cos(c.dir) * 5).toFixed(1)} ${(Math.sin(c.dir) * 5).toFixed(1)})`);
+      if (now > blinkAt + 170) blinkAt = now + 2200 + Math.random() * 3800;
+      const blink = now > blinkAt ? Math.sin(((now - blinkAt) / 170) * Math.PI) : 0;
+      lid?.setAttribute("transform", `scale(1 ${(1 - 0.92 * blink).toFixed(2)})`);
+      segEls.forEach((el, i) => el.setAttribute("transform", `translate(${c.segs[i][0].toFixed(1)} ${c.segs[i][1].toFixed(1)}) rotate(${((segAngle(c, i) * 180) / Math.PI).toFixed(1)})`));
+      let tip = 0;
+      c.wires.forEach((w, i) => {
+        const pts = wirePoints(c, w, time);
+        wireEls[i].setAttribute("d", wirePath(pts));
+        for (let k = 1; k < pts.length; k++, tip++) {
+          tipEls[tip].setAttribute("cx", pts[k][0].toFixed(1));
+          tipEls[tip].setAttribute("cy", pts[k][1].toFixed(1));
+        }
+      });
+    };
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      io.disconnect();
+    };
+  }, [c, svgRef]);
+
+  const pts = c.wires.map((w) => wirePoints(c, w, 0));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 size-full" aria-hidden="true">
-      {shards.map((s, i) => <rect key={i} x={s.x} y={s.y} width={s.w} height={s.h} fill="#fff" opacity={s.o * 0.5} />)}
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 size-full" aria-hidden="true">
+      {c.shards.map((s, i) => <rect key={i} x={s.x} y={s.y} width={s.w} height={s.h} fill="#fff" opacity={s.o} />)}
       <g fill="none" stroke={color} strokeWidth="0.9" opacity="0.8">
-        {wires.map((w, i) => <path key={i} d={w.d} />)}
+        {pts.map((p, i) => <path key={i} data-wire="" d={wirePath(p)} />)}
       </g>
       <g fill="#F4FF9A">
-        {wires.flatMap((w, i) => w.tips.map((p, k) => <circle key={`${i}-${k}`} cx={p[0]} cy={p[1]} r={k === w.tips.length - 1 ? 1.9 : 1.1} />))}
+        {pts.flatMap((p, i) => p.slice(1).map((q, k) => <circle key={`${i}-${k}`} data-tip="" cx={q[0]} cy={q[1]} r={k === p.length - 2 ? 1.9 : 1.1} />))}
       </g>
-      {/* 節: 光る枠の四角が連なる */}
-      {segs.map((g, i) => (
-        <g key={i} transform={`translate(${g.x.toFixed(1)} ${g.y.toFixed(1)}) rotate(${g.deg.toFixed(1)})`}>
+      {c.segs.map((s, i) => (
+        <g key={i} data-seg="" transform={`translate(${s[0].toFixed(1)} ${s[1].toFixed(1)}) rotate(${((segAngle(c, i) * 180) / Math.PI).toFixed(1)})`}>
           <rect x="-8" y="-11" width="16" height="22" fill={i % 3 === 0 ? color : "#07080A"} fillOpacity={i % 3 === 0 ? 0.92 : 1} stroke="#E9FF6B" strokeWidth="1.1" className="pl-seg" style={{ animationDelay: `${i * 0.28}s` }} />
           <path d="M-8,0H8M0,-11V11" stroke={i % 3 === 0 ? "#07080A" : "#E9FF6B"} strokeWidth="0.9" />
         </g>
       ))}
-      {/* 体と目玉 */}
-      <path d={blobPath(head[0], head[1], radii)} fill={color} style={{ filter: `drop-shadow(0 0 7px ${color})` }} />
-      {avatar ? (
-        <>
-          <clipPath id={clip}><circle cx={head[0]} cy={head[1]} r="20" /></clipPath>
-          <image href={avatar} x={head[0] - 20} y={head[1] - 20} width="40" height="40" clipPath={`url(#${clip})`} preserveAspectRatio="xMidYMid slice" />
-          <circle cx={head[0]} cy={head[1]} r="20" fill="none" stroke="#07080A" strokeWidth="1.5" />
-        </>
-      ) : (
-        <>
-          <circle cx={head[0]} cy={head[1]} r="17" fill="#F3F1EC" />
-          <circle cx={head[0] + 3} cy={head[1] + 1} r="10" fill="#07080A" />
-          <circle cx={head[0]} cy={head[1] - 4} r="3" fill="#fff" />
-        </>
-      )}
+      <g data-body="" transform={`translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})`}>
+        <path data-blob="" d={blobPath(0, 0, c.radii, c.dir)} fill={color} style={{ filter: `drop-shadow(0 0 7px ${color})` }} />
+        {avatar ? (
+          <>
+            <clipPath id={clip}><circle r="20" /></clipPath>
+            <image href={avatar} x="-20" y="-20" width="40" height="40" clipPath={`url(#${clip})`} preserveAspectRatio="xMidYMid slice" />
+            <circle r="20" fill="none" stroke="#07080A" strokeWidth="1.5" />
+          </>
+        ) : (
+          <g data-lid="">
+            <circle r="17" fill="#F3F1EC" />
+            <g data-pupil="">
+              <circle r="10" fill="#07080A" />
+              <circle cx="-3" cy="-4" r="3" fill="#fff" />
+            </g>
+          </g>
+        )}
+      </g>
     </svg>
   );
 }
 
-/** 円に沿って文字を回すスタンプ。使い続けた日数 */
 function Stamp({ days, color }: { days: number; color: string }) {
   return (
     <svg width={58} height={58} viewBox="0 0 100 100" role="img" aria-label={`${days} ${t("日目")}`} className="flex-none -rotate-12">
@@ -119,15 +123,68 @@ function Stamp({ days, color }: { days: number; color: string }) {
   );
 }
 
+const toDataUrl = async (url: string) => {
+  const b = await (await fetch(url)).blob();
+  return new Promise<string>((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result));
+    r.onerror = () => rej(new Error("画像を読めない"));
+    r.readAsDataURL(b);
+  });
+};
+
+/** SVG を PNG にする */
+export function svgToPng(svg: string, width: number, height: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = width;
+      c.height = height;
+      c.getContext("2d")!.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error("画像にできなかった"))), "image/png");
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("画像にできなかった"));
+    };
+    img.src = url;
+  });
+}
+
+/** 保存する。APK の WebView は blob を保存できないので、サーバーに預けて、その URL を保存する */
+async function saveBlob(b: Blob, name: string) {
+  if (/; wv\)/.test(navigator.userAgent)) {
+    const r = await fetch("/api/about/card-image", { method: "POST", headers: { "Content-Type": "image/png" }, body: b });
+    const j = (await r.json().catch(() => ({}))) as { id?: string; error?: string };
+    if (!r.ok || !j.id) throw new Error(j.error ?? `HTTP ${r.status}`);
+    location.assign(`/api/about/card-image/${j.id}`);
+    return;
+  }
+  const url = URL.createObjectURL(b);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 export function ProfileCard() {
   const about = useAbout();
-  const [editing, setEditing] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const color = about.ownerColor ?? "#C8F25A";
   const title = about.ownerTitle ?? "";
   const joined = about.joinedAt ?? Date.now();
   const days = Math.max(1, Math.floor((Date.now() - joined) / 86_400_000) + 1);
   const hasName = !about.ownerIsDefault;
+  const press = useLongPress(() => setMenu(true));
 
   const patch = async (body: Record<string, unknown>) => {
     setError(null);
@@ -143,24 +200,38 @@ export function ProfileCard() {
     if (!r.ok) setError(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${r.status}`);
     await loadAbout();
   };
-  const field = "min-h-9 min-w-0 flex-1 rounded-lg border border-line-2 bg-transparent px-2.5 text-[13px] outline-none";
+  const download = async () => {
+    if (!svgRef.current) return;
+    setBusy(true);
+    setError(null);
+    try {
+      let specimen = svgRef.current.innerHTML;
+      if (about.ownerAvatar) specimen = specimen.split(about.ownerAvatar).join(await toDataUrl(about.ownerAvatar));
+      const svg = cardSvg({ specimen, name: hasName ? about.owner : "", title, color, days, joined: fmtDay(joined) });
+      await saveBlob(await svgToPng(svg, 1240, 1800), "plasmod-card.png");
+      toast(t("カードを保存した"));
+      setMenu(false);
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const field = "min-h-10 min-w-0 flex-1 rounded-xl bg-chip/70 px-3 text-[14px] outline-none focus:bg-chip";
 
   return (
-    <section aria-label={t("プロフィール")} className="mx-4 flex flex-col gap-2.5">
+    <section aria-label={t("プロフィール")} className="mx-4">
       <div className="flex justify-center rounded-2xl p-4" style={{ background: `radial-gradient(circle at 50% 38%, color-mix(in srgb, ${color} 24%, #07080A), #07080A 72%)` }}>
-        <button onClick={() => setEditing((x) => !x)} aria-expanded={editing} aria-label={t("プロフィールを編集する")} className="flex w-full max-w-[310px] flex-col border bg-[#07080A] p-3.5 text-left font-mono text-[#E8E8E2]" style={{ borderColor: `color-mix(in srgb, ${color} 60%, transparent)`, boxShadow: `0 0 26px color-mix(in srgb, ${color} 22%, transparent)` }}>
+        <div {...press} role="button" tabIndex={0} aria-label={t("長押しでメニュー")} onKeyDown={(e) => e.key === "Enter" && setMenu(true)} className="gh-nocallout flex w-full max-w-[310px] cursor-pointer select-none flex-col border bg-[#07080A] p-3.5 text-left font-mono text-[#E8E8E2] [-webkit-touch-callout:none]" style={{ borderColor: `color-mix(in srgb, ${color} 60%, transparent)`, boxShadow: `0 0 26px color-mix(in srgb, ${color} 22%, transparent)` }}>
           <span className="mb-2.5 flex justify-between text-[9.5px] tracking-[0.14em] opacity-70">
             <span>PLASMODIUM SP.</span>
             <span>PLATE {String(days).padStart(4, "0")}</span>
           </span>
-          {/* アーチ形の窓 */}
           <span className="relative block aspect-[300/290] w-full overflow-hidden rounded-t-[999px] border" style={{ borderColor: color }}>
-            <Specimen seed={about.owner} color={color} avatar={about.ownerAvatar} />
+            <Specimen key={about.owner} seed={about.owner} color={color} avatar={about.ownerAvatar} svgRef={svgRef} />
           </span>
           <span className="mt-3.5 truncate font-sans text-[30px] font-black leading-tight tracking-tight text-white">{hasName ? about.owner : t("あなたの名前")}</span>
-          <span className="min-h-[1.4em] truncate text-[13px] tracking-wide" style={{ color }}>
-            {title || t("肩書きを足す")}
-          </span>
+          <span className="min-h-[1.4em] truncate text-[13px] tracking-wide" style={{ color }}>{title || t("長押しで肩書きを足す")}</span>
           <span aria-hidden="true" className="mt-2 flex h-[5px] w-2/3 gap-[2px]">
             {Array.from({ length: 22 }, (_, i) => <span key={i} className="flex-1" style={{ background: color, opacity: ((i * 7) % 11) / 11 + 0.12 }} />)}
           </span>
@@ -175,32 +246,38 @@ export function ProfileCard() {
             </span>
             <span className="text-right text-[11px] font-bold leading-tight tracking-[0.12em]" style={{ color }}>SO<br />ELECTRIC</span>
           </span>
-        </button>
-      </div>
-      {error && <div className="text-[12px] text-orange-ink" role="alert">{error}</div>}
-      {editing && (
-        <div className="flex flex-col gap-2 rounded-xl border border-line bg-panel p-3 text-[13px]">
-          <label className="flex items-center gap-3">
-            <span className="w-14 flex-none text-[12px] text-mute">{t("呼び名")}</span>
-            <input key={`o:${getAbout().owner}`} defaultValue={hasName ? about.owner : ""} maxLength={40} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== about.owner && void saveOwner(e.target.value.trim()).catch((x) => setError(String(x.message ?? x)))} aria-label={t("あなたの呼び名")} className={field} />
-          </label>
-          <label className="flex items-center gap-3">
-            <span className="w-14 flex-none text-[12px] text-mute">{t("肩書き")}</span>
-            <input key={`t:${title}`} defaultValue={title} maxLength={40} placeholder="Breezy Operator" onBlur={(e) => e.target.value.trim() !== title && void patch({ title: e.target.value })} aria-label={t("肩書き")} className={field} />
-          </label>
-          <label className="flex items-center gap-3">
-            <span className="w-14 flex-none text-[12px] text-mute">{t("色")}</span>
-            <input type="color" defaultValue={color} onBlur={(e) => e.target.value !== color && void patch({ color: e.target.value })} aria-label={t("色")} className="size-9 flex-none cursor-pointer rounded-lg border border-line-2 bg-transparent p-1" />
-          </label>
-          <label className="flex items-center gap-3">
-            <span className="w-14 flex-none text-[12px] text-mute">{t("顔")}</span>
-            <span className="flex min-h-9 flex-1 cursor-pointer items-center rounded-lg border border-line-2 px-2.5 text-[12.5px] text-ink-2">
-              {t("画像を選ぶ（PNG・JPEG・WebP）")}
-              <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={t("顔")} className="sr-only" onChange={(e) => void upload(e.target.files?.[0])} />
-            </span>
-            {about.ownerAvatar && <button onClick={() => void patch({ avatar: null })} className="min-h-9 flex-none rounded-lg border border-line-2 px-2.5 text-[12px] text-ink-2">{t("外す")}</button>}
-          </label>
         </div>
+      </div>
+      {menu && (
+        <Sheet label={t("プロフィール")} onClose={() => setMenu(false)}>
+          <SheetCard>
+            <Tiles>
+              <TileButton icon="download" label={busy ? t("保存しています…") : t("画像で保存")} disabled={busy} onClick={() => void download()} />
+              <label className="flex min-h-[68px] min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl bg-chip/70 px-1 py-2 text-[11.5px] font-medium text-ink">
+                <Glyph name="image" />
+                <span className="truncate">{t("顔を変える")}</span>
+                <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={t("顔を変える")} className="sr-only" onChange={(e) => void upload(e.target.files?.[0])} />
+              </label>
+              <label className="flex min-h-[68px] min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl bg-chip/70 px-1 py-2 text-[11.5px] font-medium text-ink">
+                <span className="size-5 rounded-full border border-line-2" style={{ background: color }} aria-hidden="true" />
+                <span className="truncate">{t("色を変える")}</span>
+                <input type="color" defaultValue={color} onChange={(e) => void patch({ color: e.target.value })} aria-label={t("色を変える")} className="sr-only" />
+              </label>
+            </Tiles>
+            <div className="flex flex-col gap-2 px-3.5 pb-3.5">
+              <label className="flex items-center gap-3 text-[12.5px] text-mute">
+                <span className="w-14 flex-none">{t("呼び名")}</span>
+                <input key={`o:${about.owner}`} defaultValue={hasName ? about.owner : ""} maxLength={40} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== about.owner && void saveOwner(e.target.value.trim()).catch((x) => setError(String(x.message ?? x)))} className={`${field} text-ink`} />
+              </label>
+              <label className="flex items-center gap-3 text-[12.5px] text-mute">
+                <span className="w-14 flex-none">{t("肩書き")}</span>
+                <input key={`t:${title}`} defaultValue={title} maxLength={40} placeholder="Breezy Operator" onBlur={(e) => e.target.value.trim() !== title && void patch({ title: e.target.value })} className={`${field} text-ink`} />
+              </label>
+            </div>
+            {error && <div className="mx-3.5 mb-3 rounded-xl bg-orange-soft px-3 py-2 text-xs text-orange-ink" role="alert">{error}</div>}
+          </SheetCard>
+          {about.ownerAvatar && <DangerButton label={t("顔を外す")} onClick={() => void patch({ avatar: null })} />}
+        </Sheet>
       )}
     </section>
   );

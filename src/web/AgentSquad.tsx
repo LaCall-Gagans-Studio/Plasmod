@@ -1,6 +1,7 @@
 // 設定のエージェント: サッカーの選手紹介のようなカード。開くと名前・顔・役割・色を変えられて、モデルと中身も見られる。
 import { useEffect, useState, type ReactNode } from "react";
 import { type AgentInfo, type AgentProfile, DEFAULT_TEAM, type Team, teamOfProfile } from "../shared/types";
+import { fetchRetry } from "./api";
 import { Avatar } from "./ui";
 
 export type ManagedAgent = AgentProfile & { hidden?: boolean };
@@ -26,12 +27,12 @@ export function useAgentSettings() {
   };
   const fail = (e: unknown) => setError(String(e instanceof Error ? e.message : e));
   const [teams, setTeams] = useState<Team[]>([]);
-  const loadTeams = () => fetch("/api/teams").then((r) => r.json()).then((b: { teams: Team[]; agents: ManagedAgent[] }) => {
+  const loadTeams = () => fetchRetry("/api/teams").then((r) => r.json()).then((b: { teams: Team[]; agents: ManagedAgent[] }) => {
     setTeams(b.teams);
     if (b.agents.length) setAgents(b.agents);
   }).catch(fail);
   useEffect(() => {
-    fetch("/api/agents-settings").then(take).catch(fail);
+    fetchRetry("/api/agents-settings").then(take).catch(fail);
     void loadTeams();
   }, []);
   const patch = (id: string, body: Record<string, unknown>) =>
@@ -129,54 +130,107 @@ export function ProfileEditor({ a, patch, upload, teams }: { teams: Team[]; a: M
   );
 }
 
-/** チームの設定: 名前・色・レポートの出し方・任せ先に出すか。最初のチームは消せない */
-export function TeamsEditor({ teams, onChange }: { teams: Team[]; onChange: () => void }) {
+function Toggle({ on, label, note, onChange }: { on: boolean; label: string; note: string; onChange: (v: boolean) => void }) {
+  return (
+    <button role="switch" aria-checked={on} onClick={() => onChange(!on)} className="flex min-h-11 w-full items-center gap-3 text-left">
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="text-[13px] text-ink">{label}</span>
+        <span className="text-[11.5px] text-mute">{note}</span>
+      </span>
+      <span className={`relative h-6 w-10 flex-none rounded-full transition-colors ${on ? "bg-ink" : "bg-line-2"}`}>
+        <span className={`absolute top-0.5 size-5 rounded-full bg-paper shadow-sm transition-transform ${on ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+      </span>
+    </button>
+  );
+}
+
+/** チームの1行。普段は色・名前・メンバーの顔だけで、押すと設定が開く */
+function TeamRow({ t, members, patch, remove }: { t: Team; members: ManagedAgent[]; patch: (b: Partial<Team>) => void; remove: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-2xl border bg-panel" style={{ borderColor: `color-mix(in srgb, ${t.color} 45%, var(--color-line))` }}>
+      <button onClick={() => setOpen((x) => !x)} aria-expanded={open} className="flex min-h-14 w-full items-center gap-3 px-3.5 py-2 text-left">
+        <span className="size-3 flex-none rounded-full" style={{ background: t.color, boxShadow: `0 0 10px ${t.color}` }} aria-hidden="true" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-[14.5px] font-bold">{t.name}</span>
+          <span className="truncate text-[11.5px] text-mute">{t.cadence === "weekly" ? "週の報告" : "毎日の報告"}{t.delegable ? " · 任せ先" : ""}</span>
+        </span>
+        <span className="flex flex-none -space-x-2">
+          {members.slice(0, 4).map((a) => <span key={a.id} className="rounded-full ring-2 ring-panel"><Avatar p={a} size={26} /></span>)}
+          {members.length > 4 && <span className="flex size-[26px] items-center justify-center rounded-full bg-chip text-[10.5px] font-semibold text-ink-2 ring-2 ring-panel">+{members.length - 4}</span>}
+          {members.length === 0 && <span className="text-[11.5px] text-mute">メンバーなし</span>}
+        </span>
+        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden="true" className={`flex-none text-mute transition-transform duration-200 ${open ? "rotate-90" : ""}`}><path d="M9 6l6 6-6 6" /></svg>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 border-t border-line px-3.5 py-3">
+          <div className="flex items-center gap-2">
+            <label className="relative size-9 flex-none cursor-pointer overflow-hidden rounded-full" style={{ background: t.color }}>
+              <span className="sr-only">{t.name}の色</span>
+              <input type="color" defaultValue={t.color} onBlur={(e) => e.target.value !== t.color && patch({ color: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" />
+            </label>
+            <input key={`n:${t.name}`} defaultValue={t.name} maxLength={30} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== t.name && patch({ name: e.target.value })} aria-label={`${t.name}の名前`} className="min-h-10 min-w-0 flex-1 rounded-xl bg-chip/70 px-3 text-[14px] font-semibold outline-none focus:bg-chip" />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="flex-1 text-[13px]">レポートでの出し方</span>
+            <div role="group" aria-label="レポートでの出し方" className="flex flex-none rounded-full bg-chip p-0.5 text-[12px]">
+              {(["daily", "weekly"] as const).map((k) => (
+                <button key={k} aria-pressed={t.cadence === k} onClick={() => t.cadence !== k && patch({ cadence: k })} className={`min-h-7 rounded-full px-3 ${t.cadence === k ? "bg-panel font-semibold shadow-sm" : "text-mute"}`}>
+                  {k === "daily" ? "毎日" : "週ごと"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Toggle on={t.delegable} label="仕事を任せられる" note="カードの「〇〇に任せる」に出す" onChange={(v) => patch({ delegable: v })} />
+          <Toggle on={t.viaHub} label="ハブの下に置く" note="オフだと、図でオーナーから直接つなぐ" onChange={(v) => patch({ viaHub: v })} />
+          {t.id !== DEFAULT_TEAM && (
+            <button onClick={remove} className="mt-1 self-start text-[12.5px] text-red-ink">このチームを消す</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** チームの設定 */
+export function TeamsEditor({ teams, agents, onChange }: { teams: Team[]; agents: ManagedAgent[]; onChange: () => void }) {
   const [name, setName] = useState("");
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const call = async (url: string, method: string, body?: unknown) => {
     const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const b = (await r.json().catch(() => ({}))) as { error?: string };
-    if (!r.ok) setError(b.error ?? `HTTP ${r.status}`);
-    else setError(null);
+    setError(r.ok ? null : (b.error ?? `HTTP ${r.status}`));
     onChange();
     return r.ok;
   };
-  const patch = (t: Team, body: Partial<Team>) => call(`/api/teams/${t.id}`, "PATCH", body);
   const add = async () => {
-    if (name.trim() && (await call("/api/teams", "POST", { name: name.trim() }))) setName("");
+    if (name.trim() && (await call("/api/teams", "POST", { name: name.trim() }))) {
+      setName("");
+      setAdding(false);
+    }
   };
   return (
-    <section aria-label="チーム" className="flex flex-col gap-2 rounded-2xl border border-line bg-panel p-3 text-[13px] lg:col-span-2">
-      <div className="text-[12px] font-semibold text-mute">チーム</div>
-      {error && <div className="text-[12px] text-orange-ink" role="alert">{error}</div>}
+    <section aria-label="チーム" className="flex flex-col gap-2 lg:col-span-2">
+      <div className="flex items-center px-1">
+        <span className="text-[12px] font-semibold text-mute">チーム</span>
+        <button onClick={() => setAdding((x) => !x)} aria-label="チームを足す" className="ml-auto flex size-8 items-center justify-center rounded-full text-ink-2 hover:bg-chip">
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </div>
+      {error && <div className="rounded-xl bg-orange-soft px-3 py-2 text-[12px] text-orange-ink" role="alert">{error}</div>}
+      {adding && (
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void add()} onBlur={() => !name.trim() && setAdding(false)} placeholder="新しいチームの名前（Enter）" aria-label="新しいチームの名前" className="min-h-11 rounded-2xl border border-line-2 bg-panel px-3.5 text-[14px] outline-none" />
+      )}
       {teams.map((t) => (
-        <div key={t.id} className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
-          <input type="color" defaultValue={t.color} onBlur={(e) => e.target.value !== t.color && void patch(t, { color: e.target.value })} aria-label={`${t.name}の色`} className="size-8 flex-none cursor-pointer rounded-lg border border-line-2 bg-transparent p-0.5" />
-          <input key={`n:${t.name}`} defaultValue={t.name} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== t.name && void patch(t, { name: e.target.value })} aria-label={`${t.name}の名前`} className="min-h-9 min-w-0 flex-1 basis-24 rounded-lg bg-transparent px-1.5 font-bold outline-none hover:bg-chip focus:bg-chip" />
-          <select value={t.cadence} onChange={(e) => void patch(t, { cadence: e.target.value as Team["cadence"] })} aria-label={`${t.name}の報告の出し方`} className="min-h-9 flex-none rounded-lg border border-line-2 bg-transparent px-1.5 text-[12px]">
-            <option value="daily">毎日の報告</option>
-            <option value="weekly">週の報告</option>
-          </select>
-          <label className="flex min-h-9 flex-none items-center gap-1.5 text-[12px] text-ink-2">
-            <input type="checkbox" checked={t.delegable} onChange={(e) => void patch(t, { delegable: e.target.checked })} />
-            任せ先に出す
-          </label>
-          <label className="flex min-h-9 flex-none items-center gap-1.5 text-[12px] text-ink-2">
-            <input type="checkbox" checked={t.viaHub} onChange={(e) => void patch(t, { viaHub: e.target.checked })} />
-            ハブの下
-          </label>
-          {t.id !== DEFAULT_TEAM && (
-            <button onClick={() => confirm(`「${t.name}」を消しますか？（メンバーは最初のチームに移ります）`) && void call(`/api/teams/${t.id}`, "DELETE")} aria-label={`${t.name}を消す`} className="flex size-9 flex-none items-center justify-center rounded-full text-mute hover:text-red-ink">
-              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-            </button>
-          )}
-        </div>
+        <TeamRow
+          key={t.id}
+          t={t}
+          members={agents.filter((a) => teamOfProfile(a, teams).id === t.id)}
+          patch={(b) => void call(`/api/teams/${t.id}`, "PATCH", b)}
+          remove={() => confirm(`「${t.name}」を消しますか？（メンバーは最初のチームに移ります）`) && void call(`/api/teams/${t.id}`, "DELETE")}
+        />
       ))}
-      <label className="flex h-10 items-center gap-2 rounded-xl border border-dashed border-line-2 px-3 text-mute">
-        <span aria-hidden="true">＋</span>
-        <span className="sr-only">チームを足す</span>
-        <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void add()} placeholder="チームを足す（Enter）" className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-mute" />
-      </label>
     </section>
   );
 }
