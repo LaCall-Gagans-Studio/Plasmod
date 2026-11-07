@@ -41,6 +41,22 @@ describe("タスクの番号・レポート・バッジ", () => {
     expect(r.today[0].url).toMatch(/^#\/todo\/\d+$/);
   });
 
+  test("レポートの「自分のタスク」は Todo だけ。期限順、期限なしは長く動いていない順", () => {
+    const s = new TaskStore(new Store(":memory:").db);
+    const day = 86_400_000;
+    const now = Date.parse("2026-10-25T03:00:00Z");
+    s.create({ title: "新しい期限なし" }, "app", now - day);
+    s.create({ title: "古い期限なし" }, "app", now - 30 * day);
+    s.create({ title: "期限あり", due: "2026-11-20" }, "app", now);
+    s.create({ title: "AI に任せた", status: "doing" }, "app", now);
+    s.create({ title: "判断待ち", status: "inbox" }, "app", now);
+    const d = s.create({ title: "済んだ" }, "app", now);
+    s.update(d.id, { status: "done" }, "app", now);
+    const mine = s.summary(now).mine;
+    expect(mine.map((t) => t.title)).toEqual(["期限あり", "古い期限なし", "新しい期限なし"]);
+    expect(mine.map((t) => t.idleDays)).toEqual([0, 30, 1]);
+  });
+
   test("API: 番号のバッジはタスクから・カードからタスクにする", async () => {
     const store = new Store(":memory:");
     const tasks = new TaskStore(store.db);

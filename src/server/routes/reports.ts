@@ -4,7 +4,7 @@ import { PerfLog } from "../perf";
 import type { RouteContext } from "./context";
 
 export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch, tasks, memos, habits }: RouteContext) {
-  // レポート: 今日のタスク → メモ → ルーティーン → 判断待ち → 定期報告 → 監察 → まとめ（実績はここに1枚）
+  // レポート: 今日のタスク → 自分のタスク → メモ → ルーティーン → 判断待ち → 定期報告 → 監察 → まとめ（実績はここに1枚）
   app.get("/api/report", async (c) => {
     const r = hub.report();
     // 毎日のチームの定期報告と、週次のチームの報告は、最後のまとめの前に、この順で
@@ -24,6 +24,7 @@ export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch,
     if (tasks) {
       const t = tasks.summary();
       first.push({ kind: "tasks", today: t.today, week: t.week, doing: t.doing });
+      first.push({ kind: "mine", items: t.mine });
       for (const s of r.slides) if (s.kind === "digest") s.tasksDone = t.done;
     }
     const recent = memos?.list({}).memos.slice(0, 5) ?? [];
