@@ -351,6 +351,8 @@ export type ReportSlide =
   | { kind: "habits"; items: Habit[] }
   | { kind: "waiting"; items: { key: string; agent: string; label: string; title: string }[] }
   | { kind: "tasks"; today: TaskSummaryItem[]; week: TaskSummaryItem[]; doing: TaskSummaryItem[]; error?: string }
+  /** AI に任せず自分で持っているタスク（Todo）。埋もれないよう全件出す */
+  | { kind: "mine"; items: TaskSummaryItem[] }
   | { kind: "watch"; team?: string; title?: string; items: WatchReport[]; error?: string }
   | { kind: "routine"; items: WatchReport[]; late: { agent: string; name: string; reason: string }[]; error?: string };
 
@@ -393,6 +395,10 @@ export interface TaskSummaryItem {
   /** YYYY-MM-DD（期限）。終えたものは完了した日 */
   due: string | null;
   overdue?: boolean;
+  /** プロジェクト名（「自分のタスク」の枚だけ） */
+  project?: string | null;
+  /** 最後に動いてからの日数（「自分のタスク」の枚だけ） */
+  idleDays?: number;
 }
 
 /** 下のメニューの数字 */

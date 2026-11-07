@@ -11,7 +11,7 @@ import { useHoldSwipe } from "./touch";
 /** 1枚を見せる時間。上のバーがこの時間で 100% になったら次へ。中身が多いタスクの枚は長め */
 const slideMs = (s: ReportSlide) => (s.kind === "digest" || s.kind === "watch" || s.kind === "routine" ? 9000 : 5000);
 /** 中身を押して使う枚。自動で進めず、左右の押す場所も置かない（下の ‹ › で動く） */
-const isHands = (s: ReportSlide | undefined) => s?.kind === "tasks" || s?.kind === "memos" || s?.kind === "habits";
+const isHands = (s: ReportSlide | undefined) => s?.kind === "tasks" || s?.kind === "mine" || s?.kind === "memos" || s?.kind === "habits";
 const BG = ["#C8F25A", "#FF8A3D", "#8FB8FF", "#F3F1EC"];
 
 /** スライドの頭のアイコン（角丸の四角に線画。Material の tonal なチップに寄せる） */
@@ -46,7 +46,7 @@ const delay = (k: number) => ({ animationDelay: `${120 + k * 90}ms` });
 const md = (d: string | null) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : "");
 
 /** タスクの1行（押すとタスクを開く） */
-function TaskRow({ t, k, done }: { t: TaskSummaryItem; k: number; done?: boolean }) {
+function TaskRow({ t, k, done, sub }: { t: TaskSummaryItem; k: number; done?: boolean; sub?: string }) {
   return (
     <a href={t.url} {...(t.url.startsWith("#") ? {} : { target: "_blank", rel: "noopener noreferrer" })} className="gh-rise flex items-center gap-2.5 py-1.5 text-on no-underline" style={delay(k)}>
       <span className={`flex size-7 flex-none items-center justify-center rounded-lg ${done ? "bg-[#17171a] text-white" : "bg-on/10"}`}>
@@ -54,7 +54,7 @@ function TaskRow({ t, k, done }: { t: TaskSummaryItem; k: number; done?: boolean
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] font-bold">{t.title}</span>
-        <span className="block text-[11.5px] opacity-70">{t.id} · {t.state}</span>
+        <span className="block text-[11.5px] opacity-70">{sub ?? `${t.id} · ${t.state}`}</span>
       </span>
       {t.due && <span className={`flex-none rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${t.overdue ? "bg-[#17171a] text-[#FFB27A]" : "bg-on/10"}`}>{t.overdue ? "期限切れ " : ""}{md(t.due)}</span>}
     </a>
@@ -91,6 +91,19 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
               {s.doing.length > 0 && <Group title="進行中（期限なし）" items={s.doing} k0={7} empty="" />}
             </>
           )}
+        </div>
+      );
+    case "mine":
+      return (
+        <div className="mt-3 flex flex-col gap-3">
+          <Badge name="todo" />
+          <div className="gh-rise mt-2 flex items-baseline gap-2.5 text-[26px] font-bold leading-tight" style={delay(0)}>
+            自分のタスク<span className="tabular-nums">{s.items.length}</span>
+          </div>
+          {s.items.length === 0 && <div className="gh-rise text-base" style={delay(1)}>いまは何もありません</div>}
+          <div className="flex flex-col">
+            {s.items.map((t, k) => <TaskRow key={t.id} t={t} k={Math.min(k, 8) + 1} sub={[t.id, t.project, t.idleDays ? `${t.idleDays}日動きなし` : null].filter(Boolean).join(" · ")} />)}
+          </div>
         </div>
       );
     case "memos":
@@ -223,7 +236,7 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
 }
 
 function slideTitle(s: ReportSlide): string {
-  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日のルーティーン", waiting: "判断待ち", tasks: "今日と今週のタスク", watch: "今週の報告", routine: "今日の定期報告" }[s.kind];
+  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日のルーティーン", waiting: "判断待ち", tasks: "今日と今週のタスク", mine: "自分のタスク", watch: "今週の報告", routine: "今日の定期報告" }[s.kind];
 }
 
 export function Report({ snap }: { snap: Snapshot | null }) {

@@ -512,10 +512,11 @@ export class TaskStore {
   }
 
   /**
-   * レポート用: 今日（期限が今日まで・期限切れ）、今週（明日〜日曜）、進行中（任せた・期限なし）、今週終えた（月曜から）。
+   * レポート用: 今日（期限が今日まで・期限切れ）、今週（明日〜日曜）、進行中（任せた・期限なし）、今週終えた（月曜から）、
+   * 自分のタスク（Todo 全件。期限のあるものを期限順に、続けて期限なしを長く動いていない順に）。
    * 日付はアプリのタイムゾーン（id は番号、url はタスクの画面）
    */
-  summary(now = Date.now()): { today: TaskSummaryItem[]; week: TaskSummaryItem[]; doing: TaskSummaryItem[]; done: TaskSummaryItem[] } {
+  summary(now = Date.now()): { today: TaskSummaryItem[]; week: TaskSummaryItem[]; doing: TaskSummaryItem[]; done: TaskSummaryItem[]; mine: TaskSummaryItem[] } {
     const off = tzOffsetMs(now);
     const j = new Date(now + off);
     const today = j.toISOString().slice(0, 10);
@@ -543,6 +544,10 @@ export class TaskStore {
       week: open.filter((t) => t.due && t.due > today && t.due <= weekEnd).map((t) => row(t, t.due)).sort(byDue),
       doing: open.filter((t) => !t.due && t.status === "doing").map((t) => row(t, null)),
       done: done.map((t) => row(t, localDay(t.decidedAt ?? t.updatedAt))),
+      mine: open
+        .filter((t) => t.status === "todo")
+        .sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || a.updatedAt - b.updatedAt)
+        .map((t) => ({ ...row(t, t.due), project: t.project, idleDays: Math.max(0, Math.floor((now - t.updatedAt) / 86_400_000)) })),
     };
   }
 

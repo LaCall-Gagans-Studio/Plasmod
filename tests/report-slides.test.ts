@@ -16,9 +16,9 @@ describe("レポートと下のメニューの数字", () => {
     return createApp({ ...config, devNoAuth: true }, hub, store, ".", { tasks: new TaskStore(store.db) });
   }
 
-  test("タスクの枚が先頭、判断待ちはその次、実績のまとめが最後", async () => {
+  test("タスクの枚が先頭、自分のタスク、判断待ちの順、実績のまとめが最後", async () => {
     const r = (await (await (await setup()).request("/api/report")).json()) as Report;
-    expect(r.slides.map((s) => s.kind)).toEqual(["tasks", "waiting", "digest"]);
+    expect(r.slides.map((s) => s.kind)).toEqual(["tasks", "mine", "waiting", "digest"]);
   });
 
   test("数字: ホーム＝判断待ちのカード、ウォッチング＝止まっているカード", async () => {
