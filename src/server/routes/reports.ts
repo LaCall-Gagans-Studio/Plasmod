@@ -7,13 +7,15 @@ export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch,
   // レポート: 今日のタスク → メモ → ルーティーン → 判断待ち → 定期報告 → 監察 → まとめ（実績はここに1枚）
   app.get("/api/report", async (c) => {
     const r = hub.report();
-    // 定期報告（実働の cron）と監察チームの報告は、最後のまとめの前に、この順で
+    // 毎日のチームの定期報告と、週次のチームの報告は、最後のまとめの前に、この順で
     if (watch?.configured) {
       try {
         const d = await watch.routine();
         if (d.items.length || d.late.length || d.error) r.slides.splice(r.slides.length - 1, 0, { kind: "routine", ...d });
-        const w = await watch.latest();
-        if (w.items.length || w.error) r.slides.splice(r.slides.length - 1, 0, { kind: "watch", ...w });
+        for (const t of cfg.teams.filter((x) => x.cadence === "weekly")) {
+          const w = await watch.latest(t.id);
+          if (w.items.length || w.error) r.slides.splice(r.slides.length - 1, 0, { kind: "watch", team: t.id, title: `今週の${t.name}`, ...w });
+        }
       } catch {
         /* 定期報告の枚が出ないだけ */
       }

@@ -274,14 +274,37 @@ export interface AgentProfile {
   aliases?: string[];
   /** 顔の画像の URL（無ければ頭文字の丸） */
   avatar?: string;
-  /** チーム: work＝実働（既定）、watch＝監察（読むだけ・週1回の報告） */
-  team?: "work" | "watch";
+  /** 所属するチームの id（省略は DEFAULT_TEAM） */
+  team?: string;
   /** 役割（図・設定で名前の下に出す短い説明） */
   role?: string;
   /** 動かす仕組み（省略は hermes） */
   runtime?: RuntimeKind;
   /** このエージェントが動く OS のユーザー（root 作業の依頼に顔を出すため） */
   osUser?: string;
+}
+
+/** エージェントをまとめるチーム */
+export interface Team {
+  id: string;
+  name: string;
+  color: string;
+  /** レポートでの出し方: daily＝毎日の定期報告にまとめる、weekly＝最新の報告をチームの1枚にする */
+  cadence: "daily" | "weekly";
+  /** 判断カードの「〇〇に任せる」に出すか */
+  delegable: boolean;
+  /** 図でハブの下に置くか（false はオーナーから直接） */
+  viaHub: boolean;
+}
+export const DEFAULT_TEAM = "work";
+/** 最初から入っている例 */
+export const DEFAULT_TEAMS: Team[] = [
+  { id: DEFAULT_TEAM, name: "実働", color: "#8FB8FF", cadence: "daily", delegable: true, viaHub: true },
+  { id: "watch", name: "監察", color: "#B8A1FF", cadence: "weekly", delegable: false, viaHub: false },
+];
+/** プロファイルのチーム。無くなったチームなら既定のチーム */
+export function teamOfProfile(p: { team?: string } | undefined, teams: Team[]): Team {
+  return teams.find((t) => t.id === (p?.team ?? DEFAULT_TEAM)) ?? teams.find((t) => t.id === DEFAULT_TEAM) ?? DEFAULT_TEAMS[0];
 }
 
 /** エージェントを動かす仕組み。Hermes は必須の土台で、Claude Code は任意の追加（1つだけ） */
@@ -328,7 +351,7 @@ export type ReportSlide =
   | { kind: "habits"; items: Habit[] }
   | { kind: "waiting"; items: { key: string; agent: string; label: string; title: string }[] }
   | { kind: "tasks"; today: TaskSummaryItem[]; week: TaskSummaryItem[]; doing: TaskSummaryItem[]; error?: string }
-  | { kind: "watch"; items: WatchReport[]; error?: string }
+  | { kind: "watch"; team?: string; title?: string; items: WatchReport[]; error?: string }
   | { kind: "routine"; items: WatchReport[]; late: { agent: string; name: string; reason: string }[]; error?: string };
 
 /** ルーティーン */
@@ -748,6 +771,7 @@ export interface Snapshot {
   /** 「あとで」で伏せているカード。cards とは別（通知・数字には数えない） */
   snoozed: Card[];
   agents: AgentNode[];
+  teams?: Team[];
   bridgeConnected: boolean;
   /** 開発エージェントの bridge を入れているか。入れていなければ未接続の警告を出さない */
   devEnabled?: boolean;

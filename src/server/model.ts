@@ -2,7 +2,7 @@
 import type {
   AgentNode, AgentProfile, Board, Card, CardOption, HermesApproval, InboxKind, KanbanTask, PermissionRequest, SnoozeKind,
 } from "../shared/types";
-import { CLAUDE_AGENT, findProfile, staleHours } from "../shared/types";
+import { CLAUDE_AGENT, findProfile, staleHours, teamOfProfile } from "../shared/types";
 import type { MirrorInput, Task } from "./tasks";
 import { config } from "./config";
 import { tzOffsetMs } from "../shared/time";
@@ -61,11 +61,11 @@ function taskBody(t: KanbanTask): string {
 }
 
 /**
- * 仕分け待ち（triage）の選択肢: 実働のエージェントごとに「〇〇に任せる」（今の担当を先頭に）・不要（アーカイブ）・あとで。
+ * 仕分け待ち（triage）の選択肢: 任せられるチームのエージェントごとに「〇〇に任せる」（今の担当を先頭に）・不要（アーカイブ）・あとで。
  * Hermes の「完了」は triage に効かないので、進める＝担当を決めて todo に戻す、不要＝アーカイブ
  */
 export function triageOptions(t: KanbanTask, profiles: AgentProfile[]): CardOption[] {
-  const work = profiles.filter((p) => (p.team ?? "work") === "work");
+  const work = profiles.filter((p) => teamOfProfile(p, config.teams).delegable);
   const cur = t.assignee ? findProfile(profiles, t.assignee)?.id : undefined;
   const sorted = [...work].sort((a, b) => Number(b.id === cur) - Number(a.id === cur));
   return [

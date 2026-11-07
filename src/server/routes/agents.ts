@@ -1,7 +1,10 @@
 // エージェントの見た目と、持ち主の呼び名の設定
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import type { Context } from "hono";
 import { AppSettings, type ProfileRegistry } from "../profiles";
+import { TeamError } from "../teams";
+import { DEFAULT_TEAM } from "../../shared/types";
 import type { RouteContext } from "./context";
 
 const AVATAR_MAX = 2 * 1024 * 1024;
@@ -18,7 +21,46 @@ const AVATAR_TYPE = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" } 
 const AVATAR_FILE = /^[a-z0-9_-]{1,32}-[0-9]{1,16}\.(png|jpg|webp)$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
-export function agentsRoutes({ app, cfg, hub, store }: RouteContext, registry?: ProfileRegistry) {
+export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, registry?: ProfileRegistry) {
+  // チーム
+  const teamFail = (c: Context, e: unknown) => c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, e instanceof TeamError ? e.status : 500);
+  const body = (c: Context) => c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const teamsNow = () => ({ teams: cfg.teams, agents: registry?.all() ?? [] });
+  app.get("/api/teams", (c) => c.json(teamsNow()));
+  app.post("/api/teams", async (c) => {
+    try {
+      if (!teams) throw new TeamError("使えない", 404);
+      teams.create(await body(c));
+      hub.changed();
+      return c.json(teamsNow());
+    } catch (e) {
+      return teamFail(c, e);
+    }
+  });
+  app.patch("/api/teams/:id", async (c) => {
+    try {
+      if (!teams) throw new TeamError("使えない", 404);
+      teams.update(c.req.param("id"), await body(c));
+      hub.changed();
+      return c.json(teamsNow());
+    } catch (e) {
+      return teamFail(c, e);
+    }
+  });
+  app.delete("/api/teams/:id", (c) => {
+    try {
+      if (!teams) throw new TeamError("使えない", 404);
+      const id = c.req.param("id");
+      teams.remove(id);
+      // メンバーは既定のチームへ
+      for (const p of registry?.all() ?? []) if (p.team === id) registry!.setOverride(p.id, { team: DEFAULT_TEAM });
+      hub.changed();
+      return c.json(teamsNow());
+    } catch (e) {
+      return teamFail(c, e);
+    }
+  });
+
   const dir = () => join(cfg.dataDir, "avatars");
 
   app.patch("/api/about", async (c) => {
@@ -38,8 +80,8 @@ export function agentsRoutes({ app, cfg, hub, store }: RouteContext, registry?: 
 
   app.patch("/api/agents-settings/:id", async (c) => {
     if (!registry) return c.json({ ok: false, error: "使えない" }, 404);
-    const b = await c.req.json<{ name?: unknown; color?: unknown; hidden?: unknown; avatar?: unknown; role?: unknown }>().catch(() => ({}) as Record<string, unknown>);
-    const patch: { name?: string; color?: string; hidden?: boolean; avatar?: null; role?: string } = {};
+    const b = await c.req.json<{ name?: unknown; color?: unknown; hidden?: unknown; avatar?: unknown; role?: unknown; team?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+    const patch: { name?: string; color?: string; hidden?: boolean; avatar?: null; role?: string; team?: string } = {};
     if (typeof b.name === "string") patch.name = b.name.trim().slice(0, 40);
     if (typeof b.color === "string") {
       if (!COLOR.test(b.color)) return c.json({ ok: false, error: "色が不正" }, 400);
@@ -48,6 +90,10 @@ export function agentsRoutes({ app, cfg, hub, store }: RouteContext, registry?: 
     if (typeof b.hidden === "boolean") patch.hidden = b.hidden;
     if (typeof b.role === "string") patch.role = b.role.trim().slice(0, 40);
     if (b.avatar === null) patch.avatar = null;
+    if (b.team !== undefined) {
+      if (typeof b.team !== "string" || !cfg.teams.some((t) => t.id === b.team)) return c.json({ ok: false, error: "そのチームはない" }, 400);
+      patch.team = b.team;
+    }
     try {
       registry.setOverride(c.req.param("id"), patch);
     } catch (e) {

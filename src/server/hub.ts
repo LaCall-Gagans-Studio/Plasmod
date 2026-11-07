@@ -57,6 +57,7 @@ export class Hub {
       cards: this.cards(),
       snoozed: this.cards("only"),
       agents: deriveAgents(this.board, this.cfg.profiles, this.cfg.hubProfile),
+      teams: this.cfg.teams,
       bridgeConnected: this.bridge?.connected ?? false,
       devEnabled: existsSync(this.cfg.bridgeSock),
     };

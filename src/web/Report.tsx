@@ -185,7 +185,7 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
       return (
         <div className="mt-3 flex flex-col gap-3">
           <Badge name="watch" />
-          <div className="gh-rise mb-1 mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>今週の監察</div>
+          <div className="gh-rise mb-1 mt-2 text-[26px] font-bold leading-tight" style={delay(0)}>{s.title ?? "今週の報告"}</div>
           {s.error && <div className="rounded-xl bg-on/10 p-3 text-[13px]">読めなかった: {s.error}</div>}
           {s.items.map((r, k) => {
             const p = snap ? profileOf(snap.agents, r.agent) : null;
@@ -223,7 +223,7 @@ function Slide({ s, snap }: { s: ReportSlide; snap: Snapshot | null }) {
 }
 
 function slideTitle(s: ReportSlide): string {
-  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日のルーティーン", waiting: "判断待ち", tasks: "今日と今週のタスク", watch: "今週の監察", routine: "今日の定期報告" }[s.kind];
+  return { digest: "この24時間のまとめ", memos: "最近のメモ", habits: "今日のルーティーン", waiting: "判断待ち", tasks: "今日と今週のタスク", watch: "今週の報告", routine: "今日の定期報告" }[s.kind];
 }
 
 export function Report({ snap }: { snap: Snapshot | null }) {
@@ -311,7 +311,7 @@ export function Report({ snap }: { snap: Snapshot | null }) {
         {saved && !noting && <div className="text-center text-sm font-bold">{saved}</div>}
         {!noting && (report?.slides[i]?.kind === "watch" || report?.slides[i]?.kind === "routine") && (
           <a href="#/watch" className="flex min-h-11 items-center justify-center rounded-full border border-on/40 text-sm font-bold text-on no-underline">
-            {report.slides[i].kind === "watch" ? "監察の報告を全文で読む" : "定期報告を全文で読む"}
+            {report.slides[i].kind === "watch" ? "報告を全文で読む" : "定期報告を全文で読む"}
           </a>
         )}
         {noting ? (

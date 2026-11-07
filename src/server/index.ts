@@ -19,6 +19,7 @@ import { MediaService } from "./media";
 import { MemoStore } from "./memos";
 import { TaskStore } from "./tasks";
 import { ProjectStore } from "./projects";
+import { TeamStore } from "./teams";
 import { HabitStore } from "./habits";
 import { TaskSync } from "./task-sync";
 import { agentUids, MemoSpool } from "./memo-spool";
@@ -57,6 +58,7 @@ const sessions = new SessionService(bridge, hermes, () => hub.changed(), (id) =>
 }, source instanceof BrokerSource ? (files) => source.putFiles(files) : null, () => existsSync(config.bridgeSock));
 sessions.onReply((agent, id, text) => notifier.reply(agent, id, text));
 config.ownerName = new AppSettings(store.db).get("owner") ?? config.ownerName;
+const teams = new TeamStore(store.db, config.teams);
 const registry = new ProfileRegistry(store.db, config.profiles, () => existsSync(config.bridgeSock));
 registry.setDiscovered([...hermes.keys()]);
 // PLASMOD_HERMES_API を書いていなければ、Hermes のプロファイルと API キーを仲介から読む
@@ -85,7 +87,7 @@ const system = new SystemService(
 system.startSeries();
 const media = new MediaService({ bridge, hermesRead: source instanceof BrokerSource ? (p) => source.readFile(p) : null });
 const rootd = new RootClient(config.rootdSock);
-const watch = new WatchService(source instanceof BrokerSource ? source.call : null, config.profiles);
+const watch = new WatchService(source instanceof BrokerSource ? source.call : null, config.profiles, config.teams);
 const memos = new MemoStore(store.db);
 const tasks = new TaskStore(store.db, config.taskRefPrefix);
 const projects = new ProjectStore(store.db, memos, tasks);
@@ -105,7 +107,7 @@ taskSync.start(() => hub.changed());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
 const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
 connections.start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, taskSync, projects, feed, connections });
+const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, teams, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,
