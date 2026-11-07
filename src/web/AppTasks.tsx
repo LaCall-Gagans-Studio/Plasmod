@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppTask, AppTaskList, AppTaskStatus, Snapshot } from "../shared/types";
 import { FolderIcon, json } from "./memo-fields";
 import { PjTabs } from "./pjtabs";
+import { AddField } from "./AddField";
 import { createTask, fetchTaskList, patchTask, taskSync, TaskSyncBadge } from "./task-db";
 import { Icon, Nav, RAIL } from "./ui";
 import { BUCKETS, BUCKET_CLS, STATUS_LABEL, UNDONE_LABEL, OPEN, STATUS_DOT, dueBucket, topLevel, TaskNode } from "./TaskRow";
@@ -150,18 +151,15 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
       <div className="flex justify-end px-4 empty:hidden"><TaskSyncBadge /></div>
       {project !== null && <div className="truncate px-5 pb-1 text-[12.5px] font-semibold text-ink-2">{project === "" ? "プロジェクトなし" : project}</div>}
       <div className="flex flex-col gap-2 px-4 pb-2">
-        <label className="relative flex h-10 items-center gap-2 rounded-lg border border-line-2 bg-panel px-3">
-          <span className="text-[18px] leading-none text-mute" aria-hidden="true">＋</span>
-          <span className="sr-only">タスクを追加</span>
-          <input
-            ref={addRef}
-            value={adding}
-            onChange={(e) => setAdding(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void add()}
-            placeholder={project ? `${project} にタスクを追加` : "タスクを追加（Enter）"}
-            className="w-full min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute"
-          />
-        </label>
+        <AddField
+          inputRef={addRef}
+          value={adding}
+          onChange={setAdding}
+          onAdd={() => void add()}
+          placeholder={project ? `${project} にタスクを追加` : "タスクを追加"}
+          className="relative flex h-10 items-center gap-2 rounded-lg border border-line-2 bg-panel px-3"
+          inputClassName="w-full min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute"
+        />
         <div className="flex items-center gap-1.5">
           <label className="relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-chip px-3 text-mute">
             <Icon name="search" size={14} />

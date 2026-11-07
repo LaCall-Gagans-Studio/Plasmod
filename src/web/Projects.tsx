@@ -10,6 +10,7 @@ import { BodyEditor, FolderIcon, json } from "./memo-fields";
 import { MemoListPage } from "./Memos";
 import { PjTabs } from "./pjtabs";
 import { MemoLink, openProjectMenu } from "./pjmenus";
+import { AddField } from "./AddField";
 import { createTask, patchTask } from "./task-db";
 import { useLongPress } from "./touch";
 import { Icon, Nav, RAIL, ago } from "./ui";
@@ -37,17 +38,14 @@ function QuickAdd({ project, onAdded, placeholder }: { project: string | null; o
     onAdded();
   };
   return (
-    <label className="relative mx-2 flex h-9 items-center gap-2 rounded-lg px-3 text-mute hover:bg-chip/60">
-      <span aria-hidden="true">＋</span>
-      <span className="sr-only">{placeholder}</span>
-      <input
-        value={v}
-        onChange={(e) => setV(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void add()}
-        placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-mute"
-      />
-    </label>
+    <AddField
+      value={v}
+      onChange={setV}
+      onAdd={() => void add()}
+      placeholder={placeholder}
+      className="relative mx-2 flex h-9 items-center gap-2 rounded-lg px-3 text-mute hover:bg-chip/60"
+      inputClassName="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-mute"
+    />
   );
 }
 
@@ -387,7 +385,7 @@ export function ProjectPage({ snap, id }: { snap: Snapshot | null; id: number })
                     <ul className="m-0 list-none p-0">
                       {topLevel(d.tasks).map((t) => <TaskNode key={t.id} t={t} hideProject snap={snap} onToggle={(x) => toggleDone(x).then(reload)} onChanged={reload} />)}
                     </ul>
-                    <QuickAdd project={p.name} onAdded={reload} placeholder="タスクを追加（Enter）" />
+                    <QuickAdd project={p.name} onAdded={reload} placeholder="タスクを追加" />
                     {d.doneTasks.length > 0 && (
                       <button onClick={() => setShowDone((x) => !x)} className="mx-5 my-1 text-[12px] text-mute">{showDone ? "完了を隠す" : `完了 ${d.doneTasks.length} 件を見る`}</button>
                     )}

@@ -161,12 +161,11 @@ export const COL = "mx-auto w-full max-w-[520px] md:max-w-none md:px-2 lg:px-4 2
 /** 広い画面（lg 以上）では、下のメニューを左の縦並びにする。その幅だけ中身を右にずらす */
 export const RAIL = "lg:pl-[88px]";
 
-// 下のメニューは4つ（チャット・プロジェクト・ルーティーン・開発）と「メニュー」。ほかの画面は左から出るメニューから開く
+// 下のメニューは3つ（チャット・プロジェクト・ルーティーン）と「メニュー」。ほかの画面は左から出るメニューから開く
 const TABS = [
   { href: "#/", label: "チャット", icon: "chat" },
   { href: "#/pj", label: "プロジェクト", icon: "pj" },
   { href: "#/habits", label: "ルーティーン", icon: "habit" },
-  { href: "#/watching", label: "カンバン", icon: "dev" },
 ] as const;
 
 /** 下のメニューの数字。画面をまたいで1つを共有し、20秒おき（と画面に戻ったとき）に取り直す */
@@ -196,7 +195,7 @@ function useBadges(): NavBadges {
     () => badges,
   );
 }
-const badgeOf = (b: NavBadges, href: string) => (href === "#/" ? b.home : href === "#/watching" ? b.watching : 0);
+const badgeOf = (b: NavBadges, href: string) => (href === "#/" ? b.home : 0);
 
 function Badge({ n }: { n: number }) {
   if (n <= 0) return null;
@@ -225,11 +224,17 @@ const useDrawerOpen = () =>
   );
 
 // 小項目は普段は畳んでいて、右の ˅ で開く（開いたものは覚えておく）
-const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges; match?: string[]; sub?: { href: string; label: string }[] }[] = [
-  { href: "#/", label: "チャット", icon: "chat", badge: "home", sub: [{ href: "#/search", label: "検索" }] },
+const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges; match?: string[]; sub?: { href: string; label: string; match?: string; badge?: keyof NavBadges }[] }[] = [
+  {
+    href: "#/",
+    label: "チャット",
+    icon: "chat",
+    badge: "home",
+    match: ["#/session", "#/watching", "#/task/", "#/search"],
+    sub: [{ href: "#/session", label: "セッション", match: "#/session/" }, { href: "#/watching", label: "カンバン", match: "#/task/", badge: "watching" }, { href: "#/search", label: "検索", match: "#/search" }],
+  },
   { href: "#/pj", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo"], sub: [{ href: "#/memos", label: "メモ" }, { href: "#/todos", label: "タスク" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }] },
   { href: "#/habits", label: "ルーティーン", icon: "habit" },
-  { href: "#/watching", label: "カンバン", icon: "dev", badge: "watching", match: ["#/task/"] },
   { href: "#/report", label: "レポート", icon: "insights", match: ["#/watch"], sub: [{ href: "#/report", label: "今日のレポート" }, { href: "#/watch", label: "定期報告" }] },
   {
     href: "#/settings",
@@ -253,7 +258,7 @@ const menuItems = () => MENU;
 const OPEN_KEY = "gh-menu-open";
 function readOpened(): string[] {
   try {
-    const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? "[]");
+    const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? `["#/"]`); // 初めはチャットの小項目（カンバンなど）を出しておく;
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
@@ -266,7 +271,7 @@ const HALO = "-mx-1.5 rounded-md bg-ground/85 px-1.5 py-0.5 backdrop-blur-[2px]"
 const HALO_ON = "-mx-1.5 rounded-md bg-chip/85 px-1.5 py-0.5 backdrop-blur-[2px]";
 
 const inSection = (hash: string, m: (typeof MENU)[number]) =>
-  m.href === "#/" ? hash === "#/" || hash === "" : hash === m.href || hash.startsWith(`${m.href}?`) || hash.startsWith(`${m.href}/`) || (m.match ?? []).some((x) => hash.startsWith(x));
+  (m.href === "#/" ? hash === "#/" || hash === "" : hash === m.href || hash.startsWith(`${m.href}?`) || hash.startsWith(`${m.href}/`)) || (m.match ?? []).some((x) => hash.startsWith(x) && !(x === "#/watch" && hash.startsWith("#/watching")));
 
 /** 右へなぞってもメニューを開かないところ: 入力欄・エディタと、横に動かせるもの */
 function swipeBlocked(target: EventTarget | null): boolean {
@@ -375,7 +380,10 @@ export function Drawer() {
                 {m.sub && opened.includes(m.href) && (
                   <div className="flex flex-col pb-1 pl-11">
                     {m.sub.map((x) => (
-                      <a key={x.href} href={x.href} tabIndex={open ? 0 : -1} className={`flex min-h-9 items-center rounded-lg px-2 text-[13px] no-underline ${hash === x.href || (x.href === "#/search" && hash.startsWith("#/search")) || (x.href === "#/settings" && hash === "#/system") ? "font-semibold text-ink" : "text-mute hover:text-ink"}`}><span className={HALO}>{tr(x.label)}</span></a>
+                      <a key={x.href} href={x.href} tabIndex={open ? 0 : -1} className={`flex min-h-9 items-center rounded-lg px-2 text-[13px] no-underline ${hash === x.href || (x.match && hash.startsWith(x.match)) || (x.href === "#/settings" && hash === "#/system") ? "font-semibold text-ink" : "text-mute hover:text-ink"}`}>
+                        <span className={HALO}>{tr(x.label)}</span>
+                        {x.badge && b[x.badge] > 0 && <span className="ml-auto rounded-full bg-orange px-1.5 text-[11px] font-bold leading-[18px] text-paper">{b[x.badge]}</span>}
+                      </a>
                     ))}
                   </div>
                 )}
