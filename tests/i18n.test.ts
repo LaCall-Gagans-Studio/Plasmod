@@ -12,3 +12,14 @@ describe("言語", () => {
     expect(translate("辞書に無い文言", "en")).toBe("辞書に無い文言");
   });
 });
+
+describe("リリースノート", () => {
+  test("今の版の名前を引ける。版の番号は新しい順", async () => {
+    const { RELEASE_NOTES, versionName } = await import("../src/shared/release-notes");
+    expect(versionName("2.0.0")).toBe("さらなる高みへ");
+    expect(versionName("9.9.9")).toBe("");
+    const nums = RELEASE_NOTES.map((n) => Number(n.version));
+    expect(nums).toEqual([...nums].sort((a, b) => b - a));
+    for (const n of RELEASE_NOTES) expect(n.items.length).toBeGreaterThan(0);
+  });
+});

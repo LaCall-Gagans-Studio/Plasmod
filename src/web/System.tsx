@@ -15,6 +15,7 @@ import { toast } from "./touch";
 import { lang, setLang, t, t as tr } from "./i18n";
 import { fetchRetry } from "./api";
 import { PushSection } from "./webpush";
+import { RELEASE_NOTES, versionName } from "../shared/release-notes";
 import { ProfileCard } from "./ProfileCard";
 import { VpsChart } from "./VpsChart";
 
@@ -562,13 +563,36 @@ function AboutApp() {
     <section aria-label="このアプリについて" className="mx-4 divide-y divide-line rounded-xl border border-line text-[13px]">
       <div className="flex flex-col gap-2 px-3.5 py-3">
         <span className="font-bold">{a.name}</span>
-        <blockquote className="m-0 whitespace-pre-line font-serif text-[13.5px] leading-[1.9] text-ink-2">{lang === "ja" ? "わたくしといふ現象は\n仮定された有機交流電燈の\nひとつの青い照明です\n（あらゆる透明な幽霊の複合体）" : "(I am large, I contain multitudes.)"}</blockquote>
-        <cite className="font-mono text-[10.5px] not-italic text-mute">{lang === "ja" ? "宮沢賢治『春と修羅』序" : "Walt Whitman, Song of Myself"}</cite>
+        <blockquote className="m-0 font-serif text-[15px] leading-relaxed text-ink">{lang === "ja" ? "わたくしといふ現象は" : "I contain multitudes."}</blockquote>
+        <cite className="font-mono text-[10.5px] not-italic text-mute">{lang === "ja" ? "宮沢賢治『春と修羅』" : "Walt Whitman, Song of Myself"}</cite>
       </div>
       <div className={row}>
         <span className="text-mute">バージョン</span>
-        <span className="font-mono text-[12px]">{a.version || "—"}</span>
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate font-semibold">{versionName(a.version)}</span>
+          <span className="flex-none font-mono text-[12px] text-mute">{a.version || "—"}</span>
+        </span>
       </div>
+      <details className="group">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 [&::-webkit-details-marker]:hidden">
+          <span className="text-mute">{tr("リリースノート")}</span>
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden="true" className="flex-none text-mute transition-transform duration-200 group-open:rotate-90"><path d="M9 6l6 6-6 6" /></svg>
+        </summary>
+        <div className="flex flex-col gap-4 px-3.5 pb-3.5 pt-0.5">
+          {RELEASE_NOTES.map((n) => (
+            <section key={n.version} aria-label={n.name}>
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-mono text-[12px] font-bold">v{n.version}</span>
+                <span className="text-[13.5px] font-bold">{n.name}</span>
+                <span className="ml-auto font-mono text-[10.5px] text-mute">{n.date ?? tr("開発中")}</span>
+              </div>
+              <ul className="m-0 mt-1 list-disc pl-4 text-[12.5px] leading-relaxed text-ink-2">
+                {n.items.map((x) => <li key={x}>{x}</li>)}
+              </ul>
+            </section>
+          ))}
+        </div>
+      </details>
       {a.developer && (
         <div className={row}>
           <span className="text-mute">開発者</span>
