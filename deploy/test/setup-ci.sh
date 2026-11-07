@@ -27,7 +27,7 @@ check() {
   [ "$(stat -c '%a' /etc/plasmod-rootd)" = 700 ] || ng "rootd の設定の権限"
   sudo -u nobody test ! -r /etc/plasmod/env || ng "ほかのユーザーが env を読める"
   grep -q '^PLASMOD_ALLOWED_LOGINS=ci@example.com$' /etc/plasmod/env || ng "ログインの設定"
-  visudo -c >/dev/null || ng "sudoers"
+  visudo -cf /etc/sudoers.d/plasmod >/dev/null || ng "sudoers"
 }
 check
 ok "入った状態"
