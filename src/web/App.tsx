@@ -6,7 +6,6 @@ import { MemoMenu, ProjectMenu } from "./pjmenus";
 import { Drawer } from "./ui";
 import { useStale } from "./version";
 import { CardView } from "./CardView";
-import { Dev } from "./Dev";
 import { Home } from "./Home";
 import { Report } from "./Report";
 import { Root } from "./Root";
@@ -75,7 +74,7 @@ function Routes() {
   const { snap, online } = useSnapshot();
   if (useAbout().setupDone === false) return <Welcome />;
   if (hash.startsWith("#/card/")) return <CardView snap={snap} cardKey={decodeURIComponent(hash.slice("#/card/".length))} />;
-  if (hash === "#/watching") return <Watching snap={snap} />;
+  if (hash === "#/watching" || hash === "#/dev") return <Watching snap={snap} />;
   const task = hash.match(/^#\/task\/([A-Za-z0-9_-]{1,64})$/);
   if (task) return <TaskView snap={snap} id={task[1]} />;
   if (hash === "#/report") return <Report snap={snap} />;
@@ -99,7 +98,6 @@ function Routes() {
   const memo = hash.match(/^#\/memo\/(new|-?[0-9]{1,18})(?:\?|$)/);
   if (memo) return <Suspense fallback={loading}><MemoPage key={memo[1]} id={memo[1] === "new" ? "new" : Number(memo[1])} /></Suspense>;
   if (hash === "#/habits") return <Suspense fallback={loading}><Habits /></Suspense>;
-  if (hash === "#/dev") return <Dev />;
   // システムは「設定」になった（#/system は古いリンク用）
   if (hash === "#/settings" || hash.startsWith("#/settings?") || hash === "#/system") return <System snap={snap} />;
   return <Home snap={snap} online={online} />;

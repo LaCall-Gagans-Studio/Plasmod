@@ -1,8 +1,6 @@
 import { useState } from "react";
 import type { KanbanTask, Snapshot, TaskStatus } from "../shared/types";
 import { TaskBadges, refsIn } from "./badges";
-import { DevTabs } from "./Dev";
-import { OrchestrationGraph } from "./graph";
 import { Avatar, Page, ago, profileOf } from "./ui";
 
 const COLUMNS: { name: string; dot: string; statuses: TaskStatus[] }[] = [
@@ -55,15 +53,12 @@ export function Watching({ snap }: { snap: Snapshot | null }) {
   const [open, setOpen] = useState<string[]>([]);
   return (
     <Page
-      title="開発"
-      current="#/dev"
+      title="カンバン"
+      current="#/watching"
       right={<span className="font-mono text-[11px] text-mute">{snap?.board ? `更新 ${ago(snap.board.fetched_at)}` : "…"}</span>}
     >
-      <DevTabs current="kanban" />
       {snap?.boardError && <div className="mx-4 mt-2 rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink">{snap.boardError}</div>}
-      {snap && <OrchestrationGraph agents={snap.agents} tasks={tasks} teams={snap.teams} />}
-      <h2 className="m-0 px-5 pb-2.5 pt-5 text-[15px] font-bold">カンバン</h2>
-      <div className="flex gap-2.5 overflow-x-auto px-4 pb-4">
+      <div className="flex gap-2.5 overflow-x-auto px-4 pb-4 pt-3">
         {COLUMNS.map((col) => {
           const items = tasks
             .filter((t) => col.statuses.includes(t.status))

@@ -3,19 +3,17 @@ import type { NavBadges, ReportSlide } from "../../shared/types";
 import { PerfLog } from "../perf";
 import type { RouteContext } from "./context";
 
-export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch, tasks, memos, habits }: RouteContext) {
+export function reportsRoutes({ app, cfg, hub, store, system, rootd, watch, tasks, memos, habits }: RouteContext) {
   // レポート: 今日のタスク → 自分のタスク → メモ → ルーティーン → 判断待ち → 定期報告 → 監察 → まとめ（実績はここに1枚）
   app.get("/api/report", async (c) => {
     const r = hub.report();
-    // 毎日のチームの定期報告と、週次のチームの報告は、最後のまとめの前に、この順で
+    // 定期報告（間隔が1日以内のジョブ）と今週の報告（もっと長いジョブ）は、最後のまとめの前に、この順で
     if (watch?.configured) {
       try {
         const d = await watch.routine();
         if (d.items.length || d.late.length || d.error) r.slides.splice(r.slides.length - 1, 0, { kind: "routine", ...d });
-        for (const t of cfg.teams.filter((x) => x.cadence === "weekly")) {
-          const w = await watch.latest(t.id);
-          if (w.items.length || w.error) r.slides.splice(r.slides.length - 1, 0, { kind: "watch", team: t.id, title: `今週の${t.name}`, ...w });
-        }
+        const w = await watch.weekly();
+        if (w.items.length) r.slides.splice(r.slides.length - 1, 0, { kind: "watch", ...w });
       } catch {
         /* 定期報告の枚が出ないだけ */
       }
@@ -40,7 +38,7 @@ export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch,
     return c.json(await watch.all(c.req.query("force") === "1"));
   });
 
-  // 下のメニューの数字: ホーム＝判断待ちのカード＋root の承認待ち、Dev＝下書きでない PR、ウォッチング＝止まっているカード、システム＝root の承認待ち
+  // 下のメニューの数字: ホーム＝判断待ちのカード＋root の承認待ち、ウォッチング＝止まっているカード、システム＝root の承認待ち
   // 速さの記録（設定の VPS に出す）
   let perfLog: PerfLog | null = null;
   const perf = () => (perfLog ??= new PerfLog(store.db));
@@ -76,7 +74,6 @@ export function reportsRoutes({ app, cfg, hub, store, dev, system, rootd, watch,
     }
     const badges: NavBadges = {
       home: snap.cards.filter((x) => x.kind !== "note").length + root,
-      dev: (dev?.snapshot().prs ?? []).filter((p) => !p.draft).length,
       watching: (snap.board?.tasks ?? []).filter((t) => t.status === "blocked").length,
       system: root,
     };

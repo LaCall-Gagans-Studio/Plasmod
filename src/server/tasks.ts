@@ -5,7 +5,7 @@
 //       完了＝done（済み）・dismissed（不要）。完了でも、同じ元に判断より新しい動きがあれば判断待ちに戻る
 //       （不要は、キーがぴったり同じときだけ。言い換え・似た題名では戻さない）
 import type { Database } from "bun:sqlite";
-import type { AppTaskLinks, AppTaskList, TaskSummaryItem } from "../shared/types";
+import type { AppTaskLinks, AppTaskList, DevPr, TaskSummaryItem } from "../shared/types";
 import { normalizeTags } from "./memos";
 import { SearchIndex } from "./search";
 import { type TaskStatus, TASK_STATUSES, OPEN, type Task, type TaskEvent, TaskError, type TaskInput, type MirrorInput, GONE, type UpsertResult, NAME_RE, STATUS_LABEL, KINDS, clean, LOOSE_KEY_SOURCES, keyParts, sameLooseKey, titleScore, TITLE_WINDOW_MS, TAGS, OPEN_CHILDREN, type Row, toTask } from "./task-model";
@@ -549,6 +549,53 @@ export class TaskStore {
         .sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9") || a.updatedAt - b.updatedAt)
         .map((t) => ({ ...row(t, t.due), project: t.project, idleDays: Math.max(0, Math.floor((now - t.updatedAt) / 86_400_000)) })),
     };
+  }
+
+  /**
+   * 開いている PR を Todo のタスクに写す（下書きはレビューできるようになるまで作らない）。変わったら true。
+   *   無い → Todo で作る／開いている → 題名だけ合わせる（本文はオーナーが書き足すので触らない）
+   *   オーナーが閉じた・消したもの → 戻さない
+   * complete のときだけ、開いている一覧に無くなった PR のタスクを完了にする（マージ・クローズ）
+   */
+  syncPrs(prs: DevPr[], complete: boolean, now = Date.now()): boolean {
+    return this.db.transaction(() => {
+      let changed = false;
+      const open = new Set<string>();
+      for (const p of prs) {
+        const key = `${p.repo}#${p.number}`;
+        open.add(key);
+        const title = `${p.repo.split("/")[1]} #${p.number} ${p.title}`.slice(0, 300);
+        const cur = this.bySource("github", key);
+        if (!cur) {
+          if (p.draft || this.wasDeleted("github", key)) continue;
+          const r = this.db
+            .query(
+              `INSERT INTO tasks (ref, title, body, kind, status, source, source_key, url, created_by, inbox_at, created_at, updated_at)
+               VALUES (?, ?, ?, 'todo', 'todo', 'github', ?, ?, 'github', ?, ?, ?)`,
+            )
+            .run(this.refFor("github", key), title, p.summary, key, p.url, now, now, now);
+          const id = Number(r.lastInsertRowid);
+          this.event(id, "create", "github", `PR ${key}`, now);
+          this.fresh(id);
+          changed = true;
+        } else if (cur.title !== title && cur.status !== "done" && cur.status !== "dismissed") {
+          this.db.query("UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?").run(title, Math.max(now, cur.updatedAt + 1), cur.id);
+          this.fresh(cur.id);
+          changed = true;
+        }
+      }
+      if (!complete) return changed;
+      const rows = this.db.query("SELECT id, source_key AS k, updated_at AS u FROM tasks WHERE source = 'github' AND status IN ('inbox','todo','doing')").all() as { id: number; k: string; u: number }[];
+      for (const r of rows) {
+        if (open.has(r.k)) continue;
+        const at = Math.max(now, r.u + 1);
+        this.db.query("UPDATE tasks SET status = 'done', decided_at = ?, updated_at = ? WHERE id = ?").run(at, at, r.id);
+        this.event(r.id, "done", "github", "PR が閉じた（マージまたはクローズ）", at);
+        this.fresh(r.id);
+        changed = true;
+      }
+      return changed;
+    })();
   }
 
   /** 親を付ける・外す（自分や自分の子孫は親にできない） */

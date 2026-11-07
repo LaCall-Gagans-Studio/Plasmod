@@ -79,7 +79,6 @@ if (!config.hermesApi && source instanceof BrokerSource) {
 hub.setApprovals(sessions);
 new SessionIndexer(sessions, hub.search, (agent) => store.sessionMarks(agent)).start();
 const dev = new DevService(config.githubToken ? new GitHub(config.githubToken, fetch, config.githubApi) : null, config.githubOwner);
-dev.start();
 const shares = new ShareStore(join(config.dataDir, "shares"));
 setInterval(() => shares.sweep(), 3600_000);
 const system = new SystemService(
@@ -91,12 +90,16 @@ const system = new SystemService(
 system.startSeries();
 const media = new MediaService({ bridge, hermesRead: source instanceof BrokerSource ? (p) => source.readFile(p) : null });
 const rootd = new RootClient(config.rootdSock);
-const watch = new WatchService(source instanceof BrokerSource ? source.call : null, config.profiles, config.teams);
+const watch = new WatchService(source instanceof BrokerSource ? source.call : null, config.profiles);
 const memos = new MemoStore(store.db);
 const tasks = new TaskStore(store.db, config.taskRefPrefix);
 const projects = new ProjectStore(store.db, memos, tasks);
 const habits = new HabitStore(store.db);
 hub.setTasks(tasks);
+dev.onPrs = (prs, complete) => {
+  if (tasks.syncPrs(prs, complete)) hub.changed();
+};
+dev.start();
 if (config.memoSpool) {
   const agents = agentUids(config.memoAgents, readFileSync("/etc/passwd", "utf8"));
   new MemoSpool(memos, config.memoSpool, agents, tasks, () => hub.changed(), habits).start();
