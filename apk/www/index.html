@@ -37,6 +37,7 @@
   /* 文字は絵の下に重ねる（絵の位置を動かさない） */
   body.connecting main > :not(#connecting):not(#status) { display: none; }
   body.connecting #status { position: fixed; left: 16px; right: 16px; top: calc(50% + 112px); text-align: center; color: var(--mute); font-size: 13px; }
+  #guide { display: block; padding: 10px 4px; text-align: center; font-size: 13px; color: var(--ink-2); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -75,6 +76,7 @@
       <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://<マシン名>.<tailnet>.ts.net:8443" required>
     </label>
     <button class="primary">つなぐ</button>
+    <a id="guide" href="https://github.com/LaCall-Gagans-Studio/Plasmod/blob/main/docs/GETTING-STARTED.md" target="_blank" rel="noopener noreferrer">住所がまだ無い方へ: VPS と Tailscale の準備の手順</a>
   </form>
 
   <button id="change" class="link" hidden>サーバーの住所を変える</button>

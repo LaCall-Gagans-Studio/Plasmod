@@ -53,6 +53,8 @@ flowchart LR
 
 ## 入れる
 
+VPS や Tailscale がまだの方は、[はじめての準備](docs/GETTING-STARTED.md) から始めてください。
+
 要るもの: Ubuntu の VPS、[Tailscale](https://tailscale.com/)（ログイン済み）、[Hermes](https://github.com/NousResearch/hermes-agent)。
 
 ```sh
