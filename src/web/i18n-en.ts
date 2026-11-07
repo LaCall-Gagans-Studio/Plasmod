@@ -9,6 +9,7 @@ export const EN: Record<string, string> = {
   タスク: "Tasks",
   "タスク（期限順）": "Tasks by due date",
   カンバン: "Kanban",
+  セッション: "Sessions",
   レポート: "Report",
   今日のレポート: "Today's report",
   定期報告: "Scheduled reports",

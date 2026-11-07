@@ -10,7 +10,7 @@ import { Home } from "./Home";
 import { Report } from "./Report";
 import { Root } from "./Root";
 import { Search } from "./Search";
-import { SessionPage } from "./Session";
+import { OpenLastSession, SessionPage } from "./Session";
 import { Share } from "./Share";
 import { System } from "./System";
 import { TaskView } from "./Task";
@@ -81,6 +81,7 @@ function Routes() {
   if (hash === "#/watch") return <WatchPage snap={snap} />;
   const share = hash.match(/^#\/share\/([0-9a-f]{24}|error)/);
   if (share) return <Share id={share[1]} />;
+  if (hash === "#/session") return <OpenLastSession />;
   const ses = hash.match(/^#\/session\/([a-z0-9_-]+)\/(.+)$/);
   if (ses) return <SessionPage snap={snap} agent={ses[1]} id={decodeURIComponent(ses[2])} />;
   if (hash.startsWith("#/search")) return <Search snap={snap} />;

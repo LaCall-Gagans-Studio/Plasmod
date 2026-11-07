@@ -5,6 +5,7 @@ import type { AppTask, AppTaskEvent, AppTaskLinks, AppTaskList, AppTaskStatus, M
 import { BodyEditor, FolderIcon, json, TagField } from "./memo-fields";
 import { Icon, ago, profileOf } from "./ui";
 import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, OPEN, UNDONE_LABEL, taskDot, dueLabel, DUE_CLS, TaskRow } from "./TaskRow";
+import { AddField } from "./AddField";
 import { createTask, fetchTask, patchTask } from "./task-db";
 import { KANBAN_STATUS } from "./Task";
 import { CopyRef } from "./touch";
@@ -172,11 +173,14 @@ function LinksSection({ id, task, links, snap, onChanged }: { id: number; task: 
               ))}
             </ul>
           )}
-          <label className={`flex h-10 items-center gap-2 px-4 text-mute ${links.children.length ? "border-t border-line" : ""}`}>
-            <span aria-hidden="true" className="text-[16px] leading-none">＋</span>
-            <span className="sr-only">サブタスクを追加</span>
-            <input value={sub} onChange={(e) => setSub(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void addSub()} placeholder="サブタスクを追加" className="min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute" />
-          </label>
+          <AddField
+            value={sub}
+            onChange={setSub}
+            onAdd={() => void addSub()}
+            placeholder="サブタスクを追加"
+            className={`flex h-10 items-center gap-2 px-4 text-mute ${links.children.length ? "border-t border-line" : ""}`}
+            inputClassName="min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-mute"
+          />
         </div>
       </div>
 

@@ -34,6 +34,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const team = liveTeams.some((t) => t.id === teamPick) ? teamPick : (liveTeams[0]?.id ?? DEFAULT_TEAM);
   const agents = all.filter((a) => teamOf(a.id) === team);
   const [agent, setAgentState] = useState<string | null>(null);
+  const agentRef = useRef(agent);
+  agentRef.current = agent;
   const setAgent = (a: string) => {
     setAgentState(a);
     remember(LAST_AGENT, a);
@@ -78,7 +80,9 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const { sessions, error } = useSessions(agent, bump);
   // 最後に開いていたセッションがまだあればそれ、無ければ一番新しいもの
   const lastId = agent ? recall(lastSessionKey(agent)) : null;
-  const latest = fresh ? null : (sessions?.find((s) => s.id === lastId) ?? sessions?.[0] ?? null);
+  // 一覧はピン留めが先頭なので、先頭ではなく最後に動いたものを選ぶ
+  const newest = sessions?.reduce<(typeof sessions)[number] | null>((a, s) => (!a || s.last > a.last ? s : a), null) ?? null;
+  const latest = fresh ? null : (sessions?.find((s) => s.id === lastId) ?? newest);
   const { view } = useView(agent, latest?.id ?? null, 3000);
   const outgoing = useOutgoing(agent ?? "", latest?.id ?? null);
   const unread = useChatUnread(all, agent);
@@ -221,7 +225,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
           )}
           {error && <div className="p-4 text-[12.5px] text-orange-ink">{error}</div>}
           {!fresh && sessions && sessions.length === 0 && <div className="p-4 text-[12.5px] text-mute">まだセッションがない。下から話しかけると始まる</div>}
-          {fresh && <div className="flex-1 p-4 text-[12.5px] leading-relaxed text-mute">下から話しかけると、{agent ? NAME(snap, agent) : ""}との新しいセッションが始まる。</div>}
+          {fresh && outgoing.length === 0 && <div className="flex-1 p-4 text-[12.5px] leading-relaxed text-mute">下から話しかけると、{agent ? NAME(snap, agent) : ""}との新しいセッションが始まる。</div>}
           {(latest || outgoing.length > 0) && <ViewBody
               view={latest ? view : null}
               compact
@@ -236,9 +240,15 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
                 placeholder={`${NAME(snap, agent)}に頼む…`}
                 draftKey={`${agent}:${latest?.id ?? "new"}`}
                 onSend={(t, f) => {
-                  setFresh(false);
-                  if (!latest) remember(lastSessionKey(agent), null); // 新しく始めたものを、次からの「最後」にする
-                  void submit(agent, latest?.id ?? null, t, f).then(() => setBump((x) => x + 1));
+                  const starting = !latest;
+                  // 新しく始めるときは、番号が決まるまで「新しいセッション」のまま待つ（ほかのセッションを開かない）
+                  void submit(agent, latest?.id ?? null, t, f).then((sid) => {
+                    if (starting && sid) {
+                      remember(lastSessionKey(agent), sid);
+                      if (agentRef.current === agent) setFresh(false);
+                    }
+                    setBump((x) => x + 1);
+                  });
                 }}
               />
             )}
@@ -247,6 +257,20 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
       </div>
     </section>
   );
+}
+
+/** #/session: 最後に開いていたエージェント・セッションを開く（メニューの「セッション」） */
+export function OpenLastSession() {
+  const agents = useAgents();
+  const ids = agents.map((a) => a.id).join(",");
+  useEffect(() => {
+    if (!ids) return;
+    const list = ids.split(",");
+    const last = recall(LAST_AGENT);
+    const agent = last && list.includes(last) ? last : list[0];
+    location.replace(`#/session/${agent}/${encodeURIComponent(recall(lastSessionKey(agent)) ?? "new")}`);
+  }, [ids]);
+  return <Skeleton />;
 }
 
 /** 全画面のセッション。#/session/<agent>/<id>（id が new なら新しいセッション）。

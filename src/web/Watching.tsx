@@ -54,7 +54,7 @@ export function Watching({ snap }: { snap: Snapshot | null }) {
   return (
     <Page
       title="カンバン"
-      current="#/watching"
+      current="#/"
       right={<span className="font-mono text-[11px] text-mute">{snap?.board ? `更新 ${ago(snap.board.fetched_at)}` : "…"}</span>}
     >
       {snap?.boardError && <div className="mx-4 mt-2 rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink">{snap.boardError}</div>}
