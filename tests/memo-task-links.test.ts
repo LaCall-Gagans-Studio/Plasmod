@@ -10,7 +10,7 @@ import { MemoStore } from "../src/server/memos";
 import { Store } from "../src/server/store";
 import { TaskStore } from "../src/server/tasks";
 import { memoIdOf, memoLinkText, memoRef } from "../src/shared/memo-ref";
-import { buildLivePreview, focusEffect, isMemoHash, memoExtensions } from "../src/web/live-preview";
+import { buildLivePreview, focusEffect, isExternalHref, isMemoHash, memoExtensions } from "../src/web/live-preview";
 import { localList } from "../src/web/memo-sync";
 
 const widgets = (s: EditorState) => {
@@ -270,4 +270,12 @@ test("枠のページのスクリプトは、書き出す中身まで含めて�
   const inner = /<script>([\s\S]*)<\/script>/.exec(written)![1];
   expect(() => new Function(inner)).not.toThrow();
   expect(inner).toContain("#/memo/");
+  // 外部リンクは枠の中で開かず、親に頼む（Android の WebView は枠から別窓を開けない）
+  expect(inner).toContain("plasmodBox:'external'");
+  expect(inner).not.toContain("_blank");
+});
+
+test("枠から開ける外部リンクは https だけ", () => {
+  expect(isExternalHref("https://yandex.uz/maps/?text=Registon%20maydoni%20Samarqand")).toBe(true);
+  for (const h of ["http://example.com/", "javascript:alert(1)", "intent://x#Intent;end", "data:text/html,x", "#/memo/1", "", null, 1]) expect(isExternalHref(h)).toBe(false);
 });
