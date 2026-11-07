@@ -317,15 +317,14 @@ export class Hub {
     // 「自分でやる」はもう「やる」にしてある
     if (!t || t.status !== "inbox") return;
     // 任せ中（カンバンが続きをやる）／完了（不要）／完了
+    const unneeded = optionId === "dismiss" || optionId === "archive";
     const status: Task["status"] =
       ["approve", "revise", "changes", "handle", "kanban", "draft"].includes(optionId) || optionId.startsWith("to-")
         ? "doing"
         : optionId === "mine" || optionId === "task"
           ? "todo"
-          : optionId === "dismiss" || optionId === "archive"
-            ? "dismissed"
-            : "done";
-    this.tasks.decide(t.id, status, note, "app", Date.now(), label);
+          : "done";
+    this.tasks.decide(t.id, status, note, "app", Date.now(), label, unneeded ? "unneeded" : null);
   }
 
   /**
@@ -392,7 +391,7 @@ export class Hub {
         return;
       case "dismiss":
         // 完了（不要）。元（同じメールのスレッドなど）に新しい動きがあったときだけ、また判断待ちに戻る
-        tasks.decide(id, "dismissed", note, "app", Date.now(), label);
+        tasks.decide(id, "done", note, "app", Date.now(), label, "unneeded");
         return;
       case "mine":
         tasks.decide(id, "todo", note, "app", Date.now(), label);

@@ -1,6 +1,7 @@
 // アプリのタスク（カンバンの /api/tasks とは別）
 import { type Context } from "hono";
-import { STATUS_LABEL, TASK_STATUSES, TaskError, type TaskStatus } from "../tasks";
+import { TASK_STATUSES, TaskError, type TaskStatus } from "../tasks";
+import { LEGACY_DISMISSED, statusLabel, type TaskDoneReason } from "../task-model";
 import type { RouteContext } from "./context";
 import { memoIdOf } from "../../shared/memo-ref";
 
@@ -8,7 +9,7 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
   // ---- 番号のバッジ（TASK-123）: 状態とリンク ----
   app.get("/api/apptasks-badges", (c) => {
     const ids = (c.req.query("ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 100);
-    const STATE_TYPE: Record<TaskStatus, string> = { inbox: "unstarted", todo: "unstarted", doing: "started", done: "completed", dismissed: "canceled" };
+    const STATE_TYPE: Record<TaskStatus, string> = { inbox: "unstarted", todo: "unstarted", doing: "started", done: "completed" };
     return c.json({
       issues: Object.fromEntries(
         ids.map((id) => {
@@ -18,7 +19,7 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
             return [id, m ? { id, title: m.title, url: `#/memo/${m.id}`, state: m.archivedAt ? "アーカイブ" : "メモ", stateType: m.archivedAt ? "canceled" : "backlog" } : null];
           }
           const t = tasks?.byRef(id);
-          return [id, t ? { id, title: t.title, url: `#/todo/${t.id}`, state: STATUS_LABEL[t.status], stateType: STATE_TYPE[t.status] } : null];
+          return [id, t ? { id, title: t.title, url: `#/todo/${t.id}`, state: statusLabel(t.status, t.doneReason), stateType: t.doneReason === "unneeded" ? "canceled" : STATE_TYPE[t.status] } : null];
         }),
       ),
     });
@@ -45,7 +46,9 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
     if (!Number.isSafeInteger(id) || id <= 0) throw new TaskError("不正なタスクID", 400);
     return id;
   };
-  const statusOf = (v: unknown): TaskStatus | undefined => (typeof v === "string" && (TASK_STATUSES as string[]).includes(v) ? (v as TaskStatus) : undefined);
+  // 古い端末は dismissed を送ってくる（Done・理由は不要として受ける）
+  const statusOf = (v: unknown): TaskStatus | undefined => (v === LEGACY_DISMISSED ? "done" : typeof v === "string" && (TASK_STATUSES as string[]).includes(v) ? (v as TaskStatus) : undefined);
+  const doneReasonOf = (b: Record<string, unknown>): TaskDoneReason | null | undefined => (b.status === LEGACY_DISMISSED || b.doneReason === "unneeded" ? "unneeded" : b.doneReason === null ? null : undefined);
   app.get("/api/apptasks", (c) => {
     if (!tasks) return c.json({ ok: false, error: "タスクは使えない" }, 404);
     const status = (c.req.query("status") ?? "").split(",").map(statusOf).filter((s): s is TaskStatus => !!s);
@@ -112,6 +115,7 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
           project: typeof b.project === "string" || b.project === null ? (b.project as string | null) : undefined,
           due: typeof b.due === "string" || b.due === null ? (b.due as string | null) : undefined,
           status: statusOf(b.status),
+          doneReason: doneReasonOf(b),
           tags: Array.isArray(b.tags) ? (b.tags as unknown[]).filter((x): x is string => typeof x === "string") : undefined,
           note: str("note"),
           baseUpdatedAt: typeof b.baseUpdatedAt === "number" ? b.baseUpdatedAt : undefined,

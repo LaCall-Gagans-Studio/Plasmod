@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppTask, AppTaskEvent, AppTaskLinks, AppTaskList, AppTaskStatus, MemoSummary, Snapshot } from "../shared/types";
 import { BodyEditor, FolderIcon, json, TagField } from "./memo-fields";
 import { Icon, ago, profileOf } from "./ui";
-import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, dueLabel, DUE_CLS, TaskRow } from "./TaskRow";
+import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, OPEN, UNDONE_LABEL, taskDot, dueLabel, DUE_CLS, TaskRow } from "./TaskRow";
 import { createTask, fetchTask, patchTask } from "./task-db";
 import { CopyRef } from "./touch";
 import { Skeleton } from "./loading";
@@ -72,7 +72,7 @@ function LinkPicker({ selfId, exclude, onPick, onClose }: { selfId: number; excl
         {hits.map((t) => (
           <li key={t.id}>
             <button onClick={() => void onPick(kind, t).then((ok) => ok && setQ(""))} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-chip/70">
-              <span className="size-2 flex-none rounded-full" style={{ background: STATUS_DOT[t.status] }} />
+              <span className="size-2 flex-none rounded-full" style={{ background: taskDot(t) }} />
               <span className="w-[58px] flex-none font-mono text-[11px] text-mute">{t.ref ?? `#${t.id}`}</span>
               <span className={`min-w-0 flex-1 truncate ${t.status === "done" ? "text-mute line-through" : "text-ink"}`}>{t.title}</span>
             </button>
@@ -120,14 +120,14 @@ function LinksSection({ id, task, links, snap, onChanged }: { id: number; task: 
     ["blocks", "止めている", links.blocks, (t) => void post("link", { other: t.id, kind: "blocks", on: false })],
     ["related", "関連", links.related, (t) => void post("link", { other: t.id, kind: "related", on: false })],
   ];
-  const left = links.children.filter((c) => c.status !== "done" && c.status !== "dismissed").length;
+  const left = links.children.filter((c) => c.status !== "done").length;
   const row = (kind: LinkKind, t: AppTask, remove: () => void) => (
     <li key={t.id} className="group flex items-center gap-2.5 px-3 py-2">
       <span className={kind === "blocked_by" && t.status !== "done" ? "text-orange-ink" : "text-mute"}><LinkGlyph kind={kind} /></span>
       <a href={`#/todo/${t.id}`} className="flex min-w-0 flex-1 items-center gap-2 text-[13px] no-underline">
-        <span className="size-2 flex-none rounded-full" style={{ background: STATUS_DOT[t.status] }} title={STATUS_LABEL[t.status]} />
+        <span className="size-2 flex-none rounded-full" style={{ background: taskDot(t) }} title={STATUS_LABEL[t.status]} />
         <span className="flex-none font-mono text-[11px] text-mute">{t.ref ? <CopyRef text={t.ref} /> : `#${t.id}`}</span>
-        <span className={`min-w-0 flex-1 truncate ${t.status === "done" || t.status === "dismissed" ? "text-mute line-through" : "text-ink"}`}>{t.title}</span>
+        <span className={`min-w-0 flex-1 truncate ${t.status === "done" ? "text-mute line-through" : "text-ink"}`}>{t.title}</span>
       </a>
       <button onClick={remove} aria-label={`${t.ref ?? t.id} とのつながりを外す`} className="flex size-7 flex-none items-center justify-center rounded-md text-mute opacity-60 hover:bg-chip hover:text-ink hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
         <Icon name="close" size={14} />
@@ -209,7 +209,21 @@ function LinksSection({ id, task, links, snap, onChanged }: { id: number; task: 
   );
 }
 
-const KIND_LABEL: Record<AppTaskEvent["kind"], string> = { create: "登録", update: "更新", reopen: "Inbox へ", decide: "判断", kanban: "任せ中へ", done: "完了", comment: "コメント", ignored: "無視" };
+const KIND_LABEL: Record<AppTaskEvent["kind"], string> = { create: "登録", update: "更新", reopen: "BackLog へ", decide: "判断", kanban: "任せ中へ", done: "完了", comment: "コメント", ignored: "無視" };
+
+function StatusButton({ status, on, outlined, onPick }: { status: AppTaskStatus; on: boolean; outlined?: boolean; onPick: () => void }) {
+  return (
+    <button
+      role="radio"
+      aria-checked={on}
+      onClick={() => !on && onPick()}
+      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] ${on ? "border-ink bg-ink font-semibold text-paper" : `${outlined ? "border-line-2" : "border-transparent"} text-ink-2 hover:border-ink`}`}
+    >
+      <span className="size-2 rounded-full" style={{ background: STATUS_DOT[status] }} />
+      {STATUS_LABEL[status]}
+    </button>
+  );
+}
 
 export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: Snapshot | null; onChanged: () => void; onBack: () => void }) {
   const [task, setTask] = useState<AppTask | null>(null);
@@ -314,7 +328,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
   const d = task ? dueLabel(task.due) : null;
   // 前のツールから移したものは出どころを出さない
   const src = task ? (task.source === "imported" ? "" : (SOURCE_LABEL[task.source] ?? task.source)) : "";
-  const closed = task?.status === "done" || task?.status === "dismissed";
+  const closed = task?.status === "done";
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-ground">
@@ -336,7 +350,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
             <>
               {card && (
                 <a href={`#/card/${encodeURIComponent(card)}`} className="mb-3 flex items-center gap-2 rounded-xl border border-orange/40 bg-orange-soft px-3 py-2.5 text-[13px] font-semibold text-orange-ink no-underline">
-                  Inbox にあります。カードで選ぶ <span className="ml-auto">›</span>
+                  BackLog にあります。カードで選ぶ <span className="ml-auto">›</span>
                 </a>
               )}
               <textarea
@@ -355,20 +369,23 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
               />
 
               {/* 状態 */}
-              <div className="mt-4 flex flex-wrap gap-1.5" role="radiogroup" aria-label="状態">
-                {(["todo", "doing", "done", "dismissed"] as AppTaskStatus[]).map((s) => (
+              <div className="mt-4 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="状態">
+                <div className={`flex flex-wrap items-center gap-0.5 rounded-full border p-0.5 ${closed ? "border-line" : "border-ink"}`} role="group" aria-label={UNDONE_LABEL}>
+                  <span className={`pl-2.5 pr-1 text-[11px] font-semibold ${closed ? "text-mute" : "text-ink"}`}>{UNDONE_LABEL}</span>
+                  {OPEN.map((s) => (
+                    <StatusButton key={s} status={s} on={task.status === s} onPick={() => void setStatus(s)} />
+                  ))}
+                </div>
+                <StatusButton status="done" on={task.status === "done"} outlined onPick={() => void setStatus("done")} />
+                {closed && (
                   <button
-                    key={s}
-                    role="radio"
-                    aria-checked={task.status === s}
-                    onClick={() => task.status !== s && void setStatus(s)}
-                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] ${task.status === s ? "border-ink bg-ink font-semibold text-paper" : "border-line-2 text-ink-2 hover:border-ink"}`}
+                    aria-pressed={task.doneReason === "unneeded"}
+                    onClick={() => void patch({ status: "done", doneReason: task.doneReason === "unneeded" ? null : "unneeded" })}
+                    className={`rounded-full border px-3 py-1.5 text-[12.5px] ${task.doneReason === "unneeded" ? "border-ink font-semibold text-ink" : "border-line text-mute hover:border-ink"}`}
                   >
-                    <span className="size-2 rounded-full" style={{ background: STATUS_DOT[s] }} />
-                    {s === "dismissed" ? "Done（不要）" : STATUS_LABEL[s]}
+                    不要
                   </button>
-                ))}
-                {task.status === "inbox" && <span className="flex items-center px-2 text-[12px] font-semibold text-orange-ink">いまは判断待ち</span>}
+                )}
               </div>
 
               {/* プロパティ */}

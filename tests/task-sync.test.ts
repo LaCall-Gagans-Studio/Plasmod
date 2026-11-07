@@ -3,7 +3,7 @@ import type { AppTask } from "../src/shared/types";
 import { mergeBody, MERGE_MARK, type TaskApi, type TaskDb, type TaskFields, type TaskNew, type TaskPending, TaskSync, type TaskSyncEvent } from "../src/web/task-sync";
 
 const task = (p: Partial<AppTask> & { id: number }): AppTask => ({
-  ref: null, parentId: null, tags: [], title: "t", body: "", kind: "todo", status: "todo", source: "app", sourceKey: null, url: null, agent: null, propose: [], project: null, due: null, createdBy: "app", kanbanId: null, eventAt: null, decidedAt: null, inboxAt: 1, createdAt: 1, updatedAt: 1, ...p,
+  ref: null, parentId: null, tags: [], title: "t", body: "", kind: "todo", status: "todo", doneReason: null, source: "app", sourceKey: null, url: null, agent: null, propose: [], project: null, due: null, createdBy: "app", kanbanId: null, eventAt: null, decidedAt: null, inboxAt: 1, createdAt: 1, updatedAt: 1, ...p,
 });
 
 function setup() {

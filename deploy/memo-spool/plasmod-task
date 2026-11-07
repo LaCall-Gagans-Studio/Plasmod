@@ -34,7 +34,7 @@ import uuid
 
 SPOOL = os.environ.get("PLASMOD_MEMO_SPOOL", "/var/lib/plasmod-spool/memo")
 TIMEOUT = float(os.environ.get("PLASMOD_MEMO_TIMEOUT", "15"))
-STATUS_JA = {"inbox": "Inbox", "todo": "Todo", "doing": "AI-Driven", "done": "Done", "dismissed": "Done・不要"}
+STATUS_JA = {"inbox": "BackLog", "todo": "Todo", "doing": "AI-Driven", "done": "Done"}
 ACTION_JA = {"created": "登録した", "updated": "更新した", "unchanged": "変わらず", "reopened": "判断待ちに戻した", "ignored": "登録しなかった"}
 
 
@@ -88,10 +88,14 @@ def ref(v):
     return int(v) if v.isdigit() else v
 
 
+def status_ja(t):
+    return "Done・不要" if t.get("doneReason") == "unneeded" else STATUS_JA.get(t["status"], t["status"])
+
+
 def line(t):
     extra = " ".join(x for x in [f"[{t['project']}]" if t.get("project") else "", f"期日 {t['due']}" if t.get("due") else ""] if x)
     num = t.get("ref") or f"#{t['id']}"
-    return f"{num:<9} {STATUS_JA.get(t['status'], t['status']):<8} {t['source']}:{t.get('sourceKey') or '-'}  {t['title']}  {extra}".rstrip()
+    return f"{num:<9} {status_ja(t):<8} {t['source']}:{t.get('sourceKey') or '-'}  {t['title']}  {extra}".rstrip()
 
 
 def main():
@@ -188,7 +192,7 @@ def main():
         if a.json:
             return out(r)
         t = r["task"]
-        print(f"{ACTION_JA.get(r['action'], r['action'])}: {t.get('ref') or '#' + str(t['id'])}（{STATUS_JA.get(t['status'], t['status'])}）{t['title']}" + (f" — {r['reason']}" if r.get("reason") else ""))
+        print(f"{ACTION_JA.get(r['action'], r['action'])}: {t.get('ref') or '#' + str(t['id'])}（{status_ja(t)}）{t['title']}" + (f" — {r['reason']}" if r.get("reason") else ""))
         return
     if a.cmd in ("find", "show"):
         r = call("task.find", {"source": a.source, "key": a.key}, a.as_) if a.cmd == "find" else call("task.get", {"id": a.id if not a.id.isdigit() else int(a.id)}, a.as_)

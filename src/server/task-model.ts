@@ -1,9 +1,14 @@
 // タスクの型・状態・同じ元を見分ける処理・DB の行の読み方
-import type { AppTask, AppTaskEvent, AppTaskStatus, InboxKind } from "../shared/types";
+import type { AppTask, AppTaskDoneReason, AppTaskEvent, AppTaskStatus, InboxKind } from "../shared/types";
 
 export type TaskStatus = AppTaskStatus;
 
-export const TASK_STATUSES: TaskStatus[] = ["inbox", "todo", "doing", "done", "dismissed"];
+export type TaskDoneReason = AppTaskDoneReason;
+
+export const TASK_STATUSES: TaskStatus[] = ["inbox", "todo", "doing", "done"];
+
+/** 古い端末や plasmod-task が送ってくる状態名。受け取ったら Done（理由は不要）として扱う */
+export const LEGACY_DISMISSED = "dismissed";
 
 export const OPEN: TaskStatus[] = ["inbox", "todo", "doing"];
 
@@ -69,7 +74,9 @@ export type UpsertResult = { action: "created" | "updated" | "unchanged" | "reop
 
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
-export const STATUS_LABEL: Record<TaskStatus, string> = { inbox: "Inbox", todo: "Todo", doing: "AI-Driven", done: "Done", dismissed: "Done（不要）" };
+export const STATUS_LABEL: Record<TaskStatus, string> = { inbox: "BackLog", todo: "Todo", doing: "AI-Driven", done: "Done" };
+
+export const statusLabel = (status: TaskStatus, reason: TaskDoneReason | null) => (status === "done" && reason === "unneeded" ? "Done（不要）" : STATUS_LABEL[status]);
 
 export const KINDS: Record<string, InboxKind> = { confirm: "confirm", ops: "confirm", reply: "reply", todo: "todo" };
 
@@ -141,6 +148,7 @@ export interface Row {
   body: string;
   kind: InboxKind;
   status: TaskStatus;
+  done_reason: TaskDoneReason | null;
   source: string;
   source_key: string | null;
   url: string | null;
@@ -167,6 +175,7 @@ export const toTask = (r: Row): Task => ({
   body: r.body,
   kind: r.kind,
   status: r.status,
+  doneReason: r.done_reason ?? null,
   source: r.source,
   sourceKey: r.source_key,
   url: r.url,

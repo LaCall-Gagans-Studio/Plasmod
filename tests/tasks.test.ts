@@ -27,8 +27,8 @@ describe("タスクの登録（同じ元は1件）", () => {
   test("完了（不要）は、同じ元に新しい動きが無ければ起こさない。新しい動きがあれば判断待ちに戻す（2026-10-29 から）", () => {
     const s = fresh();
     const { task } = s.upsert(mail(), "hermes/default", 1000);
-    s.decide(task.id, "dismissed", "", "app", 2000);
-    expect(s.upsert(mail(), "hermes/default", 3000)).toMatchObject({ action: "ignored", task: { status: "dismissed" } });
+    s.decide(task.id, "done", "", "app", 2000, "", "unneeded");
+    expect(s.upsert(mail(), "hermes/default", 3000)).toMatchObject({ action: "ignored", task: { status: "done", doneReason: "unneeded" } });
     expect(s.inbox()).toEqual([]);
     expect(s.upsert(mail({ eventAt: 5000 }), "hermes/default", 6000)).toMatchObject({ action: "reopened", task: { status: "inbox" } });
   });
@@ -79,10 +79,47 @@ describe("タスクの登録（同じ元は1件）", () => {
     expect(up("mail", "9999", "LINE LIFF SDK v2.31.1 更新（11/24 の外部ブラウザ制限前）", 1000 + 31 * 86_400_000).action).toBe("created");
   });
 
+  test("不要の移行: 古い dismissed と、記録に「不要」がある done を Done・理由 不要に。普通の done はそのまま", () => {
+    const store = new Store(":memory:");
+    const s = new TaskStore(store.db);
+    const mk = (key: string) => s.upsert({ source: "mail", key, title: key, eventAt: 900 }, "hermes/default", 1000).task;
+    const [old, card, reply, plain] = [mk("old"), mk("card"), mk("reply"), mk("plain")];
+    s.decide(card.id, "done", "", "app", 2000, "不要");
+    s.decide(reply.id, "done", "", "app", 2000, "返信不要: 営業");
+    s.decide(plain.id, "done", "", "app", 2000, "確認した");
+    store.db.query("UPDATE tasks SET status = 'dismissed' WHERE id = ?").run(old.id);
+    store.db.exec("DROP TRIGGER tasks_done_reason");
+    store.db.exec("ALTER TABLE tasks DROP COLUMN done_reason");
+    const after = new TaskStore(store.db);
+    for (const t of [old, card, reply]) expect(after.get(t.id)).toMatchObject({ status: "done", doneReason: "unneeded" });
+    expect(after.get(plain.id)).toMatchObject({ status: "done", doneReason: null });
+    expect(after.list({ status: ["dismissed"] }).map((t) => t.id).sort()).toEqual([old.id, card.id, reply.id].sort());
+  });
+
+  test("理由は Done の間だけ: 戻すと消え、Done のまま付け外しできる。古い dismissed の指定も受ける", () => {
+    const s = fresh();
+    const t = s.create({ title: "x" }, "app");
+    expect(s.setStatusBy(t.id, "dismissed", "", "tsumugi", 2000)).toMatchObject({ status: "done", doneReason: "unneeded" });
+    expect(s.update(t.id, { status: "done", doneReason: null }, "app", 3000).doneReason).toBeNull();
+    expect(s.update(t.id, { doneReason: "unneeded" }, "app", 4000).doneReason).toBe("unneeded");
+    expect(s.update(t.id, { title: "y" }, "app", 5000).doneReason).toBe("unneeded");
+    expect(s.update(t.id, { status: "todo" }, "app", 6000)).toMatchObject({ status: "todo", doneReason: null });
+    s.decide(t.id, "done", "", "app", 7000, "", "unneeded");
+    s.decide(t.id, "inbox", "", "app", 8000);
+    expect(s.get(t.id)?.doneReason).toBeNull();
+  });
+
+  test("不要で閉じた件も、同じキーに新しい動きがあれば理由を消して BackLog に戻る", () => {
+    const s = fresh();
+    const t = s.upsert(mail({ eventAt: 900 }), "hermes/default", 1000).task;
+    s.decide(t.id, "done", "", "app", 2000, "", "unneeded");
+    expect(s.upsert(mail({ eventAt: 3000 }), "hermes/default", 3000)).toMatchObject({ action: "reopened", task: { status: "inbox", doneReason: null } });
+  });
+
   test("カードで「不要」にした件は、別のキーで来ても新しい動きがあっても開き直さない", () => {
     const s = fresh();
     const t = s.upsert({ source: "mail", key: "1921", title: "LINE LIFF SDK v2.31.1 更新（11/24 の外部ブラウザ制限前）", eventAt: 900 }, "hermes/default", 1000).task;
-    s.decide(t.id, "done", "", "app", 2000, "不要");
+    s.decide(t.id, "done", "", "app", 2000, "不要", "unneeded");
     expect(s.upsert({ source: "mail", key: "1924", title: "acme: LIFF SDK を v2.31.1 以降へ更新（11/24 に旧版の利用制限）", eventAt: 3000 }, "hermes/default", 3000)).toMatchObject({ action: "ignored", task: { id: t.id, status: "done" } });
     expect(s.upsert({ source: "ops", key: "line:liff-sdk", title: "LINE：LIFF SDK を v2.31.1 以降へ更新", eventAt: 4000 }, "hermes/default", 4000).action).toBe("ignored");
     expect(s.inbox()).toEqual([]);
@@ -208,10 +245,10 @@ describe("plasmod-task", () => {
     const add = ["add", "--source", "mail", "--key", "18c2f", "--title", "請求書の件", "--kind", "reply", "--propose", "kanban", "--agent", "acct", "--event-at", "2026-10-24T09:00:00+09:00"];
     const first = await run(add, "10/31 払い");
     expect(first.code).toBe(0);
-    expect(first.out).toContain("登録した: TASK-1（Inbox）請求書の件");
+    expect(first.out).toContain("登録した: TASK-1（BackLog）請求書の件");
     expect((await run(add, "10/31 払い")).out).toContain("変わらず: TASK-1");
     expect(changed).toBe(1);
-    tasks.decide(1, "dismissed", "", "app");
+    tasks.decide(1, "done", "", "app", Date.now(), "", "unneeded");
     expect((await run(add, "10/31 払い")).out).toContain("登録しなかった: TASK-1（Done・不要）請求書の件 — 完了（判断のあとに元の新しい動きが無い）");
     const found = await run(["find", "--source", "mail", "--key", "18c2f"]);
     expect(found.out).toContain("不要");
@@ -345,7 +382,7 @@ describe("タスクの画面（段階2）", () => {
     const idx = new SearchIndex(store.db);
     const t = s.create({ title: "サーバーの更新", body: "カーネルを上げる" }, "app");
     expect(idx.search("カーネル").map((h) => [h.kind, h.ref])).toEqual([["apptask", String(t.id)]]);
-    s.update(t.id, { status: "dismissed" }, "app");
+    s.update(t.id, { status: "done", doneReason: "unneeded" }, "app");
     expect(idx.search("カーネル")).toEqual([]);
   });
 

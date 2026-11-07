@@ -9,7 +9,7 @@ import { tzOffsetMs } from "../shared/time";
 
 // ボタンの言葉（2026-10-29）: 押すとタスクがどの状態に移るかで揃える。状態は 判断待ち・やる・任せ中・完了 の4つ。
 // hint は「→ 移る先。起きること」の形
-const LATER: CardOption = { id: "later", label: "あとで", tone: "quiet", hint: "Inbox のまま、しばらく伏せる" };
+const LATER: CardOption = { id: "later", label: "あとで", tone: "quiet", hint: "BackLog のまま、しばらく伏せる" };
 const DISMISS: CardOption = { id: "dismiss", label: "不要", tone: "quiet", hint: "→ Done（不要）。誰にも頼まない" };
 const MINE: CardOption = { id: "mine", label: "自分でやる", tone: "default", hint: "→ Todo。自分のタスクに残す" };
 const DONE: CardOption = { id: "ok", label: "完了", tone: "default", hint: "→ Done。見たので閉じる" };

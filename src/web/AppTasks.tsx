@@ -6,7 +6,7 @@ import { FolderIcon, json } from "./memo-fields";
 import { PjTabs } from "./pjtabs";
 import { createTask, fetchTaskList, patchTask, taskSync, TaskSyncBadge } from "./task-db";
 import { Icon, Nav, RAIL } from "./ui";
-import { BUCKETS, BUCKET_CLS, STATUS_LABEL, OPEN, STATUS_DOT, dueBucket, topLevel, TaskNode } from "./TaskRow";
+import { BUCKETS, BUCKET_CLS, STATUS_LABEL, UNDONE_LABEL, OPEN, STATUS_DOT, dueBucket, topLevel, TaskNode } from "./TaskRow";
 import { TaskDetail } from "./TaskDetail";
 import { Skeleton } from "./loading";
 
@@ -51,18 +51,22 @@ function SyncLine({ onSynced }: { onSynced: () => void }) {
 
 type Scope = "open" | "inbox" | "todo" | "doing" | "done";
 
-const SCOPES: { id: Scope; label: string }[] = [
-  { id: "open", label: "BackLog" },
-  { id: "inbox", label: "Inbox" },
-  { id: "todo", label: "Todo" },
-  { id: "doing", label: "AI-Driven" },
-  { id: "done", label: "Done" },
-];
+/** Undone の中の状態。一覧の絞り込みでは Undone の枠の中に並べて、関係が見えるようにする */
+const UNDONE_SCOPES = OPEN as ("inbox" | "todo" | "doing")[];
+
+function ScopeTab({ label, n, on, onPick }: { label: string; n: number; on: boolean; onPick: () => void }) {
+  return (
+    <button role="tab" aria-selected={on} onClick={onPick} className={`flex flex-none items-center gap-1 rounded-full px-2 py-1.5 text-[12.5px] ${on ? "bg-ink font-semibold text-paper" : "text-ink-2 hover:bg-chip"}`}>
+      {label}
+      {n > 0 && <span className={`text-[11px] tabular-nums ${on ? "opacity-70" : "text-mute"}`}>{n}</span>}
+    </button>
+  );
+}
 
 export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | null }) {
   const params = hashParams();
   const raw = params.get("s");
-  const scope: Scope = SCOPES.some((x) => x.id === raw) ? (raw as Scope) : "open";
+  const scope: Scope = raw === "inbox" || raw === "todo" || raw === "doing" || raw === "done" ? raw : "open";
   const project = params.get("project");
   const tag = params.get("tag");
   const byDue = params.get("sort") === "due";
@@ -76,7 +80,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
 
   useEffect(() => {
     const p = new URLSearchParams();
-    p.set("status", scope === "open" ? OPEN.join(",") : scope === "done" ? "done,dismissed" : scope);
+    p.set("status", scope === "open" ? OPEN.join(",") : scope);
     if (project !== null) p.set("project", project);
     if (tag) p.set("tag", tag);
     if (q.trim()) p.set("q", q.trim());
@@ -102,7 +106,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
   };
 
   const toggle = async (t: AppTask) => {
-    const done = t.status === "done" || t.status === "dismissed";
+    const done = t.status === "done";
     await patchTask(t.id, { status: done ? "todo" : "done" }).catch((e) => setError(String(e instanceof Error ? e.message : e)));
     reload();
   };
@@ -121,7 +125,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
     }
   };
 
-  // 期限順なら期限で区切る。そうでなければ BackLog は状態ごとに区切る（Inbox → Todo → AI-Driven）
+  // 期限順なら期限で区切る。そうでなければ Undone は状態ごとに区切る（BackLog → Todo → AI-Driven）
   const all = list?.tasks ?? [];
   const groups: { key: string; label?: string; cls?: string; dot?: string; tasks: AppTask[] }[] = byDue
     ? BUCKETS.map((b) => ({ key: b, label: b, cls: BUCKET_CLS[b], tasks: all.filter((t) => dueBucket(t.due) === b) })).filter((g) => g.tasks.length)
@@ -155,16 +159,15 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
         </label>
       </div>
       <div className="flex gap-1 overflow-x-auto px-4 pb-1 [scrollbar-width:none]" role="tablist" aria-label="状態">
-        {SCOPES.map((s) => {
-          const n = s.id === "open" ? OPEN.reduce((a, k) => a + (list?.counts[k] ?? 0), 0) : (list?.counts[s.id as AppTaskStatus] ?? 0);
-          const on = scope === s.id;
-          return (
-            <button key={s.id} role="tab" aria-selected={on} onClick={() => go("s", s.id === "open" ? null : s.id, false)} className={`flex flex-none items-center gap-1 rounded-full px-3 py-1.5 text-[12.5px] ${on ? "bg-ink font-semibold text-paper" : "text-ink-2 hover:bg-chip"}`}>
-              {s.label}
-              {list && s.id !== "done" && n > 0 && <span className={`text-[11px] tabular-nums ${on ? "opacity-70" : "text-mute"}`}>{n}</span>}
-            </button>
-          );
-        })}
+        {/* Undone は枠。枠の頭を押すと全部、中の状態を押すとそれだけ */}
+        <div className={`flex flex-none items-center gap-0.5 rounded-full border p-0.5 ${scope === "done" ? "border-line" : "border-line-2"}`}>
+          <ScopeTab label={UNDONE_LABEL} n={OPEN.reduce((a, k) => a + (list?.counts[k] ?? 0), 0)} on={scope === "open"} onPick={() => go("s", null, false)} />
+          <span className="h-4 w-px flex-none bg-line" aria-hidden="true" />
+          {UNDONE_SCOPES.map((s) => (
+            <ScopeTab key={s} label={STATUS_LABEL[s]} n={list?.counts[s] ?? 0} on={scope === s} onPick={() => go("s", s, false)} />
+          ))}
+        </div>
+        <ScopeTab label={STATUS_LABEL.done} n={0} on={scope === "done"} onPick={() => go("s", "done", false)} />
         <button aria-pressed={byDue} onClick={() => go("sort", byDue ? null : "due", false)} className={`ml-auto flex flex-none items-center rounded-full border px-3 py-1.5 text-[12.5px] ${byDue ? "border-ink font-semibold text-ink" : "border-line text-mute"}`}>期限順</button>
       </div>
       {tag && (
@@ -186,7 +189,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
       <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-6">
         {error && <div className="mx-4 mt-2 rounded-lg bg-orange-soft px-3 py-2 text-xs text-orange-ink" role="alert">{error}</div>}
         {!list && !error && <Skeleton />}
-        {list && list.tasks.length === 0 && <div className="px-6 pt-12 text-center text-sm text-mute">{q || project !== null ? "当てはまるタスクはありません" : scope === "open" ? "BackLog のタスクはありません" : `${SCOPES.find((x) => x.id === scope)?.label}のタスクはありません`}</div>}
+        {list && list.tasks.length === 0 && <div className="px-6 pt-12 text-center text-sm text-mute">{q || project !== null ? "当てはまるタスクはありません" : `${scope === "open" ? UNDONE_LABEL : STATUS_LABEL[scope]} のタスクはありません`}</div>}
         <SyncLine onSynced={reload} />
         {groups.map((g) => (
           <section key={g.key} className="pt-3">

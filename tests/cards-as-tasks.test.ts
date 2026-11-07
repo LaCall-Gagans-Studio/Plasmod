@@ -46,7 +46,7 @@ describe("カード＝判断待ちのタスク", () => {
     expect(cards(null, [], [], new Set(["note"])).map((c) => c.key).sort()).toEqual(tasks.inbox().map((t) => `apptask:${t.id}`).sort());
     expect(tasks.inbox()).toHaveLength(2);
     cards(board(kt({ status: "running" })), []);
-    const all = tasks.list({ status: ["inbox", "todo", "doing", "done", "dismissed"] });
+    const all = tasks.list({ status: ["inbox", "todo", "doing", "done"] });
     expect(all.find((t) => t.source === "perm")?.status).toBe("done");
     // カンバンにつながっているものは「任せた」（カンバンが終われば syncKanban で済み）
     expect(all.find((t) => t.source === "kanban")?.status).toBe("doing");
@@ -64,7 +64,7 @@ describe("カード＝判断待ちのタスク", () => {
     // 題・本文はアプリのタスクのまま、記録に止まった理由
     expect(back).toMatchObject({ status: "inbox", title: "見積の返信", source: "mail" });
     expect(tasks.events(t.id).some((e) => e.kind === "reopen" && e.text.includes("カンバン k9 が止まった: 宛先が分からない"))).toBe(true);
-    expect(tasks.list({ status: ["inbox", "todo", "doing", "done", "dismissed"] })).toHaveLength(1);
+    expect(tasks.list({ status: ["inbox", "todo", "doing", "done"] })).toHaveLength(1);
   });
 
   test("タスクの側で閉じたら、元のカードが残っていても出さない。また止まったら（カードが新しくなったら）戻す", () => {
@@ -80,7 +80,7 @@ describe("カード＝判断待ちのタスク", () => {
   test("不要（完了）は、元のカードが新しくなったときだけ戻す。削除したタスクは戻さない（カードも出ない）", () => {
     const { tasks, cards } = setup();
     const [c] = cards(null, [perm]);
-    tasks.decide(c.recordTaskId!, "dismissed", "", "app", NOW + 10);
+    tasks.decide(c.recordTaskId!, "done", "", "app", NOW + 10, "", "unneeded");
     expect(cards(null, [perm])).toHaveLength(0);
     expect(cards(null, [{ ...perm, created_at: NOW + 1000 }])).toHaveLength(1);
     const [n] = cards(null, [], [{ id: 7, title: "メモ", body: "", created_at: NOW }]);
@@ -155,7 +155,7 @@ describe("仕分け待ち（triage）も判断待ちのタスク", () => {
     expect(source.log).toContain("specify k6 dev");
     expect(source.log).toContain("archive k7");
     expect(tasks.get(a.recordTaskId!)).toMatchObject({ status: "doing", kanbanId: "k6" });
-    expect(tasks.get(b.recordTaskId!)?.status).toBe("dismissed");
+    expect(tasks.get(b.recordTaskId!)).toMatchObject({ status: "done", doneReason: "unneeded" });
     await expect(hub.act(hub.cards()[0]?.key ?? "x", "to-../x", "", "app")).rejects.toThrow();
   });
 });
@@ -190,7 +190,7 @@ describe("カードの操作（2026-10-29）", () => {
     const r = hub.cards().find((x) => x.key === "task:t_91c0")!;
     await hub.act(r.key, "dismiss", "", "app");
     expect(source.log).toContain("archive t_91c0");
-    expect(tasks.get(r.recordTaskId!)?.status).toBe("dismissed");
+    expect(tasks.get(r.recordTaskId!)).toMatchObject({ status: "done", doneReason: "unneeded" });
   });
 
   test("カードに番号と親が付く。コメントだけ書くと、タスクの記録とカンバンの両方に残る", async () => {

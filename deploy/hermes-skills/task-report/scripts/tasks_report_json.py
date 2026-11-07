@@ -13,7 +13,7 @@ import json
 import subprocess
 import sys
 
-STATUS = {"inbox": "Todo", "todo": "Todo", "doing": "In Progress", "waiting": "In Review", "done": "Done", "dismissed": "Canceled"}
+STATUS = {"inbox": "Todo", "todo": "Todo", "doing": "In Progress", "waiting": "In Review", "done": "Done"}
 
 
 def gh_task(as_, *args):
@@ -35,13 +35,13 @@ def main():
     a = p.parse_args()
     now = datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
     open_ = gh_task(a.as_, "list", "--status", "inbox,todo,doing,waiting", "-n", "500")
-    closed = [t for t in gh_task(a.as_, "list", "--status", "done,dismissed", "-n", "200") if now - (t.get("decidedAt") or t["updatedAt"]) <= a.hours * 3600_000]
+    closed = [t for t in gh_task(a.as_, "list", "--status", "done", "-n", "200") if now - (t.get("decidedAt") or t["updatedAt"]) <= a.hours * 3600_000]
     refs = {t["id"]: t.get("ref") or f"#{t['id']}" for t in open_ + closed}
     issues = [
         {
             "id": t.get("ref") or f"#{t['id']}",
             "title": t["title"],
-            "status": STATUS.get(t["status"], "Todo"),
+            "status": "Canceled" if t.get("doneReason") == "unneeded" else STATUS.get(t["status"], "Todo"),
             "project": t.get("project"),
             "dueDate": t.get("due"),
             "updatedAt": iso(t["updatedAt"]),

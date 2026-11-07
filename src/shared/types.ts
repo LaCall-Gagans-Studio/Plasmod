@@ -459,10 +459,12 @@ export interface MemoList {
 
 /** タスク（TASK-173）。見回りが元の ID 付きで登録したもの・オーナーが画面で足したもの */
 /**
- * タスクの状態（2026-10-29 に4つに）: 判断待ち（inbox）・やる（todo）・任せ中（doing）・完了（done / dismissed）。
- * dismissed は「完了・理由は不要」。画面では完了にまとめ、小さく「不要」と添える。返事待ち（waiting）はやめた（完了にしておけば、元に新しい動きがあると判断待ちに戻る）
+ * タスクの状態は4つ: BackLog（inbox。ホームにカードが出る）・Todo（todo）・AI-Driven（doing）・Done（done）。前の3つをまとめて Undone と呼ぶ。
+ * 「不要」は状態ではなく Done の理由（doneReason）。返事待ち（waiting）はやめた（完了にしておけば、元に新しい動きがあると判断待ちに戻る）
  */
-export type AppTaskStatus = "inbox" | "todo" | "doing" | "done" | "dismissed";
+export type AppTaskStatus = "inbox" | "todo" | "doing" | "done";
+/** Done の理由。null は普通の完了 */
+export type AppTaskDoneReason = "unneeded";
 
 export interface AppTask {
   id: number;
@@ -478,6 +480,7 @@ export interface AppTask {
   body: string;
   kind: InboxKind;
   status: AppTaskStatus;
+  doneReason: AppTaskDoneReason | null;
   /** mail / beeper / ops / app（画面で足したもの）など */
   source: string;
   sourceKey: string | null;

@@ -11,7 +11,7 @@ description: オーナーが判断・対応すべきことを、Plasmod の「�
 
 登録は `plasmod-task add`。**同じ元（`--source` と `--key`）は何度登録しても1件にまとまり、オーナーの判断が残る**:
 
-タスクの状態は **Inbox（判断待ち）・Todo（やる）・AI-Driven（任せ中）・Done（完了）** の4つ。
+タスクの状態は **BackLog（判断待ち）・Todo（やる）・AI-Driven（任せ中）・Done（完了）** の4つ。
 
 | オーナーの判断 | 同じ元をまた登録すると |
 |---|---|
@@ -71,7 +71,7 @@ MD
 | ops | `ops` | `<対象>:<問題>`（日付は付けない。例 `vercel:my-site:build-failed`、`vps:disk-usage`） | 前回のレポートから**新しく起きた・悪化した**ときだけ、今の時刻 |
 | 朝夜のまとめ | `digest` | `<項目の短い名前>:<YYYY-MM-DD>` | 省略 |
 
-**ops のキーは自分で考えるので、回ごとに言い方が変わりやすい**（例: `domain:x.com:icann-verification` → 次の回に `domain:x.com:icann-verify`）。言い方が変わると別の件として出し直され、オーナーが「不要」にしたものが再浮上する。登録の前に `plasmod-task --as <自分> list --source ops --status inbox,todo,doing,done,dismissed -n 100` で前の回のキーを見て、**同じ件なら前と同じキーをそのまま使う**。メールなど別の元で登録済みの件（例: AWS の通知メール）は、ops で重ねて登録しない。
+**ops のキーは自分で考えるので、回ごとに言い方が変わりやすい**（例: `domain:x.com:icann-verification` → 次の回に `domain:x.com:icann-verify`）。言い方が変わると別の件として出し直され、オーナーが「不要」にしたものが再浮上する。登録の前に `plasmod-task --as <自分> list --source ops --status inbox,todo,doing,done -n 100` で前の回のキーを見て、**同じ件なら前と同じキーをそのまま使う**。メールなど別の元で登録済みの件（例: AWS の通知メール）は、ops で重ねて登録しない。
 
 ### そのほかの項目
 
@@ -103,7 +103,7 @@ MD
 ```bash
 plasmod-task --as <自分> find --source mail --key "<スレッド ID>"   # 登録済みか・判断と記録
 plasmod-task --as <自分> list                                      # 開いているタスク
-plasmod-task --as <自分> list --status done,dismissed              # 完了したもの（dismissed は理由が不要）
+plasmod-task --as <自分> list --status done                        # 完了したもの（doneReason が unneeded なら理由は不要。不要だけなら --status dismissed）
 ```
 
 ## 注意
