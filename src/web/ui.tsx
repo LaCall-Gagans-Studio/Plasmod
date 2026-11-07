@@ -166,11 +166,11 @@ const TABS = [
   { href: "#/", label: "チャット", icon: "chat" },
   { href: "#/pj", label: "プロジェクト", icon: "pj" },
   { href: "#/habits", label: "ルーティーン", icon: "habit" },
-  { href: "#/dev", label: "開発", icon: "dev" },
+  { href: "#/watching", label: "カンバン", icon: "dev" },
 ] as const;
 
 /** 下のメニューの数字。画面をまたいで1つを共有し、20秒おき（と画面に戻ったとき）に取り直す */
-let badges: NavBadges = { home: 0, dev: 0, watching: 0, system: 0 };
+let badges: NavBadges = { home: 0, watching: 0, system: 0 };
 const badgeListeners = new Set<() => void>();
 let badgeTimer: ReturnType<typeof setInterval> | null = null;
 const loadBadges = () =>
@@ -196,8 +196,7 @@ function useBadges(): NavBadges {
     () => badges,
   );
 }
-/** 開発＝PR とカンバンの止まっているもの、をまとめて1つの数字に */
-const badgeOf = (b: NavBadges, href: string) => (href === "#/" ? b.home : href === "#/dev" ? b.dev + b.watching : 0);
+const badgeOf = (b: NavBadges, href: string) => (href === "#/" ? b.home : href === "#/watching" ? b.watching : 0);
 
 function Badge({ n }: { n: number }) {
   if (n <= 0) return null;
@@ -230,7 +229,7 @@ const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges
   { href: "#/", label: "チャット", icon: "chat", badge: "home", sub: [{ href: "#/search", label: "検索" }] },
   { href: "#/pj", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo"], sub: [{ href: "#/memos", label: "メモ" }, { href: "#/todos", label: "タスク" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }] },
   { href: "#/habits", label: "ルーティーン", icon: "habit" },
-  { href: "#/dev", label: "開発", icon: "dev", badge: "dev", match: ["#/watching", "#/task/"], sub: [{ href: "#/dev", label: "PR" }, { href: "#/watching", label: "カンバン" }] },
+  { href: "#/watching", label: "カンバン", icon: "dev", badge: "watching", match: ["#/task/"] },
   { href: "#/report", label: "レポート", icon: "insights", match: ["#/watch"], sub: [{ href: "#/report", label: "今日のレポート" }, { href: "#/watch", label: "定期報告" }] },
   {
     href: "#/settings",
@@ -248,9 +247,7 @@ const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges
   },
 ];
 
-/** 開発の画面（PR）は GitHub を設定しているときだけ。カンバンはメニューから開ける */
-const showDevPage = () => getAbout().github !== false;
-const menuItems = () => (showDevPage() ? MENU : MENU.map((m) => (m.href === "#/dev" ? { ...m, href: "#/watching", label: "カンバン", match: ["#/task/"], sub: undefined } : m)));
+const menuItems = () => MENU;
 
 // 2026-10-29: 既定を「畳む」に変えたので、覚えるものも「開いたもの」にした（前の gh-menu-folded は使わない）
 const OPEN_KEY = "gh-menu-open";
@@ -359,7 +356,7 @@ export function Drawer() {
         <nav className="relative z-10 flex flex-col px-2">
           {menuItems().map((m) => {
             const on = inSection(hash, m);
-            const n = m.badge === "dev" ? b.dev + b.watching : m.badge ? b[m.badge] : 0;
+            const n = m.badge ? b[m.badge] : 0;
             return (
               <div key={m.href} className="flex flex-col">
                 <div className={`flex items-center rounded-xl ${on ? "bg-chip" : "hover:bg-chip/60"}`}>
@@ -399,7 +396,7 @@ export function Nav({ current }: { current: string }) {
   const b = useBadges();
   return (
     <nav className="flex justify-around border-t border-line/60 pb-[max(env(safe-area-inset-bottom),14px)] pt-3 text-[11px] text-mute lg:fixed lg:inset-y-0 lg:left-0 lg:z-10 lg:w-[88px] lg:flex-col lg:justify-start lg:gap-7 lg:border-r lg:border-t-0 lg:bg-ground lg:pt-[max(env(safe-area-inset-top),28px)]">
-      {TABS.filter((t) => t.href !== "#/dev" || showDevPage()).map((t) => {
+      {TABS.map((t) => {
         const n = badgeOf(b, t.href) + (t.href === "#/" ? b.system : 0); // スマホではメニューのボタンが無いので、設定の数もチャットに足す
         return (
           <a

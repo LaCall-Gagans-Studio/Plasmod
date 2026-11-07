@@ -153,7 +153,7 @@ function TeamRow({ t, members, patch, remove }: { t: Team; members: ManagedAgent
         <span className="size-3 flex-none rounded-full" style={{ background: t.color, boxShadow: `0 0 10px ${t.color}` }} aria-hidden="true" />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-[14.5px] font-bold">{t.name}</span>
-          <span className="truncate text-[11.5px] text-mute">{t.cadence === "weekly" ? "週の報告" : "毎日の報告"}{t.delegable ? " · 任せ先" : ""}</span>
+          <span className="truncate text-[11.5px] text-mute">{t.delegable ? "任せ先" : "任せ先に出さない"}</span>
         </span>
         <span className="flex flex-none -space-x-2">
           {members.slice(0, 4).map((a) => <span key={a.id} className="rounded-full ring-2 ring-panel"><Avatar p={a} size={26} /></span>)}
@@ -171,18 +171,7 @@ function TeamRow({ t, members, patch, remove }: { t: Team; members: ManagedAgent
             </label>
             <input key={`n:${t.name}`} defaultValue={t.name} maxLength={30} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== t.name && patch({ name: e.target.value })} aria-label={`${t.name}の名前`} className="min-h-10 min-w-0 flex-1 rounded-xl bg-chip/70 px-3 text-[14px] font-semibold outline-none focus:bg-chip" />
           </div>
-          <div className="flex items-center gap-3">
-            <span className="flex-1 text-[13px]">レポートでの出し方</span>
-            <div role="group" aria-label="レポートでの出し方" className="flex flex-none rounded-full bg-chip p-0.5 text-[12px]">
-              {(["daily", "weekly"] as const).map((k) => (
-                <button key={k} aria-pressed={t.cadence === k} onClick={() => t.cadence !== k && patch({ cadence: k })} className={`min-h-7 rounded-full px-3 ${t.cadence === k ? "bg-panel font-semibold shadow-sm" : "text-mute"}`}>
-                  {k === "daily" ? "毎日" : "週ごと"}
-                </button>
-              ))}
-            </div>
-          </div>
           <Toggle on={t.delegable} label="仕事を任せられる" note="カードの「〇〇に任せる」に出す" onChange={(v) => patch({ delegable: v })} />
-          <Toggle on={t.viaHub} label="ハブの下に置く" note="オフだと、図でオーナーから直接つなぐ" onChange={(v) => patch({ viaHub: v })} />
           {t.id !== DEFAULT_TEAM && (
             <button onClick={remove} className="mt-1 self-start text-[12.5px] text-red-ink">このチームを消す</button>
           )}

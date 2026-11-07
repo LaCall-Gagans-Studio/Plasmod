@@ -289,18 +289,14 @@ export interface Team {
   id: string;
   name: string;
   color: string;
-  /** レポートでの出し方: daily＝毎日の定期報告にまとめる、weekly＝最新の報告をチームの1枚にする */
-  cadence: "daily" | "weekly";
   /** 判断カードの「〇〇に任せる」に出すか */
   delegable: boolean;
-  /** 図でハブの下に置くか（false はオーナーから直接） */
-  viaHub: boolean;
 }
 export const DEFAULT_TEAM = "work";
 /** 最初から入っている例 */
 export const DEFAULT_TEAMS: Team[] = [
-  { id: DEFAULT_TEAM, name: "実働", color: "#8FB8FF", cadence: "daily", delegable: true, viaHub: true },
-  { id: "watch", name: "監察", color: "#B8A1FF", cadence: "weekly", delegable: false, viaHub: false },
+  { id: DEFAULT_TEAM, name: "実働", color: "#8FB8FF", delegable: true },
+  { id: "watch", name: "監察", color: "#B8A1FF", delegable: false },
 ];
 /** プロファイルのチーム。無くなったチームなら既定のチーム */
 export function teamOfProfile(p: { team?: string } | undefined, teams: Team[]): Team {
@@ -353,7 +349,8 @@ export type ReportSlide =
   | { kind: "tasks"; today: TaskSummaryItem[]; week: TaskSummaryItem[]; doing: TaskSummaryItem[]; error?: string }
   /** AI に任せず自分で持っているタスク（Todo）。埋もれないよう全件出す */
   | { kind: "mine"; items: TaskSummaryItem[] }
-  | { kind: "watch"; team?: string; title?: string; items: WatchReport[]; error?: string }
+  /** 実行の間隔が1日より長いジョブの報告 */
+  | { kind: "watch"; items: WatchReport[] }
   | { kind: "routine"; items: WatchReport[]; late: { agent: string; name: string; reason: string }[]; error?: string };
 
 /** ルーティーン */
@@ -404,7 +401,6 @@ export interface TaskSummaryItem {
 /** 下のメニューの数字 */
 export interface NavBadges {
   home: number;
-  dev: number;
   watching: number;
   system: number;
 }

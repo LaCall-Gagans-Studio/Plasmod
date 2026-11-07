@@ -9,7 +9,6 @@ import { Notifier } from "../src/server/notify";
 import { ProfileRegistry } from "../src/server/profiles";
 import { Store } from "../src/server/store";
 import { TeamError, TeamStore } from "../src/server/teams";
-import { WatchService } from "../src/server/watch";
 import { DEFAULT_TEAMS, type AgentProfile, type KanbanTask, type Team, teamOfProfile } from "../src/shared/types";
 
 const store = () => {
@@ -31,11 +30,10 @@ describe("チーム", () => {
 
   test("足す・変える・消す。最初のチームは消せない。変な値は断る", () => {
     const { s, target } = store();
-    const t = s.create({ name: " 営業 ", cadence: "weekly" });
-    expect(t).toMatchObject({ name: "営業", cadence: "weekly", delegable: true });
+    const t = s.create({ name: " 営業 " });
+    expect(t).toMatchObject({ name: "営業", delegable: true });
     expect(target.at(-1)?.id).toBe(t.id);
     expect(() => s.create({ name: "" })).toThrow(TeamError);
-    expect(() => s.update(t.id, { cadence: "hourly" })).toThrow(TeamError);
     expect(() => s.update(t.id, { color: "red" })).toThrow(TeamError);
     expect(() => s.remove("work")).toThrow(TeamError);
     expect(() => s.remove("nothing")).toThrow(TeamError);
@@ -59,7 +57,7 @@ describe("チーム", () => {
     expect(ids).not.toContain("to-b");
   });
 
-  test("3つ目のチームを API で作って割り当てると、週次ならレポートに1枚出る。消すとメンバーは戻る", async () => {
+  test("3つ目のチームを API で作って割り当てられる。消せる", async () => {
     const st = new Store(":memory:");
     const teams: Team[] = [];
     const profiles: AgentProfile[] = [{ id: "sales", name: "営業くん", initial: "営", color: "#000000" }];
@@ -67,22 +65,11 @@ describe("チーム", () => {
     const hub = new Hub(cfg, new FixtureSource(config.fixturePath), st, null, new Notifier(cfg, st));
     await hub.refresh();
     const registry = new ProfileRegistry(st.db, profiles, () => false);
-    const now = Date.now();
-    const broker = async (cmd: string, id?: string) => {
-      if (cmd === "cron") return JSON.stringify({ sales: [{ id: "j", name: "週報", enabled: true, schedule: "x", last_status: "ok", last_run_at: null, next_run_at: null }] });
-      if (cmd === "cron-output" && id === "sales") return JSON.stringify([{ job: "j", name: "週報", at: now / 1000 - 3600, ok: true, text: "売れた" }]);
-      return "{}";
-    };
-    const watch = new WatchService(broker as never, profiles, teams);
-    const app = createApp(cfg, hub, st, ".", { teams: new TeamStore(st.db, teams), watch, registry });
+    const app = createApp(cfg, hub, st, ".", { teams: new TeamStore(st.db, teams), registry });
     const json = (body: unknown) => ({ headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const made = (await (await app.request("/api/teams", { method: "POST", ...json({ name: "営業", cadence: "weekly" }) })).json()) as { teams: Team[] };
+    const made = (await (await app.request("/api/teams", { method: "POST", ...json({ name: "営業" }) })).json()) as { teams: Team[] };
     const id = made.teams.at(-1)!.id;
     registry.setOverride("sales", { team: id });
-    const report = (await (await app.request("/api/report")).json()) as { slides: { kind: string; title?: string; team?: string; items?: unknown[] }[] };
-    const slide = report.slides.find((x) => x.kind === "watch" && x.team === id);
-    expect(slide?.title).toBe("今週の営業");
-    expect(slide?.items?.length).toBe(1);
     expect((await app.request(`/api/teams/${id}`, { method: "DELETE" })).status).toBe(200);
     expect(teams.some((t) => t.id === id)).toBe(false);
   });

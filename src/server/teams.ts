@@ -1,4 +1,4 @@
-// チーム。エージェントをまとめる単位で、チャットの切り替え・レポートの出し方・任せ先を決める。
+// チーム。エージェントをまとめる単位で、チャットの切り替え・任せ先を決める。
 // 実働と監察は最初から入っている例で、名前も中身も変えられる。
 import type { Database } from "bun:sqlite";
 import { DEFAULT_TEAM, DEFAULT_TEAMS, type Team } from "../shared/types";
@@ -50,12 +50,7 @@ export class TeamStore {
       if (typeof patch.color !== "string" || !COLOR.test(patch.color)) throw new TeamError("色が不正");
       next.color = patch.color;
     }
-    if (patch.cadence !== undefined) {
-      if (patch.cadence !== "daily" && patch.cadence !== "weekly") throw new TeamError("報告の間隔が不正");
-      next.cadence = patch.cadence;
-    }
     if (patch.delegable !== undefined) next.delegable = patch.delegable === true;
-    if (patch.viaHub !== undefined) next.viaHub = patch.viaHub === true;
     return next;
   }
 
@@ -63,7 +58,7 @@ export class TeamStore {
     const ids = this.all().map((t) => t.id);
     let n = ids.length;
     while (ids.includes(`team${n}`)) n++;
-    const t = this.clean({ id: `team${n}`, name: "", color: "#7FD8C6", cadence: "daily", delegable: true, viaHub: true }, { name: "", ...input });
+    const t = this.clean({ id: `team${n}`, name: "", color: "#7FD8C6", delegable: true }, { name: "", ...input });
     const last = this.db.query("SELECT MAX(position) AS p FROM teams").get() as { p: number | null };
     this.write(t, (last.p ?? 0) + 1);
     this.apply();

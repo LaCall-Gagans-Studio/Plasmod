@@ -13,7 +13,7 @@ export const STATUS_LABEL: Record<AppTaskStatus, string> = { inbox: "Inbox", tod
 
 export const OPEN: AppTaskStatus[] = ["inbox", "todo", "doing"];
 
-export const SOURCE_LABEL: Record<string, string> = { mail: "メール", beeper: "Beeper", ops: "ops", app: "", digest: "まとめ", kanban: "カンバン", perm: "承認", note: "メモ" };
+export const SOURCE_LABEL: Record<string, string> = { mail: "メール", beeper: "Beeper", ops: "ops", app: "", digest: "まとめ", kanban: "カンバン", perm: "承認", note: "メモ", github: "PR" };
 
 export const STATUS_DOT: Record<AppTaskStatus, string> = {
   inbox: "var(--color-ring-orange)",

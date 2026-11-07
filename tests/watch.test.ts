@@ -5,7 +5,7 @@ import { config } from "../src/server/config";
 import { Hub } from "../src/server/hub";
 import { FixtureSource } from "../src/server/kanban";
 import { Store } from "../src/server/store";
-import { WatchService } from "../src/server/watch";
+import { isLongJob, WatchService } from "../src/server/watch";
 import type { Report } from "../src/shared/types";
 
 const NOW = Date.now();
@@ -39,18 +39,26 @@ const job = (id: string, name: string, extra: Record<string, unknown> = {}) => (
 const CRON = JSON.stringify({
   default: [job("m1", "見回り")],
   ops: [job("o1", "朝の運用レポート", { last_status: "error" })],
-  auditor: [job("j1", "週次監査")],
+  auditor: [job("j1", "週次監査", { last_run_at: iso(NOW - 3600_000), next_run_at: iso(NOW + 6 * 86400_000) })],
   its: [job("j2", "改善提案", { next_run_at: iso(NOW - 2 * 3600_000) })],
   strategy: [job("j3", "振り返り", { enabled: false, next_run_at: iso(NOW - 2 * 3600_000) })],
   acct: [],
 });
 
-describe("監察チーム", () => {
+describe("定期報告", () => {
+  test("ジョブの間隔は前回と次回の差で決まる。分からなければ長いジョブにしない", () => {
+    const j = (last: string | null, next: string | null) => ({ last_run_at: last, next_run_at: next }) as never;
+    expect(isLongJob(j("2026-11-01T00:00:00Z", "2026-11-08T00:00:00Z"))).toBe(true);
+    expect(isLongJob(j("2026-11-01T00:00:00Z", "2026-11-02T00:00:00Z"))).toBe(false);
+    expect(isLongJob(j("2026-11-01T00:00:00Z", "2026-11-01T01:00:00Z"))).toBe(false);
+    expect(isLongJob(j(null, "2026-11-08T00:00:00Z"))).toBe(false);
+  });
+
   test("既定のプロファイルに監察の3人がいる", () => {
     expect(config.profiles.filter((p) => p.team === "watch").map((p) => [p.id, p.name])).toEqual([["auditor", "監査"], ["its", "ITS"], ["strategy", "戦略立案"]]);
   });
 
-  test("報告は新しい順。レポート用はプロファイルごとに8日以内の最新1件。まだ無いプロファイルはエラーにしない", async () => {
+  test("報告は新しい順。まだ無いプロファイルはエラーにしない", async () => {
     const calls: string[][] = [];
     const w = new WatchService(broker(calls), config.profiles);
     const all = await w.all();
@@ -58,12 +66,11 @@ describe("監察チーム", () => {
     expect(all.errors).toEqual([]);
     // cron が読めないときは、設定のプロファイル（開発くんを除く）を全部読む
     expect(calls.filter((c) => c[0] === "cron-output").map((c) => c[1]).sort()).toEqual(["acct", "auditor", "default", "design", "its", "strategy"]);
-    const latest = await w.latest("watch", NOW);
-    expect(latest.items.map((r) => r.agent)).toEqual(["auditor"]);
-    expect(latest.items[0].at).toBe((S - 3600) * 1000);
+    // cron が読めないと間隔が分からないので、週次のジョブは出さない（毎日の側に入る）
+    expect((await w.weekly(NOW)).items).toEqual([]);
   });
 
-  test("レポートに「監察」の1枚をまとめの前に足す", async () => {
+  test("間隔の長いジョブは「今週の報告」としてまとめの前に足す", async () => {
     const store = new Store(":memory:");
     const hub = new Hub(config, new FixtureSource(join(import.meta.dir, "../fixtures/board.json")), store, null, null);
     await hub.refresh();
@@ -77,7 +84,7 @@ describe("監察チーム", () => {
     expect(list.reports.length).toBe(7);
   });
 
-  test("定期報告: cron のあるプロファイル（並びに無い ops も）を読み、実働はジョブごとに26時間以内の最新1件。動いていないジョブも出す", async () => {
+  test("定期報告: cron のあるプロファイル（並びに無い ops も）を読み、間隔が1日以内のジョブごとに26時間以内の最新1件。動いていないジョブも出す", async () => {
     const calls: string[][] = [];
     const w = new WatchService(broker(calls, CRON), config.profiles);
     const d = await w.routine(NOW);
@@ -89,7 +96,8 @@ describe("監察チーム", () => {
       { agent: "ops", name: "朝の運用レポート", reason: "前回の実行が失敗した" },
       { agent: "its", name: "改善提案", reason: "予定の時刻を過ぎても動いていない" },
     ]);
-    // 監察の1枚には実働の報告を混ぜない
-    expect((await w.latest("watch", NOW)).items.map((r) => r.agent)).toEqual(["auditor"]);
+    // 週1のジョブはチームによらず今週の報告へ。毎日のジョブは混ぜない
+    const week = await w.weekly(NOW);
+    expect(week.items.map((r) => [r.agent, r.text])).toEqual([["auditor", "## 今週\n問題なし"]]);
   });
 });
