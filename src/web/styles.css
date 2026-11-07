@@ -167,6 +167,15 @@ button:not(:disabled):active {
 }
 
 /* レポートの動き（Material の emphasized decelerate に寄せる）。動きを減らす設定なら出さない */
+/* 問題のある接続の丸 */
+@keyframes gh-pulse {
+  50% { opacity: 0.45; }
+}
+.gh-pulse { animation: gh-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .gh-pulse { animation: none; }
+}
+
 /* プロフィールカードの節が、順に明滅する */
 @keyframes pl-seg {
   0%, 82%, 100% { stroke-opacity: 1; }

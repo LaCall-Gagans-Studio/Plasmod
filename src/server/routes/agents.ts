@@ -96,6 +96,23 @@ export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, regi
     return c.json({ ok: true });
   });
 
+  // カードの画像の受け渡し（APK の WebView は blob を保存できないので、URL にして保存する）。短い間だけメモリに置く
+  const cardImages = new Map<string, Uint8Array>();
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  app.post("/api/about/card-image", async (c) => {
+    const data = new Uint8Array(await c.req.arrayBuffer());
+    if (data.length > AVATAR_MAX * 4 || !PNG.every((x, i) => data[i] === x)) return c.json({ ok: false, error: "PNG だけ" }, 400);
+    const id = crypto.randomUUID();
+    cardImages.set(id, data);
+    setTimeout(() => cardImages.delete(id), 120_000).unref?.();
+    return c.json({ id });
+  });
+  app.get("/api/about/card-image/:id", (c) => {
+    const data = cardImages.get(c.req.param("id"));
+    if (!data) return c.text("not found", 404);
+    return c.body(data as Uint8Array<ArrayBuffer>, 200, { "Content-Type": "image/png", "Content-Disposition": "attachment; filename*=UTF-8''plasmod-card.png" });
+  });
+
   app.get("/api/agents-settings", (c) => {
     if (!registry) return c.json({ ok: false, error: "使えない" }, 404);
     return c.json({ agents: registry.all() });

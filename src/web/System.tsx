@@ -12,6 +12,7 @@ import { claudeName, getAbout } from "./identity";
 import { DEFAULT_TEAMS, RUNTIME_CAPS, teamOfProfile } from "../shared/types";
 import { toast } from "./touch";
 import { lang, setLang, t, t as tr } from "./i18n";
+import { fetchRetry } from "./api";
 import { PushSection } from "./webpush";
 import { ProfileCard } from "./ProfileCard";
 import { VpsChart } from "./VpsChart";
@@ -206,14 +207,14 @@ function Agents({ snap }: { snap: Snapshot | null }) {
   const [sheet, setSheet] = useState<{ root: "work" | "hermes"; path: string } | null>(null);
   useEffect(() => {
     const get = async <T,>(url: string): Promise<T> => {
-      const r = await fetch(url);
+      const r = await fetchRetry(url);
       const b = await r.json().catch(() => null);
       if (!r.ok) throw new Error((b as { error?: string } | null)?.error ?? `HTTP ${r.status}`);
       return b as T;
     };
     get<AgentInfo[]>("/api/system/agents").then(setList).catch((e) => {
       setList([]);
-      setListError(String(e instanceof Error ? e.message : e));
+      setListError(String(e instanceof Error ? e.message : e).startsWith("HTTP 50") ? "読み込めませんでした。開き直してください" : String(e instanceof Error ? e.message : e));
     });
     get<ModelEntry[]>("/api/system/models").then(setModels).catch(() => setModels([]));
   }, []);
@@ -239,7 +240,7 @@ function Agents({ snap }: { snap: Snapshot | null }) {
       {listError && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{listError}</div>}
       {settings.error && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{settings.error}</div>}
       {msg && <div className={`rounded-xl px-3 py-2 text-xs lg:col-span-2 ${msg.ok ? "bg-lime-soft text-lime-ink" : "bg-orange/10 text-orange-ink"}`}>{msg.text}</div>}
-      {settings.teams.length > 0 && <TeamsEditor teams={settings.teams} onChange={() => void settings.loadTeams()} />}
+      {settings.teams.length > 0 && <TeamsEditor teams={settings.teams} agents={settings.agents ?? []} onChange={() => void settings.loadTeams()} />}
       {players.map((p, n) => {
         const a = (list ?? []).find((i) => i.id === p.id);
         const isOpen = open === p.id;
@@ -560,7 +561,7 @@ function AboutApp() {
     <section aria-label="このアプリについて" className="mx-4 divide-y divide-line rounded-xl border border-line text-[13px]">
       <div className={row}>
         <span className="font-bold">{a.name}</span>
-        <span className="text-mute">粘菌の変形体（plasmodium）から</span>
+        <span className="font-mono text-[12px] text-mute">One body. Many minds.</span>
       </div>
       <div className={row}>
         <span className="text-mute">バージョン</span>

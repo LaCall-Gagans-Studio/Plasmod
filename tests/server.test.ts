@@ -469,5 +469,13 @@ describe("持ち主のカード", () => {
     const fd = new FormData();
     fd.append("file", new File(["not image"], "a.png"));
     expect((await app.request("/api/about/avatar", { method: "POST", body: fd })).status).toBe(400);
+    // カードの画像の受け渡しは PNG だけ。受け取ったら保存用の名前で返す
+    expect((await app.request("/api/about/card-image", { method: "POST", body: "not png" })).status).toBe(400);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]);
+    const up = (await (await app.request("/api/about/card-image", { method: "POST", body: png })).json()) as { id: string };
+    const got = await app.request(`/api/about/card-image/${up.id}`);
+    expect(got.status).toBe(200);
+    expect(got.headers.get("Content-Disposition")).toContain("plasmod-card.png");
+    expect((await app.request("/api/about/card-image/none")).status).toBe(404);
   });
 });

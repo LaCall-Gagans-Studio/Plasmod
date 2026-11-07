@@ -179,3 +179,16 @@ export async function act(key: string, option: string, text: string, files: File
 export function markSeen(key: string) {
   void fetch(`/api/cards/${encodeURIComponent(key)}/seen`, { method: "POST" });
 }
+
+/** アプリの更新で一瞬切れたとき（502〜504・つながらない）は、少し待って取り直す */
+export async function fetchRetry(url: string, tries = 4): Promise<Response> {
+  for (let i = 0; ; i++) {
+    try {
+      const r = await fetch(url);
+      if (![502, 503, 504].includes(r.status) || i >= tries - 1) return r;
+    } catch (e) {
+      if (i >= tries - 1) throw e;
+    }
+    await new Promise((f) => setTimeout(f, 1200 * (i + 1)));
+  }
+}
