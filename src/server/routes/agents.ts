@@ -64,13 +64,36 @@ export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, regi
   const dir = () => join(cfg.dataDir, "avatars");
 
   app.patch("/api/about", async (c) => {
-    const b = await c.req.json<{ owner?: unknown }>().catch(() => ({}) as { owner?: unknown });
-    const owner = typeof b.owner === "string" ? b.owner.trim().slice(0, 40) : "";
-    if (!owner) return c.json({ ok: false, error: "呼び名が空" }, 400);
-    new AppSettings(store.db).set("owner", owner);
-    cfg.ownerName = owner;
+    const b = await c.req.json<{ owner?: unknown; title?: unknown; color?: unknown; avatar?: unknown }>().catch(() => ({}) as { owner?: unknown; title?: unknown; color?: unknown; avatar?: unknown });
+    const settings = new AppSettings(store.db);
+    if (b.owner !== undefined) {
+      const owner = typeof b.owner === "string" ? b.owner.trim().slice(0, 40) : "";
+      if (!owner) return c.json({ ok: false, error: "呼び名が空" }, 400);
+      settings.set("owner", owner);
+      cfg.ownerName = owner;
+    }
+    if (typeof b.title === "string") settings.set("owner_title", b.title.trim().slice(0, 40));
+    if (b.color !== undefined) {
+      if (typeof b.color !== "string" || !COLOR.test(b.color)) return c.json({ ok: false, error: "色が不正" }, 400);
+      settings.set("owner_color", b.color);
+    }
+    if (b.avatar === null) settings.set("owner_avatar", "");
     hub.changed();
-    return c.json({ ok: true, owner });
+    return c.json({ ok: true, owner: cfg.ownerName });
+  });
+
+  app.post("/api/about/avatar", async (c) => {
+    const f = (await c.req.formData().catch(() => null))?.get("file");
+    if (!f || typeof f === "string") return c.json({ ok: false, error: "画像が要る" }, 400);
+    if (f.size > AVATAR_MAX) return c.json({ ok: false, error: "2MB まで" }, 400);
+    const data = new Uint8Array(await f.arrayBuffer());
+    const ext = avatarExt(data);
+    if (!ext) return c.json({ ok: false, error: "PNG・JPEG・WebP だけ" }, 400);
+    mkdirSync(dir(), { recursive: true });
+    const name = `owner-${Date.now()}.${ext}`;
+    await Bun.write(join(dir(), name), data);
+    new AppSettings(store.db).set("owner_avatar", `/api/avatars/${name}`);
+    return c.json({ ok: true });
   });
 
   app.get("/api/agents-settings", (c) => {

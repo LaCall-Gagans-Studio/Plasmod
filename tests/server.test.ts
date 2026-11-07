@@ -446,3 +446,28 @@ describe("初回の案内", () => {
     expect(await done()).toBe(true);
   });
 });
+
+describe("持ち主のカード", () => {
+  test("肩書きと色を保存し、使い始めの日は1度だけ決まる。不正な色は断る", async () => {
+    const { createApp } = await import("../src/server/app");
+    const { Store } = await import("../src/server/store");
+    const { config } = await import("../src/server/config");
+    const { Hub } = await import("../src/server/hub");
+    const { FixtureSource } = await import("../src/server/kanban");
+    const st = new Store(":memory:");
+    const cfg = { ...config, devNoAuth: true };
+    const app = createApp(cfg, new Hub(cfg, new FixtureSource(config.fixturePath), st, null, null), st, ".", {});
+    const about = async () => (await (await app.request("/api/about")).json()) as { ownerTitle: string; ownerColor?: string; joinedAt: number };
+    const patch = (b: unknown) => app.request("/api/about", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+    const first = await about();
+    expect(first.joinedAt).toBeGreaterThan(0);
+    expect((await patch({ title: "  指揮官 ", color: "#112233" })).status).toBe(200);
+    const next = await about();
+    expect(next).toMatchObject({ ownerTitle: "指揮官", ownerColor: "#112233", joinedAt: first.joinedAt });
+    expect((await patch({ color: "red" })).status).toBe(400);
+    expect((await patch({ owner: "  " })).status).toBe(400);
+    const fd = new FormData();
+    fd.append("file", new File(["not image"], "a.png"));
+    expect((await app.request("/api/about/avatar", { method: "POST", body: fd })).status).toBe(400);
+  });
+});

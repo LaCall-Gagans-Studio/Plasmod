@@ -16,6 +16,28 @@ export function liveRoutes(ctx: RouteContext) {
   // 初回の案内。呼び名を決めてある環境（前から使っている環境）は終わったものとして扱う
   const settings = () => new AppSettings(ctx.store.db);
   const usedBefore = cfg.ownerName !== "オーナー";
+  // 持ち主のプロフィールカード。使い始めの日は、いちばん古いタスクかメモの日（無ければ今日）を1度だけ決める
+  const ownerCard = () => {
+    try {
+      const s = settings();
+      let joined = Number(s.get("joined_at"));
+      if (!joined) {
+        const db = ctx.store.db;
+        const oldest = (t: string) => {
+          try {
+            return (db.query(`SELECT MIN(created_at) AS m FROM ${t}`).get() as { m: number | null }).m;
+          } catch {
+            return null;
+          }
+        };
+        joined = Math.min(Date.now(), oldest("tasks") ?? Infinity, oldest("memos") ?? Infinity);
+        s.set("joined_at", String(joined));
+      }
+      return { ownerTitle: s.get("owner_title") ?? "", ownerColor: s.get("owner_color") ?? undefined, ownerAvatar: s.get("owner_avatar") || undefined, joinedAt: joined };
+    } catch {
+      return {};
+    }
+  };
   const setupDone = () => usedBefore || settings().get("setup_done") === "1";
   app.get("/api/setup", (c) =>
     c.json({
@@ -42,6 +64,7 @@ export function liveRoutes(ctx: RouteContext) {
       claudeAgent: ctx.sessions?.agents().some((a) => a.runtime === "claude-code") ? nameOf(CLAUDE_AGENT) : null,
       github: !!cfg.githubToken,
       setupDone: setupDone(),
+      ...ownerCard(),
       developer: cfg.developer,
       repoUrl: cfg.repoUrl,
       license: "MIT",
