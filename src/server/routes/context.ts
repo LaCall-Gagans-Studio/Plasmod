@@ -2,6 +2,7 @@
 import type { Hono } from "hono";
 import type { HabitStore } from "../habits";
 import type { TeamStore } from "../teams";
+import type { WebPush } from "../webpush";
 import type { Config } from "../config";
 import type { DevService } from "../dev";
 import type { Hub } from "../hub";
@@ -34,6 +35,7 @@ export interface AppServices {
   projects?: ProjectStore;
   habits?: HabitStore;
   teams?: TeamStore;
+  webPush?: WebPush;
   feed?: NotifyFeed;
   connections?: ConnectionWatch;
 }
