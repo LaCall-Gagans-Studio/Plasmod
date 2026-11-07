@@ -427,3 +427,22 @@ describe("検索・メモ", () => {
     void hub;
   });
 });
+
+describe("初回の案内", () => {
+  test("呼び名が既定のままなら案内を出し、終えたら出さない。呼び名を決めてある環境は出さない", async () => {
+    const { createApp } = await import("../src/server/app");
+    const { Store } = await import("../src/server/store");
+    const { config } = await import("../src/server/config");
+    const make = (ownerName: string) => {
+      const app = createApp({ ...config, devNoAuth: true, ownerName }, {} as never, new Store(":memory:"), ".", {});
+      return async () => ((await (await app.request("/api/about")).json()) as { setupDone: boolean }).setupDone;
+    };
+    expect(await make("とある人")()).toBe(true);
+    const fresh = createApp({ ...config, devNoAuth: true, ownerName: "オーナー" }, {} as never, new Store(":memory:"), ".", {});
+    const done = async () => ((await (await fresh.request("/api/about")).json()) as { setupDone: boolean }).setupDone;
+    expect(await done()).toBe(false);
+    expect((await (await fresh.request("/api/setup")).json()) as { agents: unknown[] }).toMatchObject({ agents: [] });
+    expect((await fresh.request("/api/setup/done", { method: "POST" })).status).toBe(200);
+    expect(await done()).toBe(true);
+  });
+});

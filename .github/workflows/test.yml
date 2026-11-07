@@ -34,6 +34,15 @@ jobs:
       - name: 自動デプロイのテスト
         run: bash deploy/autodeploy/test_autodeploy.sh
 
+  # まっさらなマシンに setup.sh で入れる（Tailscale と Hermes は偽物）
+  setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup.sh を2回流して確かめる
+        run: sudo bash deploy/test/setup-ci.sh
+
   secrets:
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -21,7 +21,7 @@ Environment=PLASMOD_TAILSCALE_SOCK=$SOCK
 CONF
 
 # 2. 許可リストに Tailscale のログイン名を足す（無ければ）。控えを残す
-if ! grep -qE "^PLASMOD_ALLOWED_LOGINS=.*(^|[=,])${LOGIN//./\\.}(,|$)" "$ENVF"; then
+if ! grep -qE "^PLASMOD_ALLOWED_LOGINS=(.*,)?${LOGIN//./\\.}(,|$)" "$ENVF"; then
   cp -p "$ENVF" "$ENVF.bak-$(date +%Y%m%d%H%M%S)"
   if grep -q '^PLASMOD_ALLOWED_LOGINS=' "$ENVF"; then
     sed -i -E "s|^PLASMOD_ALLOWED_LOGINS=(.+)$|PLASMOD_ALLOWED_LOGINS=\\1,$LOGIN|; s|^PLASMOD_ALLOWED_LOGINS=$|PLASMOD_ALLOWED_LOGINS=$LOGIN|" "$ENVF"

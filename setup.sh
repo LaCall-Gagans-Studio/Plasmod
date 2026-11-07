@@ -115,7 +115,7 @@ install -m 755 -o root -g root "$OPT/broker/plasmod-broker" /usr/local/bin/plasm
 chmod 644 /etc/plasmod-broker.conf
 sed "s/(hermes)/($HERMES_USER)/" "$OPT/deploy/sudoers/plasmod" >/etc/sudoers.d/plasmod
 chmod 440 /etc/sudoers.d/plasmod
-visudo -c >/dev/null || { rm -f /etc/sudoers.d/plasmod; die "sudoers の文法が不正"; }
+visudo -cf /etc/sudoers.d/plasmod >/dev/null || { rm -f /etc/sudoers.d/plasmod; die "sudoers の文法が不正"; }
 
 step "設定"
 [ -n "$LOGIN" ] || LOGIN=$(ts_field "d['User'][str(d['Self']['UserID'])]['LoginName']")

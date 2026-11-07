@@ -5,6 +5,7 @@ import { fromTailscale } from "../auth";
 import { parseRelay, relayNotice, tokenOk } from "../notify-relay";
 import type { RouteContext } from "./context";
 import { devTarget } from "./dev";
+import { AppSettings } from "../profiles";
 import { CLAUDE_AGENT } from "../../shared/types";
 import pkg from "../../../package.json";
 import { getTimeZone } from "../../shared/time";
@@ -12,6 +13,24 @@ import { getTimeZone } from "../../shared/time";
 export function liveRoutes(ctx: RouteContext) {
   const { app, cfg, hub, rootd, feed } = ctx;
   const nameOf = (id: string) => cfg.profiles.find((p) => p.id === id)?.name ?? id;
+  // 初回の案内。呼び名を決めてある環境（前から使っている環境）は終わったものとして扱う
+  const settings = () => new AppSettings(ctx.store.db);
+  const usedBefore = cfg.ownerName !== "オーナー";
+  const setupDone = () => usedBefore || settings().get("setup_done") === "1";
+  app.get("/api/setup", (c) =>
+    c.json({
+      done: setupDone(),
+      agents: (ctx.sessions?.agents() ?? []).map((a) => ({ ...a, name: nameOf(a.id) })),
+      teams: cfg.teams,
+      github: !!cfg.githubToken,
+      rootd: !!rootd,
+      publicUrl: cfg.publicUrl,
+    }),
+  );
+  app.post("/api/setup/done", (c) => {
+    settings().set("setup_done", "1");
+    return c.json({ ok: true });
+  });
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.get("/api/about", (c) =>
     c.json({
@@ -22,6 +41,7 @@ export function liveRoutes(ctx: RouteContext) {
       devAgent: nameOf(devTarget(ctx)),
       claudeAgent: ctx.sessions?.agents().some((a) => a.runtime === "claude-code") ? nameOf(CLAUDE_AGENT) : null,
       github: !!cfg.githubToken,
+      setupDone: setupDone(),
       developer: cfg.developer,
       repoUrl: cfg.repoUrl,
       license: "MIT",

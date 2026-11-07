@@ -3,7 +3,6 @@ import { type AppTask, type AppTaskList, type MemoList, type MemoSummary, hoursL
 import { SessionPanel } from "./Session";
 import { fetchTaskList } from "./task-db";
 import { Avatar, COL, Icon, Nav, RAIL, profileOf } from "./ui";
-import { getAbout } from "./identity";
 import { localDay } from "../shared/time";
 
 const RING = { permission: "var(--color-ring-orange)", blocked: "var(--color-ring-orange)", review: "var(--color-ring-lime)", triage: "#8FB8FF", note: "#8FB8FF", confirm: "#B8A1FF", reply: "#B8A1FF", todo: "#B8A1FF" } as const;
@@ -182,11 +181,6 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
 
         <div className="flex min-h-0 flex-1 gap-4">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {getAbout().ownerIsDefault && (
-          <a href="#/settings?tab=general" className="mx-4 mb-3 block rounded-xl border border-line-2 px-3 py-2.5 text-[13px] text-ink-2 no-underline">
-            はじめに、呼び名とエージェントの名前を設定しましょう ›
-          </a>
-        )}
         {snap?.devEnabled && !snap.bridgeConnected && (
           <div className="mx-4 mb-3 rounded-xl border border-line-2 px-3 py-2 text-xs text-orange-ink">bridge に未接続: Claude Code の承認依頼・セッションはまだここに出ません</div>
         )}

@@ -39,6 +39,8 @@ export const config = {
   /** 設定の「このアプリについて」に出す: 開発者とリポジトリ */
   developer: env("PLASMOD_DEVELOPER"),
   repoUrl: env("PLASMOD_REPO_URL"),
+  /** アプリの住所（初回の案内に出す） */
+  publicUrl: env("PLASMOD_PUBLIC_URL"),
   port: Number(env("PLASMOD_PORT", "8790")),
   host: env("PLASMOD_HOST", "127.0.0.1"),
   dataDir: env("PLASMOD_DATA_DIR", join(homedir(), ".plasmod")),

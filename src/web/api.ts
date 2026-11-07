@@ -67,15 +67,26 @@ export function useSnapshot(): { snap: Snapshot | null; online: boolean } {
     () => hiddenVersion,
   );
   useEffect(() => {
-    const load = () =>
+    // 最初の1枚が取れるまでは、短い間隔で取り直す（端末が戻った直後は通信がまだつながっていないことがある）
+    let firstDone = false;
+    let retries = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const load = (): Promise<void> =>
       fetch("/api/snapshot", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((s) => {
-          if (!s) return;
+          firstDone = true;
           setSnap(s);
-          reportStartup();
+          reportStartup(Date.now(), retries);
         })
-        .catch(() => {});
+        .catch(() => {
+          if (firstDone || retryTimer) return;
+          retries++;
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            void load();
+          }, Math.min(8000, 500 * 2 ** Math.min(retries, 5)));
+        });
     refetchSnapshot = () => void load();
     // 最初の1枚はすぐ取りに行き、以降はストリームで受ける
     void load();
@@ -92,8 +103,9 @@ export function useSnapshot(): { snap: Snapshot | null; online: boolean } {
       es = new EventSource("/api/stream");
       es.addEventListener("snapshot", (e) => {
         lastMsg = Date.now();
+        firstDone = true;
         setSnap(JSON.parse((e as MessageEvent).data));
-        reportStartup();
+        reportStartup(Date.now(), retries);
         setOnline(true);
       });
       es.addEventListener("ping", () => {
