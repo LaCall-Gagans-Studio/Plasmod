@@ -1,0 +1,11 @@
+#!/bin/bash
+# CI の空のマシンで setup.sh を試すための偽の tailscale。本物の動きの一部だけ返す
+case "$1" in
+  status)
+    if [ "${2:-}" = --json ]; then
+      echo '{"BackendState":"Running","Self":{"DNSName":"ci.example.ts.net.","UserID":1},"User":{"1":{"LoginName":"ci@example.com"}}}'
+    fi ;;
+  ip) echo 100.64.0.1 ;;
+  serve) exit 0 ;;
+  *) echo "fake-tailscale: $*" >&2 ;;
+esac

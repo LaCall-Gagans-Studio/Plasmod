@@ -32,7 +32,7 @@ sudo ./setup.sh
 
 ## 最初にすること
 
-アプリを開いて、**設定 → 一般** で呼び名とエージェントの名前・色・顔を決めます。エージェントは Hermes のプロファイルから自動で見つかります。
+アプリを開くと、初回の案内が出ます（呼び名、エージェント、チーム、通知とアプリ）。あとからは **設定** で変えられます。エージェントは Hermes のプロファイルから自動で見つかります。
 
 Android アプリは [Releases](../../../releases) から入れて、最初の画面に住所を入れます。
 
@@ -60,7 +60,7 @@ Android アプリは [Releases](../../../releases) から入れて、最初の�
 | `PLASMOD_PROFILES` | エージェントの一覧を固定するとき（[例](../deploy/profiles.example.json)）。無ければ自動 |
 | `PLASMOD_OWNER_NAME`・`PLASMOD_DEVELOPER`・`PLASMOD_REPO_URL` | 呼び名の既定、設定に出す開発者とリポジトリ |
 | `PLASMOD_GITHUB_TOKEN`・`PLASMOD_GITHUB_OWNER` | 開発の画面で PR を見るとき（読み取り専用のトークン） |
-| `PLASMOD_TASK_PREFIX` | タスク番号の頭（既定 `TOH`） |
+| `PLASMOD_TASK_PREFIX` | タスク番号の頭（既定 `TASK`） |
 
 ## 任意の部品
 

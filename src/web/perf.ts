@@ -24,9 +24,10 @@ export function startupStages(t: { launch: number; origin: number; responseEnd: 
 
 let started = false;
 /** 最初のデータが届いて操作できるようになったとき。APK は入口の画面の時刻（?launch=）から数える */
-export function reportStartup(now = Date.now()) {
+export function reportStartup(now = Date.now(), retries = 0) {
   if (started) return;
   started = true;
+  if (retries) send("startup_retry", retries);
   const q = new URLSearchParams(location.search);
   const launch = Number(q.get("launch"));
   if (launch) {

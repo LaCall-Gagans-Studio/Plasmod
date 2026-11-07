@@ -19,6 +19,8 @@ import { Watching } from "./Watching";
 import { WatchPage } from "./WatchPage";
 import { Toaster } from "./touch";
 import { AmoebaLoader } from "./loading";
+import { useAbout } from "./identity";
+import { Welcome } from "./Welcome";
 
 // メモはエディタ（CodeMirror）が大きいので、開いたときに読み込む
 const MemoPage = lazy(() => import("./MemoPage").then((m) => ({ default: m.MemoPage })));
@@ -71,6 +73,7 @@ export function App() {
 function Routes() {
   const hash = useHash();
   const { snap, online } = useSnapshot();
+  if (useAbout().setupDone === false) return <Welcome />;
   if (hash.startsWith("#/card/")) return <CardView snap={snap} cardKey={decodeURIComponent(hash.slice("#/card/".length))} />;
   if (hash === "#/watching") return <Watching snap={snap} />;
   const task = hash.match(/^#\/task\/([A-Za-z0-9_-]{1,64})$/);
