@@ -20,7 +20,7 @@ function loopPath(pts: readonly Pt[]): string {
   return `${d}Z`;
 }
 
-function blobPath(cx: number, cy: number, radii: number[], rot = 0): string {
+export function blobPath(cx: number, cy: number, radii: number[], rot = 0): string {
   const n = radii.length;
   return loopPath(radii.map((r, i) => {
     const a = rot + (2 * Math.PI * i) / n;
