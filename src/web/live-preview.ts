@@ -261,6 +261,24 @@ class ImageWidget extends WidgetType {
 const BOX_MAX_HEIGHT = 30000;
 /** 箱から開けるのは別のメモだけ */
 export const isMemoHash = (h: unknown): h is string => typeof h === "string" && /^#\/memo\/\d+$/.test(h);
+export const isExternalHref = (h: unknown): h is string => {
+  if (typeof h !== "string") return false;
+  try {
+    return new URL(h).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+/** 枠の中で押された外部リンクを、アプリ本体の普通のリンクと同じ道で開く。枠のスクリプトが勝手に開けないよう、押した直後だけ通す */
+function openBoxLink(href: string) {
+  if (!navigator.userActivation?.isActive) return;
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.click();
+}
 
 /** ```html の箱: 隔離した枠の中で表示する。スクリプトは動くが、アプリの中身・API には届かない */
 class HtmlBoxWidget extends WidgetType {
@@ -278,7 +296,7 @@ class HtmlBoxWidget extends WidgetType {
     const wrap = document.createElement("div");
     wrap.className = "cm-lp-box";
     const frame = document.createElement("iframe");
-    // 人が押した外部リンクだけ別の画面で開く。allow-same-origin は付けない（アプリの中身に触れさせない）
+    // 外部リンクは親が開く（openBoxLink）。allow-popups はリンク先が別窓を開くとき用に残す。allow-same-origin は付けない（アプリの中身に触れさせない）
     frame.setAttribute("sandbox", "allow-scripts allow-popups allow-popups-to-escape-sandbox");
     frame.setAttribute("referrerpolicy", "no-referrer");
     frame.title = "HTML の表示";
@@ -287,12 +305,13 @@ class HtmlBoxWidget extends WidgetType {
     const dark = document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
     const on = (e: MessageEvent) => {
       if (e.source !== frame.contentWindow) return;
-      const d = e.data as { plasmodBox?: string; h?: unknown; hash?: unknown };
+      const d = e.data as { plasmodBox?: string; h?: unknown; hash?: unknown; href?: unknown };
       if (d?.plasmodBox === "ready") frame.contentWindow?.postMessage({ html: this.source, dark }, "*");
       else if (d?.plasmodBox === "height" && typeof d.h === "number") {
         frame.style.height = `${Math.min(BOX_MAX_HEIGHT, Math.max(48, Math.ceil(d.h)))}px`;
         view.requestMeasure();
       } else if (d?.plasmodBox === "open" && isMemoHash(d.hash)) location.hash = d.hash;
+      else if (d?.plasmodBox === "external" && isExternalHref(d.href)) openBoxLink(d.href);
     };
     addEventListener("message", on);
     this.off = () => removeEventListener("message", on);
