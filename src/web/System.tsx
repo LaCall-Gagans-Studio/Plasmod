@@ -8,11 +8,12 @@ import { Schedules } from "./Schedules";
 import { creditsUsed } from "./session-data";
 import { type ThemePref, useTheme } from "./theme";
 import { Avatar, COL, Page, ago, profileOf } from "./ui";
-import { claudeName, getAbout, saveOwner } from "./identity";
+import { claudeName, getAbout } from "./identity";
 import { DEFAULT_TEAMS, RUNTIME_CAPS, teamOfProfile } from "../shared/types";
 import { toast } from "./touch";
 import { lang, setLang, t, t as tr } from "./i18n";
 import { PushSection } from "./webpush";
+import { ProfileCard } from "./ProfileCard";
 import { VpsChart } from "./VpsChart";
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
@@ -585,34 +586,14 @@ function AboutApp() {
   );
 }
 
-/** 持ち主の呼び名 */
-function OwnerName() {
-  const [owner, setOwner] = useState(getAbout().owner);
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <section aria-label="呼び名" className="mx-4 flex flex-col gap-2 rounded-xl border border-line p-3.5 text-[13px]">
-      <label className="flex items-center gap-3">
-        <span className="w-16 flex-none text-mute">呼び名</span>
-        <input
-          value={owner}
-          onChange={(e) => setOwner(e.target.value)}
-          onBlur={() => owner.trim() && owner.trim() !== getAbout().owner && void saveOwner(owner.trim()).then(() => toast("呼び名を変えた")).catch((e) => setError(String(e.message ?? e)))}
-          aria-label="あなたの呼び名"
-          className="min-h-9 min-w-0 flex-1 rounded-lg border border-line-2 bg-transparent px-2.5 outline-none"
-        />
-      </label>
-      {error && <div className="text-orange-ink">{error}</div>}
-    </section>
-  );
-}
 
 function General() {
   return (
     <div className="flex flex-col gap-3 pb-6 pt-2.5">
+      <ProfileCard />
       <ThemePicker />
       <LangPicker />
       <PushSection />
-      <OwnerName />
       <AboutApp />
     </div>
   );

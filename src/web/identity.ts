@@ -13,6 +13,11 @@ export interface About {
   claudeAgent?: string | null;
   /** GitHub を設定しているか（開発の画面を出すか） */
   github?: boolean;
+  /** 持ち主のカード */
+  ownerTitle?: string;
+  ownerColor?: string;
+  ownerAvatar?: string;
+  joinedAt?: number;
   /** 初回の案内を終えたか */
   setupDone?: boolean;
   developer: string;

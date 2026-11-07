@@ -13,6 +13,9 @@ export const ME: AgentProfile = {
     return [...ownerName()][0] ?? "?";
   },
   color: "var(--color-me)",
+  get avatar() {
+    return getAbout().ownerAvatar;
+  },
 };
 
 export function profileOf(agents: AgentProfile[], id: string): AgentProfile {
