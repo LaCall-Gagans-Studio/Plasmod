@@ -560,9 +560,10 @@ function AboutApp() {
   const row = "flex items-center justify-between gap-3 px-3.5 py-2.5";
   return (
     <section aria-label="このアプリについて" className="mx-4 divide-y divide-line rounded-xl border border-line text-[13px]">
-      <div className={row}>
+      <div className="flex flex-col gap-2 px-3.5 py-3">
         <span className="font-bold">{a.name}</span>
-        <span className="font-mono text-[12px] text-mute">One body. Many minds.</span>
+        <blockquote className="m-0 whitespace-pre-line font-serif text-[13.5px] leading-[1.9] text-ink-2">{lang === "ja" ? "わたくしといふ現象は\n仮定された有機交流電燈の\nひとつの青い照明です\n（あらゆる透明な幽霊の複合体）" : "(I am large, I contain multitudes.)"}</blockquote>
+        <cite className="font-mono text-[10.5px] not-italic text-mute">{lang === "ja" ? "宮沢賢治『春と修羅』序" : "Walt Whitman, Song of Myself"}</cite>
       </div>
       <div className={row}>
         <span className="text-mute">バージョン</span>
