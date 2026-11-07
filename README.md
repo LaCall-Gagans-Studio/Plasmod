@@ -47,6 +47,10 @@ flowchart LR
 
 画面はサーバーから読むので、画面の更新に APK の入れ直しは要らない。
 
+## ブラウザと iPhone
+
+ブラウザでもそのまま使えます。**設定 → 一般 → 通知** で通知を受け取れます。iPhone は Safari の共有メニューから「ホーム画面に追加」して開くと通知が使えます（iOS 16.4 以降）。どの端末も Tailscale をオンにして開きます。
+
 ## 入れる
 
 要るもの: Ubuntu の VPS、[Tailscale](https://tailscale.com/)（ログイン済み）、[Hermes](https://github.com/NousResearch/hermes-agent)。

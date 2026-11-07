@@ -12,6 +12,7 @@ import { claudeName, getAbout, saveOwner } from "./identity";
 import { DEFAULT_TEAMS, RUNTIME_CAPS, teamOfProfile } from "../shared/types";
 import { toast } from "./touch";
 import { lang, setLang, t, t as tr } from "./i18n";
+import { PushSection } from "./webpush";
 import { VpsChart } from "./VpsChart";
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
@@ -610,6 +611,7 @@ function General() {
     <div className="flex flex-col gap-3 pb-6 pt-2.5">
       <ThemePicker />
       <LangPicker />
+      <PushSection />
       <OwnerName />
       <AboutApp />
     </div>

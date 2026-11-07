@@ -20,6 +20,7 @@ import { MemoStore } from "./memos";
 import { TaskStore } from "./tasks";
 import { ProjectStore } from "./projects";
 import { TeamStore } from "./teams";
+import { WebPush } from "./webpush";
 import { HabitStore } from "./habits";
 import { TaskSync } from "./task-sync";
 import { agentUids, MemoSpool } from "./memo-spool";
@@ -34,6 +35,9 @@ const source = config.kanbanSource === "fixture" ? new FixtureSource(config.fixt
 const bridge = new BridgeClient(config.bridgeSock);
 const feed = new NotifyFeed(store.db);
 const notifier = new Notifier(config, store, feed);
+// Web Push の差出人は住所が要る（Apple は localhost を断る）
+const webPush = new WebPush(store.db, config.publicUrl || config.repoUrl || "https://github.com/LaCall-Gagans-Studio/Plasmod");
+webPush.attach(feed);
 const hub = new Hub(config, source, store, bridge, notifier);
 
 // 認証なしの開発モードを、外に出さない
@@ -107,7 +111,7 @@ taskSync.start(() => hub.changed());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
 const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
 connections.start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, teams, taskSync, projects, feed, connections });
+const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,
