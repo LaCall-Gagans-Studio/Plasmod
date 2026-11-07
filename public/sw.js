@@ -44,6 +44,47 @@ async function networkFirst(req, key) {
   return Promise.race([net.catch(() => hit), late]);
 }
 
+// Web Push: 届いたら通知を出す（iOS は必ず出さないと通知の権限を失う）
+self.addEventListener("push", (e) => {
+  let d = {};
+  try {
+    d = e.data ? e.data.json() : {};
+  } catch {
+    d = { body: e.data ? e.data.text() : "" };
+  }
+  e.waitUntil(
+    self.registration.showNotification(d.title || "Plasmod", {
+      body: d.body || "",
+      tag: d.tag || undefined,
+      renotify: !!d.tag,
+      requireInteraction: !!d.urgent,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { path: d.path || "" },
+    }),
+  );
+});
+
+// 通知を押したら、その画面へ。開いている画面があれば使い回す
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const path = (e.notification.data && e.notification.data.path) || "";
+  // 自分の画面の中だけ（# で始まる行き先）
+  const url = new URL(`/${path.startsWith("#") ? path : ""}`, self.location.origin).href;
+  e.waitUntil(
+    (async () => {
+      const list = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const c of list) {
+        if (new URL(c.url).origin !== self.location.origin) continue;
+        await c.focus();
+        if ("navigate" in c) await c.navigate(url).catch(() => {});
+        return;
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
+});
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
