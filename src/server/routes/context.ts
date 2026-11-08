@@ -5,6 +5,7 @@ import type { TeamStore } from "../teams";
 import type { WebPush } from "../webpush";
 import type { Config } from "../config";
 import type { DevService } from "../dev";
+import type { MergeDesk } from "../merge";
 import type { Hub } from "../hub";
 import type { MediaService } from "../media";
 import type { MemoStore } from "../memos";
@@ -24,6 +25,7 @@ import type { WatchService } from "../watch";
 export interface AppServices {
   sessions?: SessionService;
   dev?: DevService;
+  merge?: MergeDesk;
   shares?: ShareStore;
   system?: SystemService;
   media?: MediaService;

@@ -60,7 +60,7 @@ describe("タスクの番号・レポート・バッジ", () => {
 
   test("PR はタスクになり、閉じたら完了。オーナーが閉じた・消したものは戻さない", () => {
     const s = new TaskStore(new Store(":memory:").db);
-    const pr = (number: number, extra: Partial<DevPr> = {}): DevPr => ({ repo: "org/app", number, title: `PR${number}`, url: `https://example.com/${number}`, author: "a", draft: false, updatedAt: 0, additions: 0, deletions: 0, files: 0, summary: "要約", refs: [], checks: { state: "none", passed: 0, failed: 0, pending: 0 }, previewUrl: null, ...extra });
+    const pr = (number: number, extra: Partial<DevPr> = {}): DevPr => ({ repo: "org/app", number, title: `PR${number}`, url: `https://example.com/${number}`, sha: "abc1234", author: "a", draft: false, updatedAt: 0, additions: 0, deletions: 0, files: 0, summary: "要約", refs: [], checks: { state: "none", passed: 0, failed: 0, pending: 0 }, previewUrl: null, ...extra });
     const open = () => s.list({ status: ["inbox", "todo", "doing"], source: "github" }).map((t) => [t.title, t.status]);
 
     expect(s.syncPrs([pr(1), pr(2), pr(3, { draft: true })], true, 1000)).toBe(true);

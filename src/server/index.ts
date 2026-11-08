@@ -9,6 +9,7 @@ import { BrokerSource, FixtureSource } from "./kanban";
 import { Notifier } from "./notify";
 import { NotifyFeed } from "./notify-feed";
 import { DevService, GitHub } from "./dev";
+import { MergeDesk } from "./merge";
 import { HermesApi, parseHermesApi, SessionService } from "./sessions";
 import { SessionIndexer } from "./session-index";
 import { ConnectionWatch } from "./connections";
@@ -76,7 +77,6 @@ if (!config.hermesApi && source instanceof BrokerSource) {
     })
     .catch((e) => console.warn("Hermes のプロファイルを読めない", e instanceof Error ? e.message : e));
 }
-hub.setApprovals(sessions);
 new SessionIndexer(sessions, hub.search, (agent) => store.sessionMarks(agent)).start();
 const dev = new DevService(config.githubToken ? new GitHub(config.githubToken, fetch, config.githubApi) : null, config.githubOwner);
 const shares = new ShareStore(join(config.dataDir, "shares"));
@@ -100,9 +100,20 @@ dev.onPrs = (prs, complete) => {
   if (tasks.syncPrs(prs, complete)) hub.changed();
 };
 dev.start();
+const merge = new MergeDesk(store.db, () => dev.snapshot().prs, tasks, config.githubMergeToken ? new GitHub(config.githubMergeToken, fetch, config.githubApi) : null, config.mergeMethod);
+// マージの依頼は、Hermes の承認と同じ承認カードに出す（許可＝マージ・拒否＝取り下げ）
+hub.setApprovals({
+  pendingApprovals: () => [...sessions.pendingApprovals(), ...merge.approvals()],
+  answerApproval: (id, choice) => (id.startsWith("merge:") ? merge.answer(id, choice) : sessions.answerApproval(id, choice)),
+});
+merge.onRequest = () => hub.changed();
+merge.onMerged = () => {
+  void dev.refresh();
+  hub.changed();
+};
 if (config.memoSpool) {
   const agents = agentUids(config.memoAgents, readFileSync("/etc/passwd", "utf8"));
-  new MemoSpool(memos, config.memoSpool, agents, tasks, () => hub.changed(), habits).start();
+  new MemoSpool(memos, config.memoSpool, agents, tasks, () => hub.changed(), habits, merge).start();
   console.log(`メモの受け渡し: ${config.memoSpool}（${[...agents.values()].join(", ") || "使えるユーザーなし"}）`);
 }
 const taskSync = new TaskSync(tasks, config.githubToken ? new GitHub(config.githubToken, fetch, config.githubApi) : null, {
@@ -114,7 +125,7 @@ taskSync.start(() => hub.changed());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
 const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
 connections.start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
+const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,
