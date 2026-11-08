@@ -9,6 +9,7 @@ import { BrokerSource, FixtureSource } from "./kanban";
 import { Notifier } from "./notify";
 import { NotifyFeed } from "./notify-feed";
 import { DevService, GitHub } from "./dev";
+import { MergeDesk } from "./merge";
 import { HermesApi, parseHermesApi, SessionService } from "./sessions";
 import { SessionIndexer } from "./session-index";
 import { ConnectionWatch } from "./connections";
@@ -100,9 +101,19 @@ dev.onPrs = (prs, complete) => {
   if (tasks.syncPrs(prs, complete)) hub.changed();
 };
 dev.start();
+const merge = new MergeDesk(store.db, () => dev.snapshot().prs, tasks, config.githubMergeToken ? new GitHub(config.githubMergeToken, fetch, config.githubApi) : null, config.mergeMethod);
+merge.onRequest = (r, pr) => {
+  const t = tasks.bySource("github", `${r.repo}#${r.number}`);
+  feed.add({ kind: "card", key: `merge:${r.repo}#${r.number}`, title: `マージの承認: ${pr.repo.split("/")[1]} #${pr.number}`, message: `${r.by}: ${pr.title}`, priority: 5, path: t ? `#/todo/${t.id}` : "#/", actions: [] });
+  hub.changed();
+};
+merge.onMerged = () => {
+  void dev.refresh();
+  hub.changed();
+};
 if (config.memoSpool) {
   const agents = agentUids(config.memoAgents, readFileSync("/etc/passwd", "utf8"));
-  new MemoSpool(memos, config.memoSpool, agents, tasks, () => hub.changed(), habits).start();
+  new MemoSpool(memos, config.memoSpool, agents, tasks, () => hub.changed(), habits, merge).start();
   console.log(`メモの受け渡し: ${config.memoSpool}（${[...agents.values()].join(", ") || "使えるユーザーなし"}）`);
 }
 const taskSync = new TaskSync(tasks, config.githubToken ? new GitHub(config.githubToken, fetch, config.githubApi) : null, {
@@ -114,7 +125,7 @@ taskSync.start(() => hub.changed());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
 const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
 connections.start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
+const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,

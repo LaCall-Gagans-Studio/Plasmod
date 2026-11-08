@@ -8,6 +8,7 @@
 import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HabitStore } from "./habits";
+import { MergeError, type MergeDesk } from "./merge";
 import { MemoError, type MemoStore } from "./memos";
 import { TASK_STATUSES, TaskError, type TaskStatus, type TaskStore } from "./tasks";
 
@@ -47,6 +48,7 @@ export class MemoSpool {
     /** タスクが変わったら（カードを出し直す） */
     private onTasks: () => void = () => {},
     private habits: HabitStore | null = null,
+    private merge: MergeDesk | null = null,
   ) {
     this.inDir = join(dir, "in");
     this.outDir = join(dir, "out");
@@ -111,7 +113,7 @@ export class MemoSpool {
       const as = typeof req.as === "string" && AS_RE.test(req.as) ? req.as : null;
       reply = { ok: true, result: this.run(String(req.op ?? ""), req.args ?? {}, as ? `${agent}/${as}` : agent) };
     } catch (e) {
-      reply = { ok: false, error: e instanceof Error ? e.message : String(e), status: e instanceof MemoError || e instanceof TaskError ? e.status : 500 };
+      reply = { ok: false, error: e instanceof Error ? e.message : String(e), status: e instanceof MemoError || e instanceof TaskError || e instanceof MergeError ? e.status : 500 };
     }
     drop();
     const tmp = join(this.outDir, `${id}.tmp`);
@@ -122,6 +124,19 @@ export class MemoSpool {
 
   run(op: string, a: Record<string, unknown>, author: string): unknown {
     if (op.startsWith("task.")) return this.runTask(op.slice("task.".length), a, author);
+    // マージの承認を頼む（マージそのものは、オーナーが画面で承認したときにアプリがする）
+    if (op === "merge.request" || op === "merge.status") {
+      if (!this.merge) throw new MergeError("マージの承認は使えない", 404);
+      const pr = typeof a.pr === "string" ? a.pr : "";
+      if (op === "merge.status") {
+        const m = pr.match(/^(.+)#(\d+)$/);
+        if (!m) throw new MergeError("PR は owner/repo#番号 の形で");
+        return { enabled: this.merge.enabled, request: this.merge.latest(m[1], Number(m[2])) };
+      }
+      const r = this.merge.request({ pr, sha: typeof a.sha === "string" ? a.sha : undefined, note: typeof a.note === "string" ? a.note : undefined }, author);
+      this.onTasks();
+      return { enabled: this.merge.enabled, request: r };
+    }
     // ルーティーンは読むだけ（チェックはオーナーが画面で付ける）
     if (op === "habit.list") {
       if (!this.habits) throw new MemoError("ルーティーンは使えない", 404);

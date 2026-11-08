@@ -637,6 +637,8 @@ export interface DevPr {
   number: number;
   title: string;
   url: string;
+  /** head の commit */
+  sha: string;
   author: string;
   draft: boolean;
   updatedAt: number;
@@ -647,6 +649,21 @@ export interface DevPr {
   refs: string[];
   checks: { state: "success" | "failure" | "pending" | "none"; passed: number; failed: number; pending: number };
   previewUrl: string | null;
+}
+
+/** マージの承認の依頼（エージェントが頼み、オーナーが画面で承認すると、アプリがマージする） */
+export interface MergeRequest {
+  id: number;
+  repo: string;
+  number: number;
+  /** 頼んだときの head。これと違う commit はマージしない */
+  sha: string;
+  by: string;
+  note: string;
+  status: "pending" | "merged" | "rejected" | "failed";
+  createdAt: number;
+  decidedAt: number | null;
+  result: string;
 }
 
 export interface DevSnapshot {

@@ -60,6 +60,7 @@ Android アプリは [Releases](../../../releases) から入れて、最初の�
 | `PLASMOD_PROFILES` | エージェントの一覧を固定するとき（[例](../deploy/profiles.example.json)）。無ければ自動 |
 | `PLASMOD_OWNER_NAME`・`PLASMOD_DEVELOPER`・`PLASMOD_REPO_URL` | 呼び名の既定、設定に出す開発者とリポジトリ |
 | `PLASMOD_GITHUB_TOKEN`・`PLASMOD_GITHUB_OWNER` | 開発の画面で PR を見るとき（読み取り専用のトークン） |
+| `PLASMOD_GITHUB_MERGE_TOKEN`・`PLASMOD_MERGE_METHOD` | 画面の承認でアプリがマージするとき（下の「マージの承認」）。方法は `merge`（既定）・`squash`・`rebase` |
 | `PLASMOD_TASK_PREFIX` | タスク番号の頭（既定 `TASK`） |
 
 ## 切り替えられるモデル（`/etc/plasmod-models.json`）
@@ -110,6 +111,21 @@ GitHub の画面でマージされた commit だけを、署名を確かめて `
 
 root に関わる変更（`broker/`・`bridge/`・`rootd/`・`deploy/` の一部）は自動では入りません。アプリの root 作業の承認で入れます（`deploy/rootd/request-held.sh`）。
 
+## マージの承認
+
+エージェントに「この PR をマージしたい」と頼ませ、オーナーが画面で承認すると、アプリがマージします。エージェントはマージできる鍵を持ちません。
+
+1. GitHub で fine-grained token を作る。対象のリポジトリだけを選び、**Contents: Read and write**・**Pull requests: Read and write**・**Checks / Commit statuses: Read** を付ける
+2. `/etc/plasmod/env` に `PLASMOD_GITHUB_MERGE_TOKEN=<そのトークン>` を足して、`sudo systemctl restart plasmod`（アプリの **設定 → root 作業の承認 → コマンドを実行する** からでもよい。値をエージェントの会話に貼らないこと）
+3. エージェントには `plasmod-task merge owner/repo#番号 "ひとこと"` で頼ませる（結果は `plasmod-task merge-status owner/repo#番号`）。エージェントへの指示にも「マージは、この依頼で承認をもらう」と書いておく
+
+頼まれると、PR のタスクが BackLog に上がり、通知が来ます。タスクを開くと **承認してマージ** が出ます。アプリは押した時点で GitHub から読み直し、次のときはマージしません:
+
+- 頼まれた後に新しい commit が push された（中身を見直してから、頼み直してもらう）
+- CI が落ちている・まだ走っている、コンフリクトがある、下書き、閉じている
+
+承認できるのは、Tailscale の入口から開いたオーナーだけです（VPS の中のエージェントは押せません）。トークンが無いときは、従来どおり **マージする** で開発エージェントに頼みます。
+
 ## エージェントの権限を広げる
 
 Plasmod は、エージェントを見て・頼んで・承認するための画面です。エージェントに何をさせるか（メールを送る、PR をマージする、など）は、Plasmod ではなくエージェント側の設定で決めます。人によって広げたい範囲が違うので、コードを変えずに各自の VPS で決められるようにしています。
@@ -117,7 +133,7 @@ Plasmod は、エージェントを見て・頼んで・承認するための画
 | やりたいこと | どこで決めるか |
 |---|---|
 | 道具を足す（メール、カレンダー、外部サービス） | Hermes: そのプロファイルの `config.yaml` に MCP サーバーを足す（`rootreq action` の MCP の有効化でも入れられる）。Claude Code: 開発エージェントのユーザーで `claude mcp add` |
-| GitHub で書き込み・マージをさせる | エージェントのユーザーが使う GitHub のトークンの権限（fine-grained token で、リポジトリと権限を絞る）。マージを許すなら、エージェントへの指示にもそう書く |
+| GitHub で書き込み・マージをさせる | 書き込み（push・PR）はエージェントのユーザーが使う GitHub のトークンの権限で（fine-grained token で、リポジトリと権限を絞る）。マージは、エージェントに鍵を渡さずに「マージの承認」を使うのがおすすめ |
 | 何をしてよいか・何をしてはいけないかの決まり | Hermes: プロファイルの `SOUL.md` やスキル。Claude Code: 作業場所の `CLAUDE.md` と `~/.claude/settings.json` の `permissions` |
 | 定期的に何かをさせる | アプリの **設定 → エージェント → 定期実行**、または Hermes の cron |
 

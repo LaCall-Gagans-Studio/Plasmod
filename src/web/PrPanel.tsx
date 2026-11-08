@@ -1,7 +1,8 @@
-// PR から来たタスクの中身: チェックの結果と、開発エージェントへの依頼（マージ・差し戻し）。
-// マージの実行は従来どおり、依頼された側が承認を通して行う。
+// PR から来たタスクの中身: チェックの結果、マージ、開発エージェントへの依頼（差し戻し）。
+// マージ用のトークンがあれば、ここで承認するとアプリがマージする（エージェントが頼んだ commit だけ）。
+// 無ければ従来どおり、開発エージェントに頼み、依頼された側が承認を通して行う。
 import { useEffect, useState } from "react";
-import type { DevPr, DevSnapshot } from "../shared/types";
+import type { DevPr, DevSnapshot, MergeRequest } from "../shared/types";
 import { MicButton } from "./speech";
 
 const CHECK = {
@@ -18,11 +19,14 @@ export function PrPanel({ url }: { url: string }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string; session?: string; agent?: string } | null>(null);
+  const [desk, setDesk] = useState<{ enabled: boolean; method: string; pending: MergeRequest[] } | null>(null);
+  const [confirm, setConfirm] = useState(false);
 
   useEffect(() => {
     let alive = true;
     fetch("/api/dev").then((r) => r.json() as Promise<DevSnapshot>).then((s) => alive && setPr(s.prs.find((p) => p.url === url) ?? null)).catch(() => {});
     fetch("/api/dev-settings").then((r) => r.json()).then((t) => alive && setTarget(t)).catch(() => {});
+    fetch("/api/dev/merge").then((r) => r.json()).then((d) => alive && setDesk(d)).catch(() => {});
     return () => {
       alive = false;
     };
@@ -48,6 +52,20 @@ export function PrPanel({ url }: { url: string }) {
     } else setMsg({ ok: false, text: b.error ?? `HTTP ${r.status}` });
   };
   const c = CHECK[pr.checks.state];
+  const req = desk?.pending.find((r) => r.repo === pr.repo && r.number === pr.number) ?? null;
+  const sha = req?.sha ?? pr.sha;
+  const moved = !!req && !pr.sha.startsWith(req.sha);
+  const blocked = pr.draft ? "下書き" : pr.checks.state === "failure" ? "CI が落ちている" : pr.checks.state === "pending" ? "CI がまだ走っている" : moved ? "頼まれた後に新しい commit がある" : null;
+  const approve = async () => {
+    setBusy(true);
+    setMsg(null);
+    const r = await fetch("/api/dev/merge/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repo: pr.repo, number: pr.number, sha }) });
+    const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; request?: MergeRequest };
+    setBusy(false);
+    setConfirm(false);
+    if (b.ok) setMsg({ ok: true, text: b.request?.result || "マージした" });
+    else setMsg({ ok: false, text: r.status === 403 ? "Tailscale の入口から開いたときだけ承認できる" : (b.error ?? `HTTP ${r.status}`) });
+  };
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-line p-3">
       <div className="flex flex-wrap gap-1.5 font-mono text-[10.5px]">
@@ -56,6 +74,25 @@ export function PrPanel({ url }: { url: string }) {
         {pr.draft && <span className="rounded-md bg-line px-1.5 py-0.5 text-ink-2">draft</span>}
         {pr.previewUrl && <a href={pr.previewUrl} target="_blank" rel="noreferrer" className="rounded-md bg-line px-1.5 py-0.5 text-ink-2">preview ↗</a>}
       </div>
+      {req && (
+        <div className="rounded-lg bg-lime-soft px-2.5 py-2 text-[12px] text-lime-ink">
+          <b>{req.by}</b> がマージの承認を頼んでいる · <span className="font-mono">{req.sha.slice(0, 7)}</span>
+          {req.note && <div className="mt-0.5 whitespace-pre-wrap text-ink-2">{req.note}</div>}
+        </div>
+      )}
+      {desk?.enabled && confirm && (
+        <div className="flex flex-col gap-2 rounded-xl border border-line-2 p-2.5 text-[12.5px]">
+          <div>
+            <span className="font-mono">{sha.slice(0, 7)}</span> を <b>{pr.repo.split("/")[1]}</b> の既定のブランチに {desk.method} でマージする
+          </div>
+          <div className="flex gap-2">
+            <button disabled={busy} onClick={approve} className="min-h-11 flex-[2] rounded-full bg-lime text-sm font-bold text-on disabled:opacity-40">
+              {busy ? "マージしています…" : "マージする"}
+            </button>
+            <button onClick={() => setConfirm(false)} className="min-h-11 flex-1 rounded-full border border-line-2 text-sm">やめる</button>
+          </div>
+        </div>
+      )}
       {target && target.agents.length > 1 && (
         <label className="flex items-center gap-2 text-[12px] text-mute">
           依頼先
@@ -81,7 +118,13 @@ export function PrPanel({ url }: { url: string }) {
           </>
         ) : (
           <>
-            <button onClick={() => setMode("merge")} className="min-h-11 flex-[2] rounded-full bg-lime text-sm font-bold text-on">マージする</button>
+            {desk?.enabled ? (
+              <button disabled={!!blocked || confirm} onClick={() => setConfirm(true)} className="min-h-11 flex-[2] rounded-full bg-lime text-sm font-bold text-on disabled:opacity-40">
+                {blocked ? `マージできない（${blocked}）` : "承認してマージ"}
+              </button>
+            ) : (
+              <button onClick={() => setMode("merge")} className="min-h-11 flex-[2] rounded-full bg-lime text-sm font-bold text-on">マージする</button>
+            )}
             <button onClick={() => setMode("revise")} className="min-h-11 flex-1 rounded-full border border-line-2 text-sm font-bold">差し戻す</button>
           </>
         )}

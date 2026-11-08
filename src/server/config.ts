@@ -77,6 +77,10 @@ export const config = {
   githubToken: env("PLASMOD_GITHUB_TOKEN"),
   githubOwner: env("PLASMOD_GITHUB_OWNER"),
   githubApi: env("PLASMOD_GITHUB_API", "https://api.github.com"),
+  /** マージに使うトークン（Contents・Pull requests の書き込み）。あるときだけ、画面の承認でアプリがマージする。エージェントには渡さない */
+  githubMergeToken: env("PLASMOD_GITHUB_MERGE_TOKEN"),
+  /** merge・squash・rebase */
+  mergeMethod: env("PLASMOD_MERGE_METHOD", "merge"),
   /** システム画面の月額の内訳。JSON: [{"name":"Claude Pro","usd":20},{"name":"Nous","usd":100}] */
   plans: env("PLASMOD_PLANS"),
   /** タスクの番号の頭（TASK-123 の TASK） */

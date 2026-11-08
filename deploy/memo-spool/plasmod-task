@@ -20,6 +20,8 @@ BackLog に入れるのは、オーナーに決めてほしい問いだけ。題
   plasmod-task parent ID 親ID|--none          # 親を付ける・外す（ID は TASK-123 か #の数字）
   plasmod-task link ID 相手ID [--kind related|blocks] [--off]   # つながりを足す・外す（blocks＝ID が相手を止めている）
   plasmod-task links ID                        # 親・子・つながりの一覧
+  plasmod-task merge owner/repo#N [--sha SHA] [メモ]   # マージの承認を頼む（オーナーが画面で承認するとアプリがマージ）
+  plasmod-task merge-status owner/repo#N       # 頼んだマージがどうなったか
 
   共通: --json、--as プロファイル（hermes の中で名乗る。環境変数 PLASMOD_MEMO_AS でも可）
   受け渡しのフォルダ: 環境変数 PLASMOD_MEMO_SPOOL（既定 /var/lib/plasmod-spool/memo。メモと共通）
@@ -155,6 +157,12 @@ def main():
 
     s = sub.add_parser("links", help="親・子・つながり")
     s.add_argument("id")
+    s = sub.add_parser("merge", help="マージの承認を頼む。マージは、オーナーが画面で承認したときにアプリがする")
+    s.add_argument("pr", help="owner/repo#番号")
+    s.add_argument("--sha", help="頼む commit（省略すると今の head）。違えば断られる")
+    s.add_argument("note", nargs="?", default="", help="オーナーへのひとこと")
+    s = sub.add_parser("merge-status", help="頼んだマージがどうなったか")
+    s.add_argument("pr", help="owner/repo#番号")
 
     a = p.parse_args()
     out = lambda r: print(json.dumps(r, ensure_ascii=False, indent=2))  # noqa: E731
@@ -226,6 +234,22 @@ def main():
             print(line(t))
         if not r:
             print("（当てはまるタスクは無い）")
+        return
+    if a.cmd in ("merge", "merge-status"):
+        if a.cmd == "merge":
+            r = call("merge.request", {"pr": a.pr, "note": a.note, **({"sha": a.sha} if a.sha else {})}, a.as_)
+        else:
+            r = call("merge.status", {"pr": a.pr}, a.as_)
+        if a.json:
+            return out(r)
+        q = r.get("request")
+        if not q:
+            print("（まだ頼んでいない）")
+        else:
+            ja = {"pending": "承認待ち", "merged": "マージ済み", "rejected": "取り下げ・差し戻し", "failed": "失敗"}.get(q["status"], q["status"])
+            print(f"{q['repo']}#{q['number']} {q['sha'][:7]}: {ja}" + (f" — {q['result']}" if q.get("result") else ""))
+        if not r.get("enabled"):
+            print("※ このアプリにはマージ用のトークンが無いので、画面からは承認できない（従来どおり、頼まれた側が承認ボタンでマージする）")
         return
     if a.cmd == "status":
         r = call("task.status", {"id": ref(a.id), "status": a.status, "note": a.note}, a.as_)

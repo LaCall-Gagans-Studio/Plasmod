@@ -36,6 +36,16 @@ export class GitHub {
     if (!res.ok) throw new Error(`GitHub ${path.split("?")[0]}: HTTP ${res.status}`);
     return (await res.json()) as Json;
   }
+
+  /** 書き込み（マージ）。失敗しても GitHub の返事の message を返す */
+  async send(method: "PUT" | "POST", path: string, body: unknown): Promise<{ ok: boolean; status: number; body: Json }> {
+    const res = await this.fetchFn(`${this.base}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${this.token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "plasmod", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return { ok: res.ok, status: res.status, body: ((await res.json().catch(() => ({}))) as Json) ?? {} };
+  }
 }
 
 type ChecksState = DevPr["checks"]["state"];
@@ -118,6 +128,7 @@ export class DevService {
       number: n,
       title: String(pr.title ?? ""),
       url: String(pr.html_url ?? ""),
+      sha,
       author: String((pr.user as Json)?.login ?? ""),
       draft: !!pr.draft,
       updatedAt: Date.parse(String(pr.updated_at ?? "")) || 0,
@@ -147,7 +158,7 @@ export class DevService {
 
 }
 
-/** 開発エージェントへの依頼文（マージ・差し戻し）。マージの実行は承認ボタンを通す */
+/** 開発エージェントへの依頼文（マージ・差し戻し）。マージ用のトークンが無い環境では、マージもエージェントに頼む */
 export function devRequestText(action: "merge" | "revise", prs: { repo: string; number: number; url?: string }[], note: string): string {
   const list = prs.map((p) => `- ${p.repo}#${p.number}${p.url ? ` ${p.url}` : ""}`).join("\n");
   if (action === "merge")
