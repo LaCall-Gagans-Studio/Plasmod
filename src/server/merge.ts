@@ -1,8 +1,8 @@
 // マージの承認（3.0）。エージェントは「この PR をマージしたい」と頼むだけで、書き込みの鍵は持たない。
-// オーナーが画面で承認すると、アプリがマージ用のトークン（PLASMOD_GITHUB_MERGE_TOKEN）でマージする。
+// 依頼はホームの承認カード（Hermes の承認と同じ形）に出て、オーナーが「許可」すると、アプリがマージ用のトークン（PLASMOD_GITHUB_MERGE_TOKEN）でマージする。
 // マージするのは頼まれた（画面で見た）commit だけ。後から push されていたら、CI が通っていなければ止める。
 import type { Database } from "bun:sqlite";
-import type { DevPr, MergeRequest } from "../shared/types";
+import type { DevPr, HermesApproval, MergeRequest } from "../shared/types";
 import { checksState, type GitHub } from "./dev";
 import type { TaskStore } from "./tasks";
 
@@ -72,7 +72,44 @@ export class MergeDesk {
     return this.tasks?.bySource("github", `${p.repo}#${p.number}`) ?? null;
   }
 
-  /** エージェントからの依頼。同じ PR の古い依頼は置き換える。PR のタスクを BackLog に上げて、ホームに出す */
+  /** 待っている依頼を、承認カードの形で（キーは hperm:merge:<id>）。マージ用のトークンが無ければ出さない */
+  approvals(): HermesApproval[] {
+    if (!this.writer) return [];
+    const prs = this.openPrs();
+    return this.pending().map((r) => {
+      const p = prs.find((x) => x.repo === r.repo && x.number === r.number);
+      const ci = p ? { success: `CI ✓ ${p.checks.passed}`, failure: `CI ✕ ${p.checks.failed} 件落ちている`, pending: `CI … ${p.checks.pending} 件走っている`, none: "CI なし" }[p.checks.state] : "";
+      const moved = p && !p.sha.startsWith(r.sha) ? `\n⚠ 頼まれた後に新しい commit（${p.sha.slice(0, 7)}）がある。許可しても止まる` : "";
+      return {
+        id: `merge:${r.id}`,
+        agent: r.by.split("/").pop() || r.by,
+        session: "",
+        runId: "",
+        description: `マージ ${r.repo.split("/")[1]} #${r.number}${p ? ` ${p.title}` : ""}`.slice(0, 200),
+        command: [
+          `${r.repo}#${r.number} → 既定のブランチに ${this.method}`,
+          [`commit ${r.sha.slice(0, 7)}`, ci, p ? `+${p.additions} −${p.deletions} · ${p.files} files` : ""].filter(Boolean).join(" · ") + moved,
+          r.note,
+          p?.url ?? "",
+        ].filter(Boolean).join("\n"),
+        createdAt: r.createdAt,
+      };
+    });
+  }
+
+  /** 承認カードの返事。許可＝マージ（確かめて止まれば例外）、拒否＝取り下げ */
+  async answer(id: string, choice: "once" | "deny", by = "owner"): Promise<void> {
+    const n = Number(id.replace(/^merge:/, ""));
+    const r = this.db.query("SELECT * FROM merge_requests WHERE id = ? AND status = 'pending'").get(n) as Row | null;
+    if (!r) throw new MergeError("このマージの依頼はもう済んでいる", 404);
+    if (choice === "deny") {
+      this.db.query("UPDATE merge_requests SET status = 'rejected', decided_at = ?, result = ? WHERE id = ?").run(Date.now(), `${by}: 拒否`, n);
+      return;
+    }
+    await this.approve(r.repo, r.number, r.sha, by);
+  }
+
+  /** エージェントからの依頼。同じ PR の古い依頼は置き換える。ホームの承認カードに出る */
   request(input: { pr: string; sha?: string; note?: string }, by: string, now = Date.now()): MergeRequest {
     const pr = this.find(input.pr);
     if (pr.draft) throw new MergeError("下書きの PR はマージを頼めない");
@@ -84,11 +121,6 @@ export class MergeDesk {
       const r = this.db.query("INSERT INTO merge_requests (repo, number, sha, by, note, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)").run(pr.repo, pr.number, pr.sha, by, note, now);
       return toReq(this.db.query("SELECT * FROM merge_requests WHERE id = ?").get(Number(r.lastInsertRowid)) as Row);
     })();
-    const t = this.taskOf(pr);
-    if (t && t.status !== "done") {
-      this.tasks!.setStatusBy(t.id, "inbox", `マージの承認待ち（${pr.sha.slice(0, 7)}）`, by, now);
-      if (note) this.tasks!.comment(t.id, `マージの依頼: ${note}`, by, now);
-    }
     this.onRequest(req, pr);
     return req;
   }

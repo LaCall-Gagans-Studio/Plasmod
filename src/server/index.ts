@@ -77,7 +77,6 @@ if (!config.hermesApi && source instanceof BrokerSource) {
     })
     .catch((e) => console.warn("Hermes のプロファイルを読めない", e instanceof Error ? e.message : e));
 }
-hub.setApprovals(sessions);
 new SessionIndexer(sessions, hub.search, (agent) => store.sessionMarks(agent)).start();
 const dev = new DevService(config.githubToken ? new GitHub(config.githubToken, fetch, config.githubApi) : null, config.githubOwner);
 const shares = new ShareStore(join(config.dataDir, "shares"));
@@ -102,11 +101,12 @@ dev.onPrs = (prs, complete) => {
 };
 dev.start();
 const merge = new MergeDesk(store.db, () => dev.snapshot().prs, tasks, config.githubMergeToken ? new GitHub(config.githubMergeToken, fetch, config.githubApi) : null, config.mergeMethod);
-merge.onRequest = (r, pr) => {
-  const t = tasks.bySource("github", `${r.repo}#${r.number}`);
-  feed.add({ kind: "card", key: `merge:${r.repo}#${r.number}`, title: `マージの承認: ${pr.repo.split("/")[1]} #${pr.number}`, message: `${r.by}: ${pr.title}`, priority: 5, path: t ? `#/todo/${t.id}` : "#/", actions: [] });
-  hub.changed();
-};
+// マージの依頼は、Hermes の承認と同じ承認カードに出す（許可＝マージ・拒否＝取り下げ）
+hub.setApprovals({
+  pendingApprovals: () => [...sessions.pendingApprovals(), ...merge.approvals()],
+  answerApproval: (id, choice) => (id.startsWith("merge:") ? merge.answer(id, choice) : sessions.answerApproval(id, choice)),
+});
+merge.onRequest = () => hub.changed();
 merge.onMerged = () => {
   void dev.refresh();
   hub.changed();

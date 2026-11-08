@@ -49,7 +49,7 @@ describe("マージの承認", () => {
     expect(() => desk.request({ pr: "org app#7" }, "dev")).toThrow("形");
     const r1 = desk.request({ pr: "org/app#7", sha: HEAD.slice(0, 7), note: "CI 通った" }, "dev", 2000);
     expect(r1).toMatchObject({ status: "pending", sha: HEAD, by: "dev", note: "CI 通った" });
-    expect(task().status).toBe("inbox");
+    expect(task().status).toBe("todo"); // オーナーの todo には上げない（承認カードに出る）
     desk.request({ pr: "org/app#7" }, "dev", 3000);
     expect(desk.pending()).toHaveLength(1);
     expect(desk.latest("org/app", 7)!.createdAt).toBe(3000);
@@ -102,6 +102,31 @@ describe("マージの承認", () => {
     b.desk.request({ pr: "org/app#7" }, "dev");
     expect(b.desk.reject("org/app", 7, "owner", "差し戻し: テスト")).toBe(1);
     expect(b.desk.latest("org/app", 7)!.status).toBe("rejected");
+  });
+
+  test("承認カード: 依頼が Hermes の承認と同じ形で出て、許可でマージ・拒否で取り下げ", async () => {
+    const calls: Call[] = [];
+    const { desk } = setup([pr()], fakeGh({}, calls));
+    desk.request({ pr: "org/app#7", note: "お願い" }, "hermes/dev");
+    const [a] = desk.approvals();
+    expect(a.id).toMatch(/^merge:\d+$/);
+    expect(a.agent).toBe("dev");
+    expect(a.description).toBe("マージ app #7 直す");
+    expect(a.command).toContain("commit aaaaaaa");
+    expect(a.command).toContain("お願い");
+    await desk.answer(a.id, "once");
+    expect(calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(desk.approvals()).toHaveLength(0);
+    await expect(desk.answer(a.id, "once")).rejects.toThrow("済んでいる");
+
+    const b = setup();
+    b.desk.request({ pr: "org/app#7" }, "dev");
+    await b.desk.answer(b.desk.approvals()[0].id, "deny");
+    expect(b.desk.latest("org/app", 7)!.status).toBe("rejected");
+    // トークンが無ければカードは出さない
+    const c = setup([pr()], null);
+    c.desk.request({ pr: "org/app#7" }, "dev");
+    expect(c.desk.approvals()).toHaveLength(0);
   });
 
   test("エージェントは受け渡しのフォルダから頼める", () => {
