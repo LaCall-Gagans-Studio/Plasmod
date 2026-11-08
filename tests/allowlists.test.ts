@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AllowlistError, cleanLogins, cleanModels, loginsScript, modelsScript } from "../src/server/allowlists";
+import { AllowlistError, cleanGithubToken, cleanLogins, cleanModels, loginsScript, modelsScript, secretEnvScript } from "../src/server/allowlists";
+import { existsSync } from "node:fs";
 
 const run = (script: string) => {
   const r = Bun.spawnSync(["bash", "-c", script]);
@@ -45,5 +46,31 @@ describe("許可リスト", () => {
     run(modelsScript({ dev: [] }, f));
     expect(JSON.parse(readFileSync(f, "utf8"))).toEqual({ default: [{ provider: "nous", model: "x/y" }], dev: [] });
     expect(statSync(f).mode & 0o777).toBe(0o644);
+  });
+
+  test("秘密の値: スクリプトに値を書かず、ファイルから読んで env に入れ、読んだファイルは消す", () => {
+    const tok = "github_pat_" + "A1b2_".repeat(8);
+    expect(cleanGithubToken(` ${tok} `)).toBe(tok);
+    expect(cleanGithubToken("")).toBe("");
+    for (const bad of ["nope", "ghp_short", `${tok}\nX=1`, "ghp_" + "a".repeat(30) + ";rm"]) expect(() => cleanGithubToken(bad)).toThrow(AllowlistError);
+    const d = mkdtempSync(join(tmpdir(), "pl-secret-"));
+    const env = join(d, "env");
+    const src = join(d, "src");
+    writeFileSync(env, "PLASMOD_PORT=8790\nPLASMOD_ALLOWED_LOGINS=a@x\n");
+    chmodSync(env, 0o640);
+    writeFileSync(src, tok);
+    const script = secretEnvScript("PLASMOD_GITHUB_MERGE_TOKEN", src, env, false);
+    expect(script).not.toContain(tok);
+    const out = run(script);
+    expect(out).not.toContain(tok);
+    expect(readFileSync(env, "utf8")).toBe(`PLASMOD_PORT=8790\nPLASMOD_ALLOWED_LOGINS=a@x\nPLASMOD_GITHUB_MERGE_TOKEN=${tok}\n`);
+    expect(existsSync(src)).toBe(false);
+    expect(statSync(env).mode & 0o777).toBe(0o640);
+    // 入れ直しは同じ行を置き換え、空なら消す
+    writeFileSync(src, "ghp_" + "b".repeat(36));
+    run(secretEnvScript("PLASMOD_GITHUB_MERGE_TOKEN", src, env, false));
+    expect(readFileSync(env, "utf8")).toBe(`PLASMOD_PORT=8790\nPLASMOD_ALLOWED_LOGINS=a@x\nPLASMOD_GITHUB_MERGE_TOKEN=ghp_${"b".repeat(36)}\n`);
+    run(secretEnvScript("PLASMOD_GITHUB_MERGE_TOKEN", null, env, false));
+    expect(readFileSync(env, "utf8")).toBe("PLASMOD_PORT=8790\nPLASMOD_ALLOWED_LOGINS=a@x\n");
   });
 });

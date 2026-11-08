@@ -1,7 +1,10 @@
 // root 作業の承認（plasmod-rootd）
 import { type Context } from "hono";
 import { requireRootLogin } from "../auth";
-import { AllowlistError, cleanLogins, cleanModels, loginsScript, modelsScript } from "../allowlists";
+import { randomBytes } from "node:crypto";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { AllowlistError, cleanGithubToken, cleanLogins, cleanModels, loginsScript, modelsScript, secretEnvScript } from "../allowlists";
 import { validRootId } from "../root";
 import type { RouteContext } from "./context";
 
@@ -90,6 +93,30 @@ export function rootRoutes({ app, cfg, store, rootd, system }: RouteContext) {
     const m = system ? await system.modelAllowlist() : { models: {}, current: {}, error: "システムは使えない" };
     return c.json({ logins: cfg.allowedLogins, me: cfg.devNoAuth ? "" : String(c.get("loginName" as never) ?? "").replace(/（Tailscale）$/, ""), rootd: !!rootd, ...m });
   });
+  // マージ用のトークン（PLASMOD_GITHUB_MERGE_TOKEN）を入れる・消す。値はスクリプトに書かず、
+  // アプリだけが読めるファイル（0600）に一時的に置き、root が読んで env に入れたら消す
+  app.post("/api/root/merge-token", async (c) => {
+    if (!rootd) return c.json({ ok: false, error: "plasmod-rootd は使えない" }, 404);
+    const body = await c.req.json<{ token?: unknown; password?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+    if (typeof body.password !== "string" || !body.password) return c.json({ ok: false, error: "パスワードが要る" }, 400);
+    let token: string;
+    try {
+      token = cleanGithubToken(body.token);
+    } catch (e) {
+      return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+    const src = token ? join(cfg.dataDir, `.secret-${randomBytes(12).toString("hex")}`) : null;
+    try {
+      if (src) writeFileSync(src, token, { mode: 0o600, flag: "wx" });
+      const r = await rootd.call({ op: "run", command: secretEnvScript("PLASMOD_GITHUB_MERGE_TOKEN", src), password: body.password, by: String(c.get("loginName" as never) ?? "") });
+      return c.json(r, r.ok ? 200 : rootStatus(r));
+    } catch (e) {
+      return rootFail(c, e);
+    } finally {
+      if (src) rmSync(src, { force: true });
+    }
+  });
+
   // 許可リスト（ログイン・モデル）の書き換え。決まった形のスクリプトにして、持ち主のパスワードで実行する
   app.post("/api/root/allowlist/:kind", async (c) => {
     if (!rootd) return c.json({ ok: false, error: "plasmod-rootd は使えない" }, 404);

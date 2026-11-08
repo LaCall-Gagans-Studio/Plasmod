@@ -116,7 +116,7 @@ root に関わる変更（`broker/`・`bridge/`・`rootd/`・`deploy/` の一部
 エージェントに「この PR をマージしたい」と頼ませ、オーナーが画面で承認すると、アプリがマージします。エージェントはマージできる鍵を持ちません。
 
 1. GitHub で fine-grained token を作る。対象のリポジトリだけを選び、**Contents: Read and write**・**Pull requests: Read and write**・**Checks / Commit statuses: Read** を付ける
-2. `/etc/plasmod/env` に `PLASMOD_GITHUB_MERGE_TOKEN=<そのトークン>` を足して、`sudo systemctl restart plasmod`（アプリの **設定 → root 作業の承認 → コマンドを実行する** からでもよい。値をエージェントの会話に貼らないこと）
+2. アプリの **設定 → VPS → 許可リスト → マージ用のトークン** に貼って、root のパスワードで **入れる**（値は root 作業の記録にも画面にも残りません）。手で入れるなら `/etc/plasmod/env` に `PLASMOD_GITHUB_MERGE_TOKEN=<そのトークン>` を足して `sudo systemctl restart plasmod`。「コマンドを実行する」に値を打つと記録に残るので使わないこと。エージェントの会話にも貼らないこと
 3. エージェントには `plasmod-task merge owner/repo#番号 "ひとこと"` で頼ませる（結果は `plasmod-task merge-status owner/repo#番号`）。エージェントへの指示にも「マージは、この依頼で承認をもらう」と書いておく
 
 頼まれると、ホームの承認カード（エージェントの承認と同じ、上の丸）に出て、通知が来ます。**許可** でマージ、**拒否** で取り下げです（PR のタスクの画面の **承認してマージ** からもできます）。アプリは許可した時点で GitHub から読み直し、次のときはマージしません:

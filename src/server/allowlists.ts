@@ -68,6 +68,46 @@ print("開けるログイン:",v)`;
   return [`python3 -I - <<'PLASMOD_PY'`, py, "PLASMOD_PY", restart ? "systemd-run --quiet --on-active=3 systemctl restart plasmod && echo 3 秒後にアプリを再起動する" : ""].filter(Boolean).join("\n");
 }
 
+const GH_TOKEN = /^(github_pat_[A-Za-z0-9_]{20,255}|gh[pousr]_[A-Za-z0-9]{20,255})$/;
+
+/** GitHub のトークンの形か（空は「消す」） */
+export function cleanGithubToken(v: unknown): string {
+  const t = typeof v === "string" ? v.trim() : "";
+  if (t && !GH_TOKEN.test(t)) throw new AllowlistError("GitHub のトークンの形ではない（github_pat_… か ghp_…）");
+  return t;
+}
+
+/**
+ * 秘密の値を /etc/plasmod/env の1行に入れる。値はスクリプトに書かず、アプリだけが読めるファイル（src）から root が読んで、読んだら消す。
+ * root 作業の記録・題名・画面に値が残らない。src が無ければ（空の値）その行を消す
+ */
+export function secretEnvScript(key: string, src: string | null, envFile = "/etc/plasmod/env", restart = true): string {
+  if (!/^PLASMOD_[A-Z0-9_]+$/.test(key)) throw new AllowlistError("キーの形が違う");
+  const py = `import os
+p=${JSON.stringify(envFile)}
+k=${JSON.stringify(key)}
+s=${src === null ? "None" : JSON.stringify(src)}
+v=""
+if s:
+    with open(s,encoding="utf-8") as f: v=f.read().strip()
+    os.unlink(s)
+    if not v or "\\n" in v or "\\r" in v: raise SystemExit("値が空か、改行を含む")
+lines=open(p,encoding="utf-8").read().split("\\n")
+out=[l for l in lines if not l.startswith(k+"=")]
+if v:
+    i=next((n for n,l in enumerate(lines) if l.startswith(k+"=")),None)
+    if i is None:
+        i=len(out)-1 if out and out[-1]=="" else len(out)
+    out.insert(min(i,len(out)),k+"="+v)
+st=os.stat(p)
+t=p+".plasmod-tmp"
+with open(t,"w",encoding="utf-8") as f: f.write("\\n".join(out))
+os.chown(t,st.st_uid,st.st_gid); os.chmod(t,st.st_mode)
+os.replace(t,p)
+print(k, "を設定した（値は表示しない）" if v else "を消した")`;
+  return [`python3 -I - <<'PLASMOD_PY'`, py, "PLASMOD_PY", restart ? "systemd-run --quiet --on-active=3 systemctl restart plasmod && echo 3 秒後にアプリを再起動する" : ""].filter(Boolean).join("\n");
+}
+
 /** /etc/plasmod-models.json の、渡したプロファイルの分だけを置き換える（ほかのプロファイルの行は残す。読むのは仲介） */
 export function modelsScript(models: ModelAllowlist, file = "/etc/plasmod-models.json"): string {
   const py = `import base64,json,os

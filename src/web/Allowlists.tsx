@@ -160,6 +160,64 @@ function Models({ initial, current, agents }: { initial: Record<string, Choice[]
   );
 }
 
+/** マージ用のトークン。値は送ったら画面にも記録にも残さない（あるかどうかだけ見せる） */
+function MergeToken() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [token, setToken] = useState("");
+  const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/dev/merge").then((r) => r.json()).then((d: { enabled?: boolean }) => setEnabled(!!d.enabled)).catch(() => {});
+  }, []);
+  const save = async (clear: boolean) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/root/merge-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: clear ? "" : token, password: secret }) });
+      const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; exit_code?: number };
+      if (!r.ok || !b.ok) throw new Error(b.error ?? `HTTP ${r.status}`);
+      setToken("");
+      setMsg({ ok: true, text: clear ? "消した。数秒後にアプリが再起動する" : "入れた。数秒後にアプリが再起動する" });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSecret("");
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mx-4 mt-3 rounded-xl border border-line bg-panel px-3.5 py-3 text-[13px]">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-semibold">マージ用のトークン</span>
+        <span className={`text-[11px] ${enabled ? "text-lime-ink" : "text-mute"}`}>{enabled === null ? "" : enabled ? "設定済み" : "未設定"}</span>
+      </div>
+      <div className="mb-2 text-[11px] text-mute">エージェントが頼んだマージを、承認カードで許可するとアプリがマージする。GitHub の fine-grained token（Contents・Pull requests を Read and write、Checks・Commit statuses を Read）。値は保存後に表示しない</div>
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (token.trim() && secret && !busy) void save(false);
+        }}
+      >
+        <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_…" aria-label="トークン" spellCheck={false} className={`${field} min-h-10 font-mono`} />
+        <div className="flex gap-2">
+          <input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} aria-label="パスワード" placeholder="root のパスワード" className={`${field} min-h-10 flex-1`} />
+          <button type="submit" disabled={busy || !token.trim() || !secret} className="min-h-10 rounded-full bg-ink px-4 text-[12.5px] font-semibold text-ground disabled:opacity-40">
+            {busy ? "…" : "入れる"}
+          </button>
+          {enabled && (
+            <button type="button" disabled={busy || !secret} onClick={() => void save(true)} className="min-h-10 rounded-full border border-line-2 px-3 text-[12.5px] text-mute disabled:opacity-40">
+              消す
+            </button>
+          )}
+        </div>
+      </form>
+      {msg && <div className={`mt-2 text-[12px] ${msg.ok ? "text-lime-ink" : "text-orange-ink"}`}>{msg.text}</div>}
+    </div>
+  );
+}
+
 export function Allowlists({ agents }: { agents: AgentProfile[] }) {
   const [d, setD] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +237,7 @@ export function Allowlists({ agents }: { agents: AgentProfile[] }) {
       {!d.rootd && <div className="mx-5 mt-2 text-[12px] text-orange-ink">plasmod-rootd が使えないので、見るだけ（変えるには setup.sh の root 作業の部品が要る）</div>}
       <Logins initial={d.logins} me={d.me} />
       {d.error ? <div className="mx-5 mt-3 text-[12px] text-orange-ink">モデル: {d.error}</div> : <Models initial={d.models} current={d.current} agents={agents} />}
+      {d.rootd && <MergeToken />}
     </>
   );
 }
