@@ -18,6 +18,7 @@ import { PushSection } from "./webpush";
 import { RELEASE_NOTES, versionName } from "../shared/release-notes";
 import { ProfileCard } from "./ProfileCard";
 import { VpsChart } from "./VpsChart";
+import { Allowlists } from "./Allowlists";
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -630,8 +631,8 @@ function Section({ title }: { title: string }) {
   return <h2 className="m-0 mx-5 mt-5 text-[12px] font-semibold text-mute">{title}</h2>;
 }
 
-/** VPS: 状態・root 作業・ファイル */
-function VpsTab() {
+/** VPS: 状態・root 作業・許可リスト・ファイル */
+function VpsTab({ snap }: { snap: Snapshot | null }) {
   return (
     <>
       <Vps />
@@ -643,6 +644,8 @@ function VpsTab() {
         </span>
         <span className="text-mute">›</span>
       </a>
+      <Section title="許可リスト" />
+      <Allowlists agents={snap?.agents ?? []} />
       <Section title="ファイル" />
       <Files />
     </>
@@ -691,7 +694,7 @@ export function System({ snap }: { snap: Snapshot | null }) {
       ) : tab === "connections" ? (
         <Connections />
       ) : tab === "vps" ? (
-        <VpsTab />
+        <VpsTab snap={snap} />
       ) : (
         <General />
       )}

@@ -51,16 +51,30 @@ Android アプリは [Releases](../../../releases) から入れて、最初の�
 
 ## 設定（`/etc/plasmod/env`）
 
-ふつうは変える必要がありません。変えたら `sudo systemctl restart plasmod`。一覧と例は [deploy/env.example](../deploy/env.example)。
+ふつうは変える必要がありません。変えたら `sudo systemctl restart plasmod`。開けるログインは、アプリの **設定 → VPS → 許可リスト** からも変えられます（root のパスワードが要り、アプリは自動で再起動します）。一覧と例は [deploy/env.example](../deploy/env.example)。
 
 | 名前 | 意味 |
 |---|---|
-| `PLASMOD_ALLOWED_LOGINS` | 開けるログイン（カンマ区切り） |
+| `PLASMOD_ALLOWED_LOGINS` | 開けるログイン（カンマ区切り）。画面からも変えられる |
 | `PLASMOD_HERMES_API` | Hermes の API を自分で指定するとき。無ければ自動で見つける |
 | `PLASMOD_PROFILES` | エージェントの一覧を固定するとき（[例](../deploy/profiles.example.json)）。無ければ自動 |
 | `PLASMOD_OWNER_NAME`・`PLASMOD_DEVELOPER`・`PLASMOD_REPO_URL` | 呼び名の既定、設定に出す開発者とリポジトリ |
 | `PLASMOD_GITHUB_TOKEN`・`PLASMOD_GITHUB_OWNER` | 開発の画面で PR を見るとき（読み取り専用のトークン） |
 | `PLASMOD_TASK_PREFIX` | タスク番号の頭（既定 `TASK`） |
+
+## 切り替えられるモデル（`/etc/plasmod-models.json`）
+
+エージェントの設定で選べるモデルの許可リストです。setup.sh が空（`{}`）で作ります。中身はアプリの **設定 → VPS → 許可リスト** で足すのがかんたんです（「いまのモデルを加える」で、各エージェントが今使っているモデルを1押しで入れられます）。手で書くときの形:
+
+```json
+{
+  "default": [
+    { "provider": "nous", "model": "anthropic/claude-sonnet-4.6", "label": "Sonnet" }
+  ]
+}
+```
+
+キーは Hermes のプロファイル名、`provider` と `model` は Hermes の `model.provider`・`model.default` と同じ書き方です。仲介が毎回読むので、再起動は要りません。プロバイダーのログイン（API キーやサブスク）は Hermes 側で済ませておいてください。
 
 ## 任意の部品
 

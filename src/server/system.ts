@@ -279,6 +279,23 @@ export class SystemService {
     return { hermes, timers, errors, at: Date.now() };
   }
 
+  /** モデルの許可リスト（仲介の models の choices をそのまま）。プロファイルの一覧も返す */
+  async modelAllowlist(): Promise<{ models: Record<string, { provider: string; model: string; label?: string; note?: string }[]>; current: Record<string, { provider: string | null; model: string | null }>; error?: string }> {
+    if (!this.broker) return { models: {}, current: {}, error: "仲介が設定されていない" };
+    try {
+      const r = JSON.parse(await this.broker("models")) as Record<string, { current: { provider: string | null; model: string | null }; choices: { provider: string; model: string; label?: string; note?: string }[] }>;
+      const models: Record<string, { provider: string; model: string; label?: string; note?: string }[]> = {};
+      const current: Record<string, { provider: string | null; model: string | null }> = {};
+      for (const [k, v] of Object.entries(r)) {
+        models[k] = v.choices ?? [];
+        current[k] = v.current;
+      }
+      return { models, current };
+    } catch (e) {
+      return { models: {}, current: {}, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   /** key は models() の key、choice は choices の id */
   async setModel(key: string, choice: string): Promise<void> {
     const [kind, target] = key.split(":");

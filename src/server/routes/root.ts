@@ -1,10 +1,11 @@
 // root 作業の承認（plasmod-rootd）
 import { type Context } from "hono";
 import { requireRootLogin } from "../auth";
+import { AllowlistError, cleanLogins, cleanModels, loginsScript, modelsScript } from "../allowlists";
 import { validRootId } from "../root";
 import type { RouteContext } from "./context";
 
-export function rootRoutes({ app, cfg, store, rootd }: RouteContext) {
+export function rootRoutes({ app, cfg, store, rootd, system }: RouteContext) {
   // ---- root 作業の承認（plasmod-rootd）----
   // Tailscale の入口から来た VPS の外の本人が必須。パスワードは plasmod-rootd（root）が照合する。ここでは保存もログもしない。
   app.use("/api/root/*", requireRootLogin(cfg));
@@ -79,6 +80,33 @@ export function rootRoutes({ app, cfg, store, rootd }: RouteContext) {
         action === "reconnect"
           ? await rootd.call({ op: "nous_login", password: body.password, by })
           : await rootd.call({ op: "mcp_toggle", profile: body.profile, name: body.name, enable: body.enable, password: body.password, by });
+      return c.json(r, r.ok ? 200 : rootStatus(r));
+    } catch (e) {
+      return rootFail(c, e);
+    }
+  });
+  // 許可リストを見る。ログインは今動いているアプリの設定、モデルは仲介が読んだ /etc/plasmod-models.json
+  app.get("/api/root/allowlists", async (c) => {
+    const m = system ? await system.modelAllowlist() : { models: {}, current: {}, error: "システムは使えない" };
+    return c.json({ logins: cfg.allowedLogins, me: cfg.devNoAuth ? "" : String(c.get("loginName" as never) ?? "").replace(/（Tailscale）$/, ""), rootd: !!rootd, ...m });
+  });
+  // 許可リスト（ログイン・モデル）の書き換え。決まった形のスクリプトにして、持ち主のパスワードで実行する
+  app.post("/api/root/allowlist/:kind", async (c) => {
+    if (!rootd) return c.json({ ok: false, error: "plasmod-rootd は使えない" }, 404);
+    const body = await c.req.json<{ logins?: unknown; models?: unknown; password?: unknown }>().catch(() => ({}) as Record<string, unknown>);
+    if (typeof body.password !== "string" || !body.password) return c.json({ ok: false, error: "パスワードが要る" }, 400);
+    const by = String(c.get("loginName" as never) ?? "");
+    let command: string;
+    try {
+      if (c.req.param("kind") === "logins") command = loginsScript(cleanLogins(body.logins, cfg.devNoAuth ? "" : by.replace(/（Tailscale）$/, "")));
+      else if (c.req.param("kind") === "models") command = modelsScript(cleanModels(body.models));
+      else return c.json({ ok: false, error: "知らない種類" }, 404);
+    } catch (e) {
+      if (e instanceof AllowlistError) return c.json({ ok: false, error: e.message }, 400);
+      throw e;
+    }
+    try {
+      const r = await rootd.call({ op: "run", command, password: body.password, by });
       return c.json(r, r.ok ? 200 : rootStatus(r));
     } catch (e) {
       return rootFail(c, e);
