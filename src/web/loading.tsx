@@ -1,6 +1,6 @@
 // 読み込み中の見せ方。最初は目玉のあるアメーバ、一覧はスケルトン。文字の「読み込み中…」を出さない。
 // 読み込みが終わると、アメーバから新しい触手が次々に伸びて枝分かれし、画面を埋めて次の画面へ切り替わる（burst）。
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** 体と触手の色（起動画面 index.html と同じ） */
 const BODY = "#a3c93a";
@@ -247,3 +247,79 @@ export function Skeleton({ rows = 3, className = "" }: { rows?: number; classNam
     </div>
   );
 }
+
+/**
+ * 「つながるのを待っている」小さな生き物。体から触手を窓口（右の点）へ伸ばし、届かなければ縮めてまた伸ばす。
+ * 待つほど言葉を変える。届いたら（つながったら）この部品ごと消える
+ */
+export function Seeking({ since, label = "窓口を探しています" }: { since: number; label?: string }) {
+  const W = 132;
+  const H = 64;
+  const cy = H / 2;
+  const bx = 30;
+  const arm = useRef<SVGPathElement>(null);
+  const tip = useRef<SVGCircleElement>(null);
+  const pupil = useRef<SVGCircleElement>(null);
+  const port = useRef<SVGCircleElement>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (reduced()) return;
+    let raf = 0;
+    const t0 = performance.now();
+    const frame = (ms: number) => {
+      const t = (ms - t0) / 1000;
+      // 2.6 秒で 伸ばす → ためらう → 縮める
+      const ph = (t % 2.6) / 2.6;
+      const reach = ph < 0.45 ? easeInOut(ph / 0.45) : ph < 0.62 ? 1 : 1 - easeInOut((ph - 0.62) / 0.38);
+      const len = 8 + reach * 62;
+      const wob = Math.sin(t * 7) * 3 * reach;
+      const x1 = bx + 18 + len;
+      const y1 = cy + wob;
+      arm.current?.setAttribute("d", `M${bx + 12} ${cy} Q${bx + 18 + len * 0.5} ${cy - 7 * Math.sin(t * 3.1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`);
+      arm.current?.setAttribute("stroke-width", (9 - reach * 4).toFixed(1));
+      tip.current?.setAttribute("cx", x1.toFixed(1));
+      tip.current?.setAttribute("cy", y1.toFixed(1));
+      tip.current?.setAttribute("r", (4 + reach * 1.5).toFixed(1));
+      // 目は触手の先を追う
+      pupil.current?.setAttribute("cx", (bx + 1 + reach * 4).toFixed(1));
+      // 窓口はゆっくり脈打つ（触手が近いと少し明るく）
+      port.current?.setAttribute("opacity", (0.35 + 0.25 * Math.sin(t * 2.4) ** 2 + 0.3 * reach).toFixed(2));
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const waited = Math.max(0, Math.round((now - since) / 1000));
+  const text = waited < 6 ? label : waited < 20 ? "サーバーが起きるのを待っています" : "まだ待っています（デプロイや再起動の途中かもしれません）";
+  return (
+    <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-8" role="status" aria-live="polite">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+        <defs>
+          <filter id="gh-seek-goo" x="0" y="0" width={W} height={H} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="b" />
+            <feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" />
+          </filter>
+        </defs>
+        <circle ref={port} cx={W - 14} cy={cy} r={5} fill="none" stroke="var(--color-mute)" strokeWidth={1.6} opacity={0.5} />
+        <circle cx={W - 14} cy={cy} r={1.8} fill="var(--color-mute)" />
+        <g filter="url(#gh-seek-goo)">
+          <path ref={arm} d={`M${bx + 12} ${cy} L${bx + 26} ${cy}`} fill="none" stroke={BODY} strokeWidth={9} strokeLinecap="round" />
+          <circle ref={tip} cx={bx + 26} cy={cy} r={4} fill={BODY} />
+          <circle cx={bx} cy={cy} r={17} fill={BODY} />
+        </g>
+        <circle cx={bx} cy={cy} r={8.5} fill={SCLERA} />
+        <circle ref={pupil} cx={bx + 1} cy={cy} r={4.6} fill={PUPIL} />
+      </svg>
+      <div className="text-[12.5px] text-mute">
+        {text}
+        <span className="inline-block w-4 text-left">{".".repeat((waited % 3) + 1)}</span>
+      </div>
+    </div>
+  );
+}
+
+const easeInOut = (x: number) => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);

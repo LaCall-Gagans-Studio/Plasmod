@@ -6,10 +6,10 @@ import { submit, useOutgoing } from "./outbox";
 import { PinMark, SessionRow } from "./sessionmenu";
 import { Avatar, Icon, ago, profileOf } from "./ui";
 import { DEFAULT_TEAM, DEFAULT_TEAMS, teamOfProfile } from "../shared/types";
-import { useAgents, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
+import { useAgents, useAgentList, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
 import { CreditsLine, ViewBody } from "./SessionBody";
 import { Composer } from "./Composer";
-import { Skeleton } from "./loading";
+import { Seeking, Skeleton } from "./loading";
 
 /** 一覧の「新しいセッション」の下に置く、cron の回を省くトグル */
 function CronToggle({ className = "" }: { className?: string }) {
@@ -25,7 +25,8 @@ function CronToggle({ className = "" }: { className?: string }) {
 }
 
 export function SessionPanel({ snap }: { snap: Snapshot | null }) {
-  const all = useAgents();
+  const list = useAgentList();
+  const all = list.agents;
   /** チームごとに切り替える。メンバーがいるチームだけ順に回す */
   const teams = snap?.teams ?? DEFAULT_TEAMS;
   const teamOf = (id: string) => teamOfProfile(snap ? profileOf(snap.agents, id) : undefined, teams).id;
@@ -218,7 +219,14 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
             </div>
           )}
 
-          {agents.length === 0 && (
+          {agents.length === 0 && list.state === "loading" && <Seeking since={list.since} />}
+          {agents.length === 0 && list.state === "error" && (
+            <div className="flex flex-col items-center gap-2 p-6 text-center text-[12.5px] text-mute">
+              <span>セッションの窓口に届かない（{list.error}）</span>
+              <button onClick={list.retry} className="min-h-9 rounded-full border border-line-2 px-4 text-[12.5px] text-ink">もう一度つなぐ</button>
+            </div>
+          )}
+          {agents.length === 0 && list.state === "ok" && (
             <div className="p-4 text-[12.5px] text-mute">
               {team === "watch" ? "監察チーム（監査・ITS・戦略立案）はまだチャットにつながっていない。Hermes 側でプロファイルを作ると、ここに並ぶ" : "セッションの窓口につながっていない"}
             </div>
@@ -261,7 +269,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
 
 /** #/session: 最後に開いていたエージェント・セッションを開く（メニューの「セッション」） */
 export function OpenLastSession() {
-  const agents = useAgents();
+  const list = useAgentList();
+  const agents = list.agents;
   const ids = agents.map((a) => a.id).join(",");
   useEffect(() => {
     if (!ids) return;
@@ -270,7 +279,13 @@ export function OpenLastSession() {
     const agent = last && list.includes(last) ? last : list[0];
     location.replace(`#/session/${agent}/${encodeURIComponent(recall(lastSessionKey(agent)) ?? "new")}`);
   }, [ids]);
-  return <Skeleton />;
+  if (list.state === "loading" || agents.length) return <Seeking since={list.since} />;
+  return (
+    <div className="flex flex-col items-center gap-2 p-8 text-center text-[13px] text-mute">
+      <span>{list.state === "error" ? `セッションの窓口に届かない（${list.error}）` : "話せるエージェントがいない"}</span>
+      <button onClick={list.retry} className="min-h-9 rounded-full border border-line-2 px-4 text-[12.5px] text-ink">もう一度つなぐ</button>
+    </div>
+  );
 }
 
 /** 全画面のセッション。#/session/<agent>/<id>（id が new なら新しいセッション）。

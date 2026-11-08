@@ -17,11 +17,53 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 export function useAgents() {
+  return useAgentList().agents;
+}
+
+/** 起動直後やデプロイ中はサーバーがまだ答えないことがある。待つ間隔（ms）。尽きたら error */
+const AGENT_RETRY_MS = [1500, 3000, 5000, 8000, 12000];
+
+/**
+ * エージェントの一覧と、読み込みの状態。失敗したら少しずつ間をあけて読み直す（「つながっていない」をすぐ出さない）。
+ * since は待ち始めた時刻（長く待っているときに言葉を変える）
+ */
+export function useAgentList(): { agents: AgentEntry[]; state: "loading" | "ok" | "error"; since: number; error: string | null; retry: () => void } {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
+  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
+  const [error, setError] = useState<string | null>(null);
+  const [since, setSince] = useState(() => Date.now());
+  const [round, setRound] = useState(0);
   useEffect(() => {
-    getJson<{ agents: AgentEntry[] }>("/api/sessions").then((b) => setAgents(b.agents)).catch(() => setAgents([]));
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = (n: number) =>
+      getJson<{ agents: AgentEntry[] }>("/api/sessions")
+        .then((b) => {
+          if (!alive) return;
+          setAgents(b.agents);
+          setState("ok");
+        })
+        .catch((e) => {
+          if (!alive) return;
+          if (n < AGENT_RETRY_MS.length) timer = setTimeout(() => void attempt(n + 1), AGENT_RETRY_MS[n]);
+          else {
+            setError(e instanceof Error ? e.message : String(e));
+            setState("error");
+          }
+        });
+    void attempt(0);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [round]);
+  const retry = useCallback(() => {
+    setState("loading");
+    setError(null);
+    setSince(Date.now());
+    setRound((x) => x + 1);
   }, []);
-  return agents;
+  return { agents, state, since, error, retry };
 }
 
 /** セッションの一覧から cron の回を省くか（既定はオン）。端末に覚え、開いている一覧すべてに効かせる */
