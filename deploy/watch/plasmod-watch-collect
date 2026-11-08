@@ -31,7 +31,8 @@ OUT_DIR = E("WATCH_OUT", "/var/lib/plasmod-watch")
 APP_DB = E("WATCH_APP_DB", "/var/lib/plasmod/plasmod.db")
 APP_ENV = E("WATCH_APP_ENV", "/etc/plasmod/env")
 HERMES_HOME = E("WATCH_HERMES_HOME", "/home/hermes/.hermes")
-BRIDGE_HISTORY = E("WATCH_BRIDGE_HISTORY", "/home/cc/.plasmod-bridge/history")
+# Claude Code の bridge の会話の記録。入れていなければ空（読まない）
+BRIDGE_HISTORY = E("WATCH_BRIDGE_HISTORY", "")
 DEPLOY_DIR = E("WATCH_DEPLOY_DIR", "/var/lib/plasmod-deploy")
 OUT_GROUP = E("WATCH_GROUP", "hermes")
 
@@ -321,7 +322,7 @@ def strategy_app():
 def chat_threads():
     """開発エージェントとのスレッド: (最初の一言, 発言時刻のリスト)。オーナーの発言だけ"""
     out = []
-    for p in glob.glob(os.path.join(BRIDGE_HISTORY, "*.jsonl")):
+    for p in (glob.glob(os.path.join(BRIDGE_HISTORY, "*.jsonl")) if BRIDGE_HISTORY else []):
         if os.path.getmtime(p) < SINCE:
             continue
         first, times = None, []

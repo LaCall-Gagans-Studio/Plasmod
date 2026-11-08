@@ -4,10 +4,11 @@ After=network-online.target
 
 [Service]
 # Claude Code を動かすユーザー。アプリとは別のユーザーにする（自分の依頼を承認できないように）
-User=dev
-Environment=HOME=/home/dev
-Environment=PATH=/home/dev/.local/bin:/usr/local/bin:/usr/bin:/bin
-WorkingDirectory=/home/dev/work
+# @BRIDGE_USER@ と @BRIDGE_HOME@ は deploy/bridge/install.sh が埋める
+User=@BRIDGE_USER@
+Environment=HOME=@BRIDGE_HOME@
+Environment=PATH=@BRIDGE_HOME@/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=@BRIDGE_HOME@
 ExecStart=/usr/bin/python3 /usr/local/lib/plasmod-bridge/plasmod_bridge.py
 Restart=always
 RestartSec=5

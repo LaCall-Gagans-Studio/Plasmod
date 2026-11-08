@@ -2,7 +2,8 @@
 Description=監察チームの週次データを毎朝集める（cron の 9:00 より前）
 
 [Timer]
-OnCalendar=*-*-* 06:30:00 Asia/Tokyo
+# VPS のタイムゾーンで朝 6:30
+OnCalendar=*-*-* 06:30:00
 Persistent=true
 
 [Install]
