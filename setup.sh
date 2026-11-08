@@ -113,6 +113,11 @@ install -m 755 -o root -g root "$OPT/broker/plasmod-broker" /usr/local/bin/plasm
   echo "HERMES_HOME=$HERMES_HOME"
 } >/etc/plasmod-broker.conf
 chmod 644 /etc/plasmod-broker.conf
+# 切り替えられるモデルの許可リスト（中身は設定 → VPS → 許可リストで足す。無いと選べるモデルが出ない）
+if [ ! -e /etc/plasmod-models.json ]; then
+  echo '{}' >/etc/plasmod-models.json
+  chmod 644 /etc/plasmod-models.json
+fi
 sed "s/(hermes)/($HERMES_USER)/" "$OPT/deploy/sudoers/plasmod" >/etc/sudoers.d/plasmod
 chmod 440 /etc/sudoers.d/plasmod
 visudo -cf /etc/sudoers.d/plasmod >/dev/null || { rm -f /etc/sudoers.d/plasmod; die "sudoers の文法が不正"; }

@@ -169,7 +169,7 @@ cd plasmod
 |---|---|
 | アプリが開けない・つながらない | 端末の Tailscale がオンか。VPS で `tailscale status` |
 | `tailscale serve` でエラーになる | 手順 2 の MagicDNS と HTTPS を有効にしたか |
-| 開くと 403（forbidden） | VPS と同じ Tailscale のログインか。別のログインは `/etc/plasmod/env` の `PLASMOD_ALLOWED_LOGINS` に足して、`systemctl restart plasmod` |
+| 開くと 403（forbidden） | VPS と同じ Tailscale のログインか。別のログインは、開ける端末で **設定 → VPS → 許可リスト** から足す（または `/etc/plasmod/env` の `PLASMOD_ALLOWED_LOGINS` に足して `systemctl restart plasmod`） |
 | エージェントが出ない | Hermes の gateway が動いているか（`"$H" gateway status --system`）。`.env` に `API_SERVER_KEY` があるか |
 | アプリの状態を見たい | `systemctl status plasmod`、`journalctl -u plasmod -n 50` |
 
