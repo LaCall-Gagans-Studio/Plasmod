@@ -71,7 +71,7 @@ Android アプリは [Releases](../../../releases) から入れて、最初の�
 | エージェントのスキル | `deploy/hermes-skills/` を Hermes の skills に置く。更新は `rootreq action skill.sync` |
 | 見回りの登録（メールなど） | `inbox-card` スキルが手順。何を見回るかは、自分のエージェントに決めさせる。無くても手でタスクを足せる |
 | エージェントからメモ・タスクを使う | `sudo bash deploy/memo-spool/setup.sh` |
-| 監察チームの週次データ | `sudo bash deploy/watch/install.sh` |
+| 監察チームの週次データ | `sudo bash deploy/watch/install.sh`（Claude Code の会話も集めるなら `BRIDGE_USER=<ユーザー>` を付ける） |
 | 開発エージェント（Claude Code） | 下の「開発エージェント」 |
 | 自動デプロイ | 下の「自動デプロイ」 |
 
@@ -79,8 +79,8 @@ Android アプリは [Releases](../../../releases) から入れて、最初の�
 
 Claude Code をアプリのセッションから使う部品です。`bridge/` にあります。
 
-- 専用のユーザーで Claude Code を動かし、`bridge/plasmod_bridge.py` をサービスにする
-- `/run/plasmod-dev/app.sock` を、そのユーザーが作りアプリだけが入れるようにする（`deploy/tmpfiles/`）
+- 専用のユーザーを作って、そのユーザーで Claude Code にログインする（アプリのユーザーとは別にする）
+- `sudo BRIDGE_USER=<そのユーザー> bash deploy/bridge/install.sh` で、サービスと `/run/plasmod-dev/app.sock` の置き場所を入れる
 - 呼び名は `BRIDGE_AGENT_NAME`・`BRIDGE_OWNER_NAME`
 - テストは `bash bridge/run_tests.sh`
 
