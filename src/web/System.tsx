@@ -204,17 +204,19 @@ function Agents({ snap }: { snap: Snapshot | null }) {
   const [models, setModels] = useState<ModelEntry[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
+  /** 切り替え中のモデルの key。終わるまで同じ欄のボタンを押せなくする（#30） */
+  const [saving, setSaving] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [soulOpen, setSoulOpen] = useState<string | null>(null);
   const settings = useAgentSettings();
   const [sheet, setSheet] = useState<{ root: "work" | "hermes"; path: string } | null>(null);
+  const get = async <T,>(url: string): Promise<T> => {
+    const r = await fetchRetry(url);
+    const b = await r.json().catch(() => null);
+    if (!r.ok) throw new Error((b as { error?: string } | null)?.error ?? `HTTP ${r.status}`);
+    return b as T;
+  };
   useEffect(() => {
-    const get = async <T,>(url: string): Promise<T> => {
-      const r = await fetchRetry(url);
-      const b = await r.json().catch(() => null);
-      if (!r.ok) throw new Error((b as { error?: string } | null)?.error ?? `HTTP ${r.status}`);
-      return b as T;
-    };
     get<AgentInfo[]>("/api/system/agents").then(setList).catch((e) => {
       setList([]);
       setListError(String(e instanceof Error ? e.message : e).startsWith("HTTP 50") ? "読み込めませんでした。開き直してください" : String(e instanceof Error ? e.message : e));
@@ -223,14 +225,24 @@ function Agents({ snap }: { snap: Snapshot | null }) {
   }, []);
   const modelsOf = (a: AgentInfo) => (models ?? []).filter((m) => (a.kind === "claude-code" ? m.key.startsWith("dev:") : m.key === `hermes:${a.id}`));
   const choose = async (m: ModelEntry, choice: string, label: string) => {
+    if (saving) return;
     setMsg(null);
-    const r = await fetch("/api/system/models", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: m.key, choice }) });
-    const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; models?: ModelEntry[] };
-    if (b.ok && b.models) {
-      setModels(b.models);
-      setPicking(null);
-      setMsg({ ok: true, text: `${m.name} を ${label} にした（次のセッション・次のカードから）` });
-    } else setMsg({ ok: false, text: b.error ?? `HTTP ${r.status}` });
+    setSaving(m.key);
+    try {
+      const r = await fetch("/api/system/models", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: m.key, choice }) });
+      const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; models?: ModelEntry[] };
+      if (b.ok && b.models) {
+        setModels(b.models);
+        setPicking(null);
+        setMsg({ ok: true, text: `${m.name} を ${label} にした（次のセッション・次のカードから）` });
+        // カードのモデル表示は agents の方を見ているので、読み直す（#30）
+        get<AgentInfo[]>("/api/system/agents").then(setList).catch(() => {});
+      } else setMsg({ ok: false, text: b.error ?? `HTTP ${r.status}` });
+    } catch (e) {
+      setMsg({ ok: false, text: `切り替えられなかった（${e instanceof Error ? e.message : String(e)}）` });
+    } finally {
+      setSaving(null);
+    }
   };
   // 並びはプロファイルの順。隠しているエージェントも出す（編集は開いた中で）
   const fromList = (i: AgentInfo): ManagedAgent => (snap ? profileOf(snap.agents, i.id) : { id: i.id, name: i.id, initial: i.id.slice(0, 1).toUpperCase(), color: "#2f6fdb" });
@@ -263,17 +275,21 @@ function Agents({ snap }: { snap: Snapshot | null }) {
                   {models !== null && modelsOf(a).length === 0 && <div className="text-[12px] text-mute">選べるモデルは無い（許可リストに無いプロファイル）</div>}
                   {modelsOf(a).map((m) => (
                     <div key={m.key} className="overflow-hidden rounded-lg border border-line-2">
-                      <button onClick={() => setPicking(picking === m.key ? null : m.key)} disabled={!m.choices.length} className="flex min-h-10 w-full items-center gap-2 px-2.5 text-left text-[12.5px]">
+                      <button onClick={() => setPicking(picking === m.key ? null : m.key)} disabled={!m.choices.length || saving === m.key} className="flex min-h-10 w-full items-center gap-2 px-2.5 text-left text-[12.5px]">
                         <span className="text-ink-2">{m.name.includes("（") ? m.name.slice(m.name.indexOf("（")) : "いまのモデル"}</span>
-                        <span className="ml-auto font-mono text-[11.5px]">{m.current}{m.choices.length ? " ▾" : ""}</span>
+                        <span className="ml-auto font-mono text-[11.5px]">{saving === m.key ? "切り替え中…" : `${m.current}${m.choices.length ? " ▾" : ""}`}</span>
                       </button>
                       {m.error && <div className="px-2.5 pb-2 text-[11px] text-orange-ink">{m.error}</div>}
                       {picking === m.key && (
                         <div className="flex flex-col gap-0.5 border-t border-line p-1">
+                          {/* いまのモデルが許可リストに無いと、切り替えた後にこの画面からは戻せない（#30） */}
+                          {!m.choices.some((c) => c.current) && (
+                            <div className="px-2 py-1.5 text-[11px] leading-relaxed text-orange-ink">いまの {m.current} は許可リストに無いので、切り替えるとこの画面からは戻せない</div>
+                          )}
                           {m.choices.map((c) => (
-                            <button key={c.id} onClick={() => void choose(m, c.id, c.label)} className="flex min-h-9 items-center gap-2 rounded-md px-2 text-left text-[12px] hover:bg-line">
+                            <button key={c.id} onClick={() => void choose(m, c.id, c.label)} disabled={saving !== null || c.current} className="flex min-h-9 items-center gap-2 rounded-md px-2 text-left text-[12px] hover:bg-line disabled:opacity-50">
                               <span className="font-mono">{c.label}</span>
-                              <span className="ml-auto text-[11px] text-mute">{c.note}</span>
+                              <span className="ml-auto text-[11px] text-mute">{c.current ? "いまのモデル" : c.note}</span>
                             </button>
                           ))}
                         </div>

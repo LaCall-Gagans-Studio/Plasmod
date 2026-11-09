@@ -23,6 +23,14 @@ describe("エージェントの一覧", () => {
     expect(mergeProfiles([P("dev")], [], [], true).map((p) => p.id)).toEqual(["dev"]);
   });
 
+  test("bridge が無ければ、Hermes の dev プロファイルを Hermes のエージェントとして出す（#28）", () => {
+    const dev = { ...P("dev", "開発"), runtime: "claude-code" as const };
+    const l = mergeProfiles([P("default"), dev], ["default", "dev"], [], false);
+    expect(l.map((p) => [p.id, p.name, p.runtime])).toEqual([["default", "default", undefined], ["dev", "dev", undefined]]);
+    // bridge があれば Claude Code の dev が1つだけ
+    expect(mergeProfiles([P("default"), dev], ["default", "dev"], [], true).map((p) => [p.id, p.runtime])).toEqual([["default", undefined], ["dev", "claude-code"]]);
+  });
+
   test("上書き: 名前・頭文字・色・顔。空の名前は無視", () => {
     const [a] = mergeProfiles([P("default", "元")], [], [{ id: "default", name: "新しい", color: "#222222", avatar: "/x.png" }], false);
     expect(a).toMatchObject({ name: "新しい", initial: "新", color: "#222222", avatar: "/x.png" });

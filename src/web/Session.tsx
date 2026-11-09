@@ -296,11 +296,12 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
   const [open, setOpen] = useState(false);
   const { sessions, error: listError } = useSessions(agent, bump);
   const current = id === "new" ? null : id;
-  const { view, error } = useView(agent, current, capsOfAgent(agent).pollMs);
+  const caps = capsOfAgent(agent, agents.find((a) => a.id === agent)?.runtime);
+  const { view, error } = useView(agent, current, caps.pollMs);
   const info = sessions?.find((s) => s.id === current);
   const outgoing = useOutgoing(agent, current);
   const older = useOlder(agent, current, view);
-  const credits = useCredits(capsOfAgent(agent).credits);
+  const credits = useCredits(caps.credits);
   const unread = useChatUnread(agents, agent);
   useEffect(() => {
     remember(LAST_AGENT, agent);
@@ -387,7 +388,7 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
             <span className="text-[11px] text-mute">{NAME(snap, agent)}</span>
             <span className="w-full truncate text-[13px] font-semibold">{current ? (info?.title ?? "…") : "新しいセッション"}</span>
           </button>
-          {capsOfAgent(agent).stop && current && info?.alive && (
+          {caps.stop && current && info?.alive && (
             <button
               onClick={() => void fetch(`/api/sessions/${agent}/${encodeURIComponent(current)}/stop`, { method: "POST" }).then(() => setBump((x) => x + 1))}
               className="min-h-9 flex-none rounded-md border border-line-2 px-2.5 text-[11px] text-mute"

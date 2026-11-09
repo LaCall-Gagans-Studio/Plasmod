@@ -314,7 +314,8 @@ export const RUNTIME_CAPS: Record<RuntimeKind, { stop: boolean; credits: boolean
   "claude-code": { stop: true, credits: false, pollMs: 2000, soulFile: "CLAUDE.md（指示）", titleOwner: "元の題名", historyName: "会話の記録" },
 };
 export const runtimeOf = (p: { runtime?: RuntimeKind } | undefined | null): RuntimeKind => p?.runtime ?? "hermes";
-export const capsOfAgent = (id: string) => RUNTIME_CAPS[id === CLAUDE_AGENT ? "claude-code" : "hermes"];
+/** runtime が分かっていればそれで決める（Hermes に dev という名前のプロファイルがあることもある #28）。分からなければ id で推す */
+export const capsOfAgent = (id: string, runtime?: RuntimeKind) => RUNTIME_CAPS[runtime ?? (id === CLAUDE_AGENT ? "claude-code" : "hermes")];
 
 /** id か別名で、プロファイルを探す */
 export function findProfile<T extends AgentProfile>(profiles: T[], id: string): T | undefined {
@@ -760,7 +761,8 @@ export interface ModelEntry {
   key: string;
   name: string;
   current: string;
-  choices: { id: string; label: string; note: string }[];
+  /** current: いまのモデルと同じもの */
+  choices: { id: string; label: string; note: string; current?: boolean }[];
   error?: string;
 }
 

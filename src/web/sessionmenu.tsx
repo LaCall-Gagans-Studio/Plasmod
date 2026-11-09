@@ -1,7 +1,7 @@
 // セッションを長押し（PC は右クリック）したときに下から出るメニュー: 開く・ピン留め・題名を変える・題名のコピー・削除。
 // 題名の変更と削除はアプリの中だけ（Hermes の題名・記録はそのまま）。App に1つだけ置き、どの一覧からでも openSessionMenu で開く。
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { type AgentProfile, capsOfAgent, type SessionInfo } from "../shared/types";
+import { type AgentProfile, capsOfAgent, runtimeOf, type SessionInfo } from "../shared/types";
 import { ConfirmDelete, DangerButton, Sheet, SheetCard, TileButton, TileLink, Tiles } from "./sheet";
 import { haptic, useLongPress, writeClipboard } from "./touch";
 import { Avatar, ago } from "./ui";
@@ -114,7 +114,7 @@ export function SessionMenu() {
         </div>
         {mode === "delete" ? (
           <ConfirmDelete
-            text={`このセッションを一覧から削除します。${capsOfAgent(s.agent).historyName}は残ります。`}
+            text={`このセッションを一覧から削除します。${capsOfAgent(s.agent, who ? runtimeOf(who) : undefined).historyName}は残ります。`}
             busy={busy}
             onCancel={() => setMode("menu")}
             onConfirm={() => void mark({ hidden: true })}
@@ -129,7 +129,7 @@ export function SessionMenu() {
             }}
           >
             <label className="flex flex-col gap-1.5 text-[12px] text-mute">
-              新しい題名（このアプリの一覧だけ。{capsOfAgent(s.agent).titleOwner}は変わらない）
+              新しい題名（このアプリの一覧だけ。{capsOfAgent(s.agent, who ? runtimeOf(who) : undefined).titleOwner}は変わらない）
               <input
                 ref={input}
                 value={name}

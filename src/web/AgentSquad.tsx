@@ -1,5 +1,5 @@
 // 設定のエージェント: サッカーの選手紹介のようなカード。開くと名前・顔・役割・色を変えられて、モデルと中身も見られる。
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { type AgentInfo, type AgentProfile, DEFAULT_TEAM, type Team, teamOfProfile } from "../shared/types";
 import { fetchRetry } from "./api";
 import { Avatar } from "./ui";
@@ -19,29 +19,38 @@ export function inkOn(color: string): "#17171a" | "#ffffff" {
 export function useAgentSettings() {
   const [agents, setAgents] = useState<ManagedAgent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const take = async (r: Response) => {
+  // 変更（PATCH）の回数。読み込み（GET）の途中で変更したら、遅れて届いた古い一覧で上書きしない（#29）
+  const edits = useRef(0);
+  const take = async (r: Response, at = edits.current) => {
     const b = (await r.json().catch(() => ({}))) as { agents?: ManagedAgent[]; error?: string };
     if (!r.ok) throw new Error(b.error ?? `HTTP ${r.status}`);
-    if (b.agents) setAgents(b.agents);
+    if (b.agents && at === edits.current) setAgents(b.agents);
     setError(null);
   };
   const fail = (e: unknown) => setError(String(e instanceof Error ? e.message : e));
   const [teams, setTeams] = useState<Team[]>([]);
-  const loadTeams = () => fetchRetry("/api/teams").then((r) => r.json()).then((b: { teams: Team[]; agents: ManagedAgent[] }) => {
-    setTeams(b.teams);
-    if (b.agents.length) setAgents(b.agents);
-  }).catch(fail);
+  const loadTeams = () => {
+    const at = edits.current;
+    return fetchRetry("/api/teams").then((r) => r.json()).then((b: { teams: Team[]; agents: ManagedAgent[] }) => {
+      setTeams(b.teams);
+      if (b.agents.length && at === edits.current) setAgents(b.agents);
+    }).catch(fail);
+  };
   useEffect(() => {
-    fetchRetry("/api/agents-settings").then(take).catch(fail);
+    const at = edits.current;
+    fetchRetry("/api/agents-settings").then((r) => take(r, at)).catch(fail);
     void loadTeams();
   }, []);
-  const patch = (id: string, body: Record<string, unknown>) =>
-    fetch(`/api/agents-settings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(take).catch(fail);
+  const patch = (id: string, body: Record<string, unknown>) => {
+    const at = ++edits.current;
+    return fetch(`/api/agents-settings/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => take(r, at)).catch(fail);
+  };
   const upload = (id: string, f: File | undefined) => {
     if (!f) return;
     const fd = new FormData();
     fd.append("file", f);
-    void fetch(`/api/agents-settings/${id}/avatar`, { method: "POST", body: fd }).then(take).catch(fail);
+    const at = ++edits.current;
+    void fetch(`/api/agents-settings/${encodeURIComponent(id)}/avatar`, { method: "POST", body: fd }).then((r) => take(r, at)).catch(fail);
   };
   return { agents, error, patch, upload, teams, loadTeams };
 }

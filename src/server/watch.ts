@@ -1,6 +1,6 @@
 // 定期報告: 各プロファイルの cron の出力を仲介（cron-output）で読む。
 // 実行の間隔が1日以内のジョブは「今日の定期報告」、もっと長いジョブは「今週の報告」として、レポートに1枚ずつ出す。
-import { type AgentProfile, CLAUDE_AGENT, type CronJob, type WatchReport } from "../shared/types";
+import { type AgentProfile, type CronJob, runtimeOf, type WatchReport } from "../shared/types";
 import type { BrokerCall } from "./system";
 
 const DAY = 86400_000;
@@ -57,7 +57,7 @@ export class WatchService {
       }
       return { ids, jobs };
     } catch {
-      return { ids: this.profiles.filter((p) => p.id !== CLAUDE_AGENT).map((p) => p.id), jobs: [] };
+      return { ids: this.profiles.filter((p) => runtimeOf(p) !== "claude-code").map((p) => p.id), jobs: [] };
     }
   }
 
