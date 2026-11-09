@@ -493,15 +493,25 @@ describe("動かす仕組み", () => {
   test("Claude Code なしでも Hermes だけで動き、止められないものは断る", async () => {
     const svc = new SessionService(null, new Map(), () => {}, () => 0, null, () => false);
     expect(svc.agents()).toEqual([]);
-    await expect(svc.list("dev")).rejects.toThrow("plasmod-bridge");
+    // Claude Code を入れていなければ dev も Hermes のプロファイルとして探す（#28）
+    await expect(svc.list("dev")).rejects.toThrow("つながっていない");
     await expect(svc.stop("default", "1")).rejects.toThrow("止められない");
     await expect(svc.list("default")).rejects.toThrow("つながっていない");
+  });
+
+  test("Hermes に dev があるとき、Claude Code の有無で一覧と行き先を分ける（#28）", () => {
+    const off = new SessionService(null, new Map([["dev", api("dev")]]), () => {}, () => 0, null, () => false);
+    expect(off.agents()).toEqual([{ id: "dev", available: true, runtime: "hermes" }]);
+    const on = new SessionService(null, new Map([["dev", api("dev")]]), () => {}, () => 0, null, () => true);
+    expect(on.agents()).toEqual([{ id: "dev", available: false, runtime: "claude-code" }]);
   });
 
   test("できることの表は、仕組みごとに引ける", async () => {
     const { capsOfAgent, RUNTIME_CAPS, runtimeOf } = await import("../src/shared/types");
     expect(capsOfAgent("dev")).toBe(RUNTIME_CAPS["claude-code"]);
     expect(capsOfAgent("acct").stop).toBe(false);
+    // Hermes の dev（#28）
+    expect(capsOfAgent("dev", "hermes")).toBe(RUNTIME_CAPS.hermes);
     expect(runtimeOf(undefined)).toBe("hermes");
   });
 });

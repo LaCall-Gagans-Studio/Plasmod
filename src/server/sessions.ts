@@ -623,15 +623,18 @@ export class SessionService {
   }
 
   private rt(agent: string): AgentRuntime {
-    if (agent !== CLAUDE_AGENT) return this.hermesRt;
+    // Claude Code を入れていなければ dev も Hermes のプロファイル（#28）
+    if (agent !== CLAUDE_AGENT || !this.claudeEnabled()) return this.hermesRt;
     if (!this.claude) throw new Error("plasmod-bridge が設定されていない");
     return this.claude;
   }
 
   agents(): { id: string; available: boolean; runtime: RuntimeKind }[] {
+    const claude = this.claudeEnabled();
     return [
-      ...(this.claudeEnabled() ? [{ id: CLAUDE_AGENT, available: !!this.bridge?.connected, runtime: "claude-code" as const }] : []),
-      ...this.hermesRt.ids().map((id) => ({ id, available: true, runtime: "hermes" as const })),
+      ...(claude ? [{ id: CLAUDE_AGENT, available: !!this.bridge?.connected, runtime: "claude-code" as const }] : []),
+      // Claude Code と同じ id の Hermes プロファイルは、Claude Code を入れているときは出さない（同じ id が2つになる）
+      ...this.hermesRt.ids().filter((id) => !(claude && id === CLAUDE_AGENT)).map((id) => ({ id, available: true, runtime: "hermes" as const })),
     ]
       .map((a, i) => ({ a, i }))
       .sort((x, y) => this.order(x.a.id) - this.order(y.a.id) || x.i - y.i)

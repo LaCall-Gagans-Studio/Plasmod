@@ -1,12 +1,13 @@
 // セッションのデータ: 一覧・会話・未読・クレジット・覚えておく値
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { ChatMessage, HermesMessage, HistoryCursor, NousCredits, OlderPage, SessionInfo, SessionView, Snapshot } from "../shared/types";
+import type { ChatMessage, HermesMessage, HistoryCursor, NousCredits, OlderPage, RuntimeKind, SessionInfo, SessionView, Snapshot } from "../shared/types";
 import { checkReply } from "./perf";
 import { profileOf } from "./ui";
 
 interface AgentEntry {
   id: string;
   available: boolean;
+  runtime?: RuntimeKind;
 }
 
 async function getJson<T>(url: string): Promise<T> {

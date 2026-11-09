@@ -70,6 +70,8 @@ export class SystemService {
   ) {}
 
   private series: VpsSeries | null = null;
+  /** Claude Code の bridge を入れているか。入れていなければ dev は Hermes のプロファイルとして扱う（#28） */
+  claudeEnabled: () => boolean = () => true;
 
   /** グラフ用の記録を始める（本番の起動時に1回）。メモリに持つだけ */
   startSeries() {
@@ -151,15 +153,16 @@ export class SystemService {
 
   async models(): Promise<ModelEntry[]> {
     const out: ModelEntry[] = [];
-    if (this.bridge) {
+    const claude = !!this.bridge && this.claudeEnabled();
+    if (this.bridge && claude) {
       try {
         const r = await this.bridge.request({ type: "get_models" });
         const cur = r.models as Record<string, string | null>;
         const choices = (r.choices as string[]) ?? [];
         const label = (m: string) => `claude · ${m}`;
         out.push(
-          { key: "dev:chat", name: `${this.names(CLAUDE_AGENT)}（会話）`, current: label(cur.chat ?? "既定"), choices: choices.map((c) => ({ id: c, label: label(c), note: "Claude サブスク" })) },
-          { key: "dev:worker", name: `${this.names(CLAUDE_AGENT)}（カンバン）`, current: label(cur.worker ?? "sonnet"), choices: choices.map((c) => ({ id: c, label: label(c), note: c === "opus" ? "枠を多く使う" : "Claude サブスク" })) },
+          { key: "dev:chat", name: `${this.names(CLAUDE_AGENT)}（会話）`, current: label(cur.chat ?? "既定"), choices: choices.map((c) => ({ id: c, label: label(c), note: "Claude サブスク", current: c === cur.chat })) },
+          { key: "dev:worker", name: `${this.names(CLAUDE_AGENT)}（カンバン）`, current: label(cur.worker ?? "sonnet"), choices: choices.map((c) => ({ id: c, label: label(c), note: c === "opus" ? "枠を多く使う" : "Claude サブスク", current: c === (cur.worker ?? "sonnet") })) },
         );
       } catch (e) {
         out.push({ key: "dev:chat", name: this.names(CLAUDE_AGENT), current: "?", choices: [], error: e instanceof Error ? e.message : String(e) });
@@ -169,11 +172,12 @@ export class SystemService {
       try {
         const r = JSON.parse(await this.broker("models")) as Record<string, { current: { provider: string | null; model: string | null }; choices: { provider: string; model: string; label?: string; note?: string }[] }>;
         for (const [profile, v] of Object.entries(r)) {
+          if (claude && profile === CLAUDE_AGENT) continue;
           out.push({
             key: `hermes:${profile}`,
             name: this.names(profile),
             current: v.current.model ? `${v.current.provider ?? "?"} · ${v.current.model}` : "?",
-            choices: v.choices.map((c, i) => ({ id: String(i), label: c.label ?? `${c.provider} · ${c.model}`, note: c.note ?? "" })),
+            choices: v.choices.map((c, i) => ({ id: String(i), label: c.label ?? `${c.provider} · ${c.model}`, note: c.note ?? "", current: c.model === v.current.model && (c.provider ?? null) === v.current.provider })),
           });
         }
       } catch (e) {
@@ -186,7 +190,8 @@ export class SystemService {
   /** エージェントごとの人格・スキル・設定ファイル。読むだけ */
   async agents(): Promise<AgentInfo[]> {
     const out: AgentInfo[] = [];
-    if (this.bridge) {
+    const claude = !!this.bridge && this.claudeEnabled();
+    if (this.bridge && claude) {
       const base: AgentInfo = { id: CLAUDE_AGENT, kind: "claude-code", model: "?", soul: null, files: [{ label: "CLAUDE.md", root: "work", path: "CLAUDE.md" }], skills: [] };
       try {
         const [m, f] = await Promise.all([this.bridge.request({ type: "get_models" }), this.bridge.request({ type: "fs_read", path: "CLAUDE.md" })]);
@@ -207,6 +212,8 @@ export class SystemService {
         }[];
         const LABEL: Record<string, string> = { soul: "SOUL.md（人格）", config: "config.yaml（設定）", memory: "MEMORY.md（記憶）", user: "USER.md（オーナーについて）" };
         for (const a of r) {
+          // Claude Code と同じ id の Hermes プロファイルは、Claude Code を入れているときは出さない（id で結び付けるので取り違える）
+          if (claude && a.id === CLAUDE_AGENT) continue;
           out.push({
             id: a.id,
             kind: "hermes",

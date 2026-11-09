@@ -18,7 +18,6 @@ export interface ProfileOverride {
 export type ManagedProfile = AgentProfile & { hidden?: boolean };
 
 const COLORS = ["#8FB8FF", "#E8A27C", "#7FD8C6", "#F2C98A", "#C7A6F2", "#F29CB7", "#9BD57F"];
-/** Claude Code のエージェントは bridge があるときだけ出す */
 
 /** 見つけたプロファイルの見た目。同じ id なら毎回同じ色 */
 export function generatedProfile(id: string): AgentProfile {
@@ -28,11 +27,12 @@ export function generatedProfile(id: string): AgentProfile {
 }
 
 export function mergeProfiles(base: AgentProfile[], discovered: string[], overrides: ProfileOverride[], hasDev: boolean): ManagedProfile[] {
-  const seen = new Set(base.map((p) => p.id));
-  const all: AgentProfile[] = [...base, ...discovered.filter((id) => !seen.has(id)).map(generatedProfile)];
+  // bridge が無ければ Claude Code の dev は出さない。そのとき Hermes に dev があれば、Hermes のエージェントとして見つける（#28）
+  const kept = base.filter((p) => p.id !== CLAUDE_AGENT || hasDev);
+  const seen = new Set(kept.map((p) => p.id));
+  const all: AgentProfile[] = [...kept, ...discovered.filter((id) => !seen.has(id)).map(generatedProfile)];
   const by = new Map(overrides.map((o) => [o.id, o]));
   return all
-    .filter((p) => p.id !== CLAUDE_AGENT || hasDev)
     .map((p) => {
       const o = by.get(p.id);
       if (!o) return p;

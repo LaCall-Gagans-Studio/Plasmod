@@ -23,6 +23,7 @@ function fakes() {
   const broker = async (...args: string[]) => {
     brokerCalls.push(args);
     if (args[0] === "usage") return JSON.stringify({ default: { h5: { tokens: 1, cost: 0, sessions: 1 }, d7: { tokens: 2, cost: 0, sessions: 1 }, d30: { tokens: 3, cost: 0.5, sessions: 2 }, models: [] } });
+    if (args[0] === "agents") return JSON.stringify([{ id: "dev", model: { provider: "nous", model: "hermes-4" }, soul: null, files: {}, skills: [] }]);
     if (args[0] === "models") return JSON.stringify({ acct1: { current: { provider: "nous", model: "hermes-4" }, choices: [{ provider: "nous", model: "hermes-4" }, { provider: "openai-codex", model: "gpt-5", note: "ChatGPT Plus" }] } });
     if (args[0] === "set-model") return "{}";
     if (args[0] === "credits") return JSON.stringify({ logged_in: true, paid_access: false, reason: "out_of_credits", plan: "Plus", monthly: 110, subscription_remaining: 19.32, purchased_remaining: 0, total_remaining: 19.32, period_end: null, error: null });
@@ -66,13 +67,24 @@ describe("システム", () => {
       ["dev:worker", "開発くん（カンバン）", "claude · sonnet"],
       ["hermes:acct1", "経理くん", "nous · hermes-4"],
     ]);
-    expect(ms[2].choices[1]).toEqual({ id: "1", label: "openai-codex · gpt-5", note: "ChatGPT Plus" });
+    expect(ms[2].choices[1]).toEqual({ id: "1", label: "openai-codex · gpt-5", note: "ChatGPT Plus", current: false });
+    expect(ms[2].choices[0].current).toBe(true);
+    expect(ms[1].choices.map((c) => c.current)).toEqual([false, true]);
     await svc.setModel("dev:worker", "opus");
     expect(bridgeCalls.at(-1)).toEqual({ type: "set_model", target: "worker", model: "opus" });
     await svc.setModel("hermes:acct1", "1");
     expect(brokerCalls.at(-1)).toEqual(["set-model", "acct1", "1"]);
     for (const [k, c] of [["hermes:acct1", "gpt-5"], ["hermes:../x", "0"], ["dev:other", "opus"], ["evil", "0"]])
       await expect(svc.setModel(k, c)).rejects.toThrow("切り替えられない");
+  });
+
+  test("Hermes に dev があるとき: Claude Code を入れていなければ Hermes の dev だけ、入れていれば Claude Code の dev だけ（#28）", async () => {
+    const { svc } = fakes();
+    svc.claudeEnabled = () => false;
+    expect((await svc.agents()).map((a) => [a.id, a.kind, a.model])).toEqual([["dev", "hermes", "nous · hermes-4"]]);
+    expect((await svc.models()).map((m) => m.key)).toEqual(["hermes:acct1"]);
+    svc.claudeEnabled = () => true;
+    expect((await svc.agents()).map((a) => [a.id, a.kind])).toEqual([["dev", "claude-code"]]);
   });
 
   test("API: ファイルの拒否は 403、知らない場所はエラー", async () => {

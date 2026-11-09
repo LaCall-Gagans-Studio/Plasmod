@@ -65,14 +65,28 @@ sessions.onReply((agent, id, text) => notifier.reply(agent, id, text));
 config.ownerName = new AppSettings(store.db).get("owner") ?? config.ownerName;
 const teams = new TeamStore(store.db, config.teams);
 const registry = new ProfileRegistry(store.db, config.profiles, () => existsSync(config.bridgeSock));
-registry.setDiscovered([...hermes.keys()]);
+// API の窓口があるプロファイルだけでなく、Hermes のプロファイル全部を見つける。
+// 設定画面のカードは全部に出るのに、チームなどを保存できるのが窓口のあるものだけだった（#29）
+let hermesProfiles: string[] = [];
+const discover = () => registry.setDiscovered([...new Set([...hermes.keys(), ...hermesProfiles])]);
+discover();
+if (source instanceof BrokerSource) {
+  void source
+    .call("models")
+    .then((out) => {
+      hermesProfiles = Object.keys(JSON.parse(out) as Record<string, unknown>);
+      discover();
+      hub.changed();
+    })
+    .catch((e) => console.warn("Hermes のプロファイルの一覧を読めない", e instanceof Error ? e.message : e));
+}
 // PLASMOD_HERMES_API を書いていなければ、Hermes のプロファイルと API キーを仲介から読む
 if (!config.hermesApi && source instanceof BrokerSource) {
   void source
     .call("endpoints")
     .then((out) => {
       for (const [id, ep] of parseHermesApi(out)) hermes.set(id, new HermesApi(id, ep));
-      registry.setDiscovered([...hermes.keys()]);
+      discover();
       hub.changed();
     })
     .catch((e) => console.warn("Hermes のプロファイルを読めない", e instanceof Error ? e.message : e));
@@ -87,6 +101,7 @@ const system = new SystemService(
   parsePlans(config.plans),
   (id) => config.profiles.find((p) => p.id === id)?.name ?? id,
 );
+system.claudeEnabled = () => existsSync(config.bridgeSock);
 system.startSeries();
 const media = new MediaService({ bridge, hermesRead: source instanceof BrokerSource ? (p) => source.readFile(p) : null });
 const rootd = new RootClient(config.rootdSock);
