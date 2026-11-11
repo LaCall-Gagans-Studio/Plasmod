@@ -9,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { join, relative } from "node:path";
 
 /** deploy/autodeploy/plasmod-deploy の HOLD_RE と同じ範囲 */
-export const PRIVILEGED = ["broker", "bridge", "rootd", "deploy/sudoers", "deploy/systemd", "deploy/tmpfiles", "deploy/autodeploy", "deploy/rootd"];
+export const PRIVILEGED = ["broker", "bridge", "rootd", "deploy/sudoers", "deploy/systemd", "deploy/tmpfiles", "deploy/autodeploy", "deploy/rootd", "deploy/update"];
 export const APP_FILES = ["package.json", "bun.lock", "bunfig.toml", "LICENSE", "CHANGELOG.md", "src/server", "src/shared", "dist/web"];
 
 export const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;

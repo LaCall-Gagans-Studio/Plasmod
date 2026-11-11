@@ -26,7 +26,7 @@ APP_ENV=${APP_ENV:-/etc/plasmod/env}
 GNUPGHOME=${GNUPGHOME:-/etc/plasmod-deploy/gnupg}
 export GNUPGHOME
 # 自動で入れない場所（root の手作業が要る）
-HOLD_RE=${HOLD_RE:-'^(broker/|bridge/|rootd/|deploy/(sudoers|systemd|tmpfiles|autodeploy|rootd)/)'}
+HOLD_RE=${HOLD_RE:-'^(broker/|bridge/|rootd/|deploy/(sudoers|systemd|tmpfiles|autodeploy|rootd|update)/)'}
 # テスト用: ビルドを別ユーザーで動かすコマンド（既定は runuser）
 AS_BUILD=${AS_BUILD-runuser -u "$BUILD_USER" --}
 

@@ -1,0 +1,459 @@
+#!/usr/bin/python3
+"""Plasmod の配布パッケージを検証して入れる（#32 段階2）。root で動かす。python3 標準ライブラリだけ。
+
+  plasmod-update status                 いま入っている版と、前回の更新の結果
+  plasmod-update check [--version V]    GitHub の Release にある版（既定は最新）と、いまの版・権限の部品の差を見る。何も変えない
+  plasmod-update apply [--version V] [--accept-privileged]
+  plasmod-update apply --dir DIR [...]  DIR に置いた manifest.json とパッケージから入れる（オフライン・試験用。出所の証明は --bundle FILE が要る）
+
+入れる前に確かめること（どれか1つでもだめなら何も変えない）:
+  1. 自動デプロイ（main に追いつく方式）が動いていない。動いていると次の2分で上書きされる
+  2. パッケージの sha256 が manifest と一致し、`gh attestation verify` で「このリポジトリの release.yml が作った」と確かめられる
+  3. manifest が想定の形（版・対象・名前）で、アーカイブが安全（絶対パス・..・外を指すリンク・デバイスファイルを拒否、大きさの上限）
+  4. manifest の privileged（broker・bridge・rootd・sudoers・systemd…の指紋）が、いま入れてある版と同じ。違えば、通常の更新とは別に
+     中身を確かめて root の手順で入れる必要があるので止まる（確かめたうえで --accept-privileged を付ければアプリだけ入れる）
+入れ方: 別の場所に展開 → サービスを止める → 入れ替え → 起動 → 確認（health・画面の配信・認証なしの拒否）。
+だめなら前の版に戻す。設定（/etc/plasmod）とデータ（/var/lib/plasmod）には触らない。DB は戻さない（アプリの更新だけを戻す）。
+結果は STATE/update-status.json に書く（アプリが再起動しても読める）。
+"""
+import argparse
+import contextlib
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+CONF_FILE = os.environ.get("PLASMOD_UPDATE_CONF", "/etc/plasmod-deploy/update.conf")
+
+
+def conf(key, default):
+    v = os.environ.get(key)
+    if v:
+        return v
+    try:
+        with open(CONF_FILE, encoding="utf-8") as f:
+            for line in f:
+                k, sep, val = line.strip().partition("=")
+                if sep and k == key and val:
+                    return val
+    except OSError:
+        pass
+    return default
+
+
+REPO = conf("UPDATE_REPO", "LaCall-Gagans-Studio/Plasmod")
+APP = conf("APP", "/opt/plasmod")
+STATE = conf("STATE", "/var/lib/plasmod-deploy")
+SERVICE = conf("SERVICE", "plasmod")
+BASE_URL = conf("HEALTH_BASE", "http://127.0.0.1:8790")
+SYSTEMCTL = conf("SYSTEMCTL", "systemctl")
+GH = conf("GH", "gh")
+AUTODEPLOY_TIMER = conf("AUTODEPLOY_TIMER", "plasmod-deploy.timer")
+RELEASES_URL = conf("RELEASES_URL", "https://github.com/%s/releases" % REPO)
+API_URL = conf("API_URL", "https://api.github.com")
+STATUS = os.path.join(STATE, "update-status.json")
+RELEASE_FILE = "RELEASE.json"
+SIGNER_WORKFLOW = ".github/workflows/release.yml"
+
+VERSION_RE = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+MAX_MEMBERS = 100000
+MAX_TOTAL = 1024 * 1024 * 1024
+MAX_PACKAGE = 512 * 1024 * 1024
+
+
+class Refused(Exception):
+    """入れない理由（本番は変えていない）"""
+
+
+def now():
+    return int(time.time())
+
+
+def read_json(path, default=None):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def write_status(**kw):
+    os.makedirs(STATE, exist_ok=True)
+    cur = read_json(STATUS, {}) or {}
+    cur.update(kw)
+    tmp = STATUS + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cur, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, STATUS)
+
+
+# ---- 検証 ----
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_manifest(m, version=None):
+    """manifest が想定の形か。version を渡すと、その版であること"""
+    if not isinstance(m, dict) or m.get("schema") != 1:
+        raise Refused("manifest の形が想定と違う（schema）")
+    v = m.get("version")
+    if not isinstance(v, str) or not VERSION_RE.match(v):
+        raise Refused("manifest の版が不正")
+    if version is not None and v != version:
+        raise Refused("manifest の版 %s が、頼まれた版 %s と違う" % (v, version))
+    t = m.get("target")
+    if not isinstance(t, dict) or t.get("os") != "linux" or t.get("arch") not in ("any", "x64", "arm64"):
+        raise Refused("この環境向けではない（target）")
+    pkg = m.get("package")
+    if not isinstance(pkg, dict) or pkg.get("name") != "plasmod-%s.tar.gz" % v:
+        raise Refused("パッケージの名前が不正")
+    if not isinstance(pkg.get("sha256"), str) or not SHA_RE.match(pkg["sha256"]):
+        raise Refused("sha256 が不正")
+    if not isinstance(pkg.get("size"), int) or not 0 < pkg["size"] <= MAX_PACKAGE:
+        raise Refused("パッケージの大きさが不正")
+    priv = m.get("privileged")
+    if not isinstance(priv, dict) or not all(isinstance(k, str) and isinstance(x, str) for k, x in priv.items()):
+        raise Refused("privileged の形が不正")
+    if not isinstance(m.get("commit"), str) or not re.match(r"^[0-9a-f]{40}$", m["commit"]):
+        raise Refused("commit が不正")
+    return m
+
+
+def check_package(path, m):
+    pkg = m["package"]
+    if os.path.getsize(path) != pkg["size"]:
+        raise Refused("パッケージの大きさが manifest と違う")
+    if sha256_file(path) != pkg["sha256"]:
+        raise Refused("パッケージの sha256 が manifest と違う（壊れているか、すり替えられている）")
+
+
+def verify_attestation(path, bundle=None):
+    """GitHub の出所証明。このリポジトリの release.yml が作ったものだけ通す。確かめられなければ入れない"""
+    cmd = [GH, "attestation", "verify", path, "--repo", REPO, "--signer-workflow", "%s/%s" % (REPO, SIGNER_WORKFLOW)]
+    if bundle:
+        cmd += ["--bundle", bundle]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Refused("出所の証明を確かめられない（gh が動かない）: %s" % e)
+    if r.returncode != 0:
+        raise Refused("出所の証明が通らない: %s" % (r.stderr or r.stdout).strip()[-300:])
+
+
+def safe_members(tf, top):
+    """展開してよいメンバーだけ返す。1つでも危ないものがあれば Refused"""
+    out, total = [], 0
+    for i, mem in enumerate(tf):
+        if i >= MAX_MEMBERS:
+            raise Refused("アーカイブのファイルが多すぎる")
+        name = mem.name
+        if name.startswith("/") or "\\" in name or any(p == ".." for p in name.split("/")):
+            raise Refused("アーカイブに危ないパスがある: %s" % name)
+        if name != top and not name.startswith(top + "/"):
+            raise Refused("アーカイブの外に出るパスがある: %s" % name)
+        if mem.isdir() or mem.isreg():
+            total += mem.size
+            if total > MAX_TOTAL:
+                raise Refused("アーカイブが大きすぎる")
+        elif mem.issym():
+            # 相対で、展開先の中に収まるものだけ
+            base = os.path.dirname(name)
+            dest = os.path.normpath(os.path.join(base, mem.linkname))
+            if mem.linkname.startswith("/") or not (dest == top or dest.startswith(top + "/")):
+                raise Refused("外を指すリンクがある: %s -> %s" % (name, mem.linkname))
+        else:
+            raise Refused("許さない種類のファイルがある（ハードリンク・デバイス等）: %s" % name)
+        out.append(mem)
+    if not out:
+        raise Refused("アーカイブが空")
+    return out
+
+
+def extract(path, dest, top):
+    with tarfile.open(path, "r:gz") as tf:
+        members = safe_members(tf, top)
+        for mem in members:
+            # 持ち主・権限の特殊ビットは引き継がない
+            mem.uid = mem.gid = 0
+            mem.uname = mem.gname = ""
+            mem.mode &= 0o755 if (mem.isdir() or mem.mode & 0o100) else 0o644
+        tf.extractall(dest, members=members, filter="data")
+    root = os.path.join(dest, top)
+    if not os.path.isfile(os.path.join(root, "package.json")) or not os.path.isfile(os.path.join(root, "dist", "web", "index.html")):
+        raise Refused("パッケージの中身が想定と違う（package.json か dist/web が無い）")
+    return root
+
+
+# ---- いまの版 ----
+
+def installed():
+    r = read_json(os.path.join(APP, RELEASE_FILE))
+    if isinstance(r, dict):
+        return r
+    pj = read_json(os.path.join(APP, "package.json"), {}) or {}
+    return {"version": pj.get("version"), "managed": False}
+
+
+def tree_digest(root, rel):
+    """scripts/build-release.ts の treeDigest と同じ指紋（パスと各ファイルの sha256 を、ディレクトリごとに名前順に連ねた sha256）"""
+    h = hashlib.sha256()
+
+    def walk(d):
+        for name in sorted(os.listdir(d)):
+            p = os.path.join(d, name)
+            if os.path.isdir(p):
+                yield from walk(p)
+            elif os.path.isfile(p):
+                yield p
+
+    top = os.path.join(root, rel)
+    if not os.path.exists(top):
+        return None
+    files = list(walk(top)) if os.path.isdir(top) else [top]
+    for p in files:
+        h.update(("%s\0%s\n" % (os.path.relpath(p, root), sha256_file(p))).encode())
+    return h.hexdigest()
+
+
+PRIVILEGED = ["broker", "bridge", "rootd", "deploy/sudoers", "deploy/systemd", "deploy/tmpfiles", "deploy/autodeploy", "deploy/rootd", "deploy/update"]
+
+
+def privileged_diff(m, cur):
+    """manifest と入れてある版で、権限の部品の指紋が違うもの。
+    RELEASE.json が無い（パッケージ以外で入れた）ときは、/opt に置いてあるソースの同じ場所の指紋と比べる"""
+    have = cur.get("privileged")
+    if not isinstance(have, dict):
+        have = {k: d for k in PRIVILEGED if (d := tree_digest(APP, k))}
+    return sorted(k for k in set(m["privileged"]) | set(have) if m["privileged"].get(k) != have.get(k))
+
+
+def autodeploy_active():
+    try:
+        r = subprocess.run([SYSTEMCTL, "is-active", AUTODEPLOY_TIMER], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.stdout.strip() == "active"
+
+
+# ---- 取得 ----
+
+def http_get(url, dest=None, limit=MAX_PACKAGE):
+    req = urllib.request.Request(url, headers={"User-Agent": "plasmod-update", "Accept": "application/octet-stream, application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        if dest is None:
+            return r.read(2 * 1024 * 1024)
+        n = 0
+        with open(dest, "wb") as f:
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                n += len(chunk)
+                if n > limit:
+                    raise Refused("ダウンロードが大きすぎる")
+                f.write(chunk)
+
+
+def latest_version():
+    try:
+        tag = json.loads(http_get("%s/repos/%s/releases/latest" % (API_URL, REPO)))["tag_name"]
+    except (urllib.error.URLError, ValueError, KeyError, OSError) as e:
+        raise Refused("最新の版を調べられない: %s" % e)
+    v = tag[1:] if tag.startswith("v") else tag
+    if not VERSION_RE.match(v):
+        raise Refused("最新のタグが版の形ではない: %s" % tag)
+    return v
+
+
+def fetch(version, work):
+    base = "%s/download/v%s" % (RELEASES_URL, version)
+    try:
+        http_get(base + "/manifest.json", os.path.join(work, "manifest.json"), 1024 * 1024)
+        m = check_manifest(read_json(os.path.join(work, "manifest.json")), version)
+        http_get("%s/%s" % (base, m["package"]["name"]), os.path.join(work, m["package"]["name"]))
+    except (urllib.error.URLError, OSError) as e:
+        raise Refused("ダウンロードできない: %s" % e)
+    return m, os.path.join(work, m["package"]["name"])
+
+
+# ---- 入れ替え ----
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=kw.pop("timeout", 120), **kw)
+
+
+def http_status(path):
+    try:
+        with urllib.request.urlopen(urllib.request.Request(BASE_URL + path), timeout=5) as r:
+            return r.status, r.read(4096)
+    except urllib.error.HTTPError as e:
+        return e.code, b""
+    except (urllib.error.URLError, OSError):
+        return None, b""
+
+
+def healthy(tries=15, wait=2.0):
+    """起動の確認: health の応答、画面の配信、認証なしでは API が断られること（認証が外れたまま出さない）"""
+    for _ in range(tries):
+        time.sleep(wait)
+        if http_status("/api/health")[0] != 200:
+            continue
+        top, body = http_status("/")
+        if top != 200 or b"<" not in body:
+            return False, "画面を配信できていない"
+        if http_status("/api/teams")[0] not in (401, 403):
+            return False, "認証なしの API が断られていない"
+        return True, ""
+    return False, "health が応答しない"
+
+
+def chown_root(path):
+    if os.geteuid() == 0:
+        for dp, dns, fns in os.walk(path):
+            for n in dns + fns:
+                with contextlib.suppress(OSError):
+                    os.lchown(os.path.join(dp, n), 0, 0)
+        os.chown(path, 0, 0)
+
+
+def swap_in(root, m, cur):
+    """root（展開済み）を APP に入れる。失敗したら戻して (False, 理由)"""
+    new, old, prev = APP + ".new", APP + ".rollback", APP + ".prev"
+    for p in (new, old):
+        shutil.rmtree(p, ignore_errors=True)
+    shutil.copytree(root, new, symlinks=True)
+    with open(os.path.join(new, RELEASE_FILE), "w", encoding="utf-8") as f:
+        json.dump({"version": m["version"], "commit": m["commit"], "privileged": m["privileged"], "installedAt": now(), "managed": True}, f, ensure_ascii=False, indent=2)
+    chown_root(new)
+    if run([SYSTEMCTL, "stop", SERVICE]).returncode != 0:
+        shutil.rmtree(new, ignore_errors=True)
+        return False, "サービスを止められなかった（何も変えていない）"
+    os.rename(APP, old)
+    os.rename(new, APP)
+    started = run([SYSTEMCTL, "start", SERVICE]).returncode == 0
+    ok, why = healthy() if started else (False, "サービスが起動しない")
+    if ok:
+        shutil.rmtree(prev, ignore_errors=True)
+        os.rename(old, prev)
+        return True, ""
+    # 戻す: アプリだけ。DB と設定は触っていないので、そのまま
+    run([SYSTEMCTL, "stop", SERVICE])
+    shutil.rmtree(APP + ".failed", ignore_errors=True)
+    os.rename(APP, APP + ".failed")
+    os.rename(old, APP)
+    run([SYSTEMCTL, "start", SERVICE])
+    return False, why
+
+
+def cmd_status(_a):
+    print(json.dumps({"installed": installed(), "last": read_json(STATUS)}, ensure_ascii=False, indent=2))
+
+
+def prepare(a, work):
+    """manifest とパッケージを用意して検証する（何も変えない）。(manifest, パッケージのパス) を返す"""
+    if a.dir:
+        m = check_manifest(read_json(os.path.join(a.dir, "manifest.json")), a.version)
+        pkg = os.path.join(a.dir, m["package"]["name"])
+        if not os.path.isfile(pkg):
+            raise Refused("%s が無い" % pkg)
+    else:
+        m, pkg = fetch(a.version or latest_version(), work)
+    check_package(pkg, m)
+    verify_attestation(pkg, getattr(a, "bundle", None))
+    return m, pkg
+
+
+def cmd_check(a):
+    with tempfile.TemporaryDirectory(prefix="plasmod-update-") as work:
+        m, _pkg = prepare(a, work)
+        cur = installed()
+        print(json.dumps({"installed": cur.get("version"), "available": m["version"], "commit": m["commit"],
+                          "newer": cur.get("version") != m["version"], "privilegedChanged": privileged_diff(m, cur),
+                          "autodeployActive": autodeploy_active()}, ensure_ascii=False, indent=2))
+
+
+def cmd_apply(a):
+    os.makedirs(STATE, exist_ok=True)
+    lock = open(os.path.join(STATE, "update.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise Refused("ほかの更新が動いている")
+    cur = installed()
+    write_status(state="running", step="確認", **{"from": cur.get("version")}, to=a.version, startedAt=now(), error=None, rolledBack=False)
+    try:
+        if autodeploy_active():
+            raise Refused("自動デプロイ（%s）が動いている。main に追いつく方式と同時には使えない。先に止める" % AUTODEPLOY_TIMER)
+        with tempfile.TemporaryDirectory(prefix="plasmod-update-", dir=STATE) as work:
+            write_status(step="取得と検証")
+            m, pkg = prepare(a, work)
+            write_status(to=m["version"])
+            if cur.get("version") == m["version"] and cur.get("managed"):
+                raise Refused("もう %s が入っている" % m["version"])
+            diff = privileged_diff(m, cur)
+            if diff and not a.accept_privileged:
+                raise Refused("権限に関わる部品が、いま入れてある版と違う: %s。中身を確かめて root の手順で入れるか、確かめたうえで --accept-privileged を付ける" % ", ".join(diff))
+            write_status(step="展開")
+            root = extract(pkg, os.path.join(work, "x"), "plasmod-%s" % m["version"])
+            write_status(step="入れ替えと確認")
+            ok, why = swap_in(root, m, cur)
+        if not ok:
+            write_status(state="rolled_back", error=why, rolledBack=True, finishedAt=now())
+            print("戻した: %s" % why, file=sys.stderr)
+            return 1
+        write_status(state="done", step="完了", finishedAt=now(), privilegedChanged=diff)
+        print("%s を入れた" % m["version"])
+        return 0
+    except Refused as e:
+        write_status(state="refused", error=str(e), finishedAt=now())
+        print("入れなかった: %s" % e, file=sys.stderr)
+        return 2
+    except Exception as e:  # 想定外。本番を変えた後なら戻せていない可能性があるので、はっきり残す
+        write_status(state="failed", error=repr(e)[:500], finishedAt=now())
+        print("失敗: %r" % e, file=sys.stderr)
+        return 3
+
+
+def main(argv):
+    p = argparse.ArgumentParser(prog="plasmod-update", description=__doc__.split("\n")[0])
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("status")
+    for name in ("check", "apply"):
+        s = sub.add_parser(name)
+        s.add_argument("--version")
+        s.add_argument("--dir")
+        s.add_argument("--bundle")
+        if name == "apply":
+            s.add_argument("--accept-privileged", action="store_true")
+    a = p.parse_args(argv)
+    if a.cmd == "status":
+        return cmd_status(a) or 0
+    if a.version and not VERSION_RE.match(a.version):
+        print("版は 3.0.0 の形で", file=sys.stderr)
+        return 2
+    if a.cmd == "check":
+        try:
+            return cmd_check(a) or 0
+        except Refused as e:
+            print("確かめられなかった: %s" % e, file=sys.stderr)
+            return 2
+    return cmd_apply(a)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
