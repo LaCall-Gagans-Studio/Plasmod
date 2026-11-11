@@ -102,7 +102,7 @@ function Facets({ list, project, tag, toggle, vertical }: { list: MemoList; proj
         {(list.projects.length > 0 || project === "") && (
           <button className={item(project === "")} onClick={() => toggle("project", "")}>
             {vertical && <span className="w-[14px]" />}
-            なし
+            未仕訳
           </button>
         )}
       </div>
@@ -182,7 +182,7 @@ export function MemoListPage() {
   for (const m of list?.memos ?? []) if (!q.trim() && m.parentId && shown.has(m.parentId)) kids.set(m.parentId, [...(kids.get(m.parentId) ?? []), m]);
   const tops = (list?.memos ?? []).filter((m) => q.trim() || !m.parentId || !shown.has(m.parentId));
 
-  const heading = archived ? "アーカイブ" : project === "" ? "プロジェクトなし" : project ?? (tag ? `#${tag}` : "すべてのメモ");
+  const heading = archived ? "アーカイブ" : project === "" ? "未仕訳" : project ?? (tag ? `#${tag}` : "すべてのメモ");
 
   return (
     <div className={`h-full ${RAIL}`}>

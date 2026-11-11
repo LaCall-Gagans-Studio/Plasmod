@@ -487,10 +487,10 @@ export class TaskStore {
       const changed: string[] = [];
       if (title !== cur.title) changed.push("題");
       if (body !== cur.body) changed.push("本文");
-      if (project !== cur.project) changed.push(`プロジェクト → ${project ?? "なし"}`);
+      if (project !== cur.project) changed.push(`プロジェクト → ${project ?? "未仕訳"}`);
       if (due !== cur.due) changed.push(`期日 → ${due ?? "なし"}`);
       const tags = patch.tags !== undefined ? normalizeTags(patch.tags) : cur.tags;
-      if (tags.join("\n") !== cur.tags.join("\n")) changed.push(`タグ → ${tags.length ? tags.map((t) => `#${t}`).join(" ") : "なし"}`);
+      if (tags.join("\n") !== cur.tags.join("\n")) changed.push(`タグ → ${tags.length ? tags.map((t) => `#${t}`).join(" ") : "未仕訳"}`);
       const statusChanged = status !== cur.status || doneReason !== cur.doneReason;
       if (!changed.length && !statusChanged && !patch.note?.trim()) return cur;
       const at = Math.max(now, cur.updatedAt + 1);

@@ -402,7 +402,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
               <div className="mt-4 flex flex-col gap-0.5 border-b border-line pb-4 text-[13.5px]">
                 <div className="flex items-center gap-3">
                   <span className="flex w-28 flex-none items-center gap-2 text-mute"><FolderIcon />プロジェクト</span>
-                  <input value={task.project ?? ""} onChange={(e) => edit({ project: e.target.value || null })} placeholder="なし" aria-label="プロジェクト" className="min-h-8 min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute" />
+                  <input value={task.project ?? ""} onChange={(e) => edit({ project: e.target.value || null })} placeholder="未仕訳" aria-label="プロジェクト" className="min-h-8 min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute" />
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute">#　タグ</span>

@@ -151,7 +151,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
     <div className={`flex min-h-0 min-w-0 flex-col ${id ? "hidden lg:flex" : "flex"} lg:w-[440px] lg:flex-none lg:border-r lg:border-line 2xl:w-[520px]`}>
       <PjTabs current="tasks" onPlus={() => addRef.current?.focus()} plusLabel="タスクを追加" />
       <div className="flex justify-end px-4 empty:hidden"><TaskSyncBadge /></div>
-      {project !== null && <div className="truncate px-5 pb-1 text-[12.5px] font-semibold text-ink-2">{project === "" ? "プロジェクトなし" : project}</div>}
+      {project !== null && <div className="truncate px-5 pb-1 text-[12.5px] font-semibold text-ink-2">{project === "" ? "未仕訳" : project}</div>}
       <div className="flex flex-col gap-2 px-4 pb-2">
         <AddField
           inputRef={addRef}
@@ -198,7 +198,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
               <FolderIcon size={11} />{p.name}<span className="opacity-60">{p.count}</span>
             </button>
           ))}
-          <button onClick={() => go("project", project === "" ? null : "", false)} className={`flex flex-none items-center rounded-full border px-2.5 py-1 text-[12px] ${project === "" ? "border-ink text-ink" : "border-line text-mute"}`}>なし</button>
+          <button onClick={() => go("project", project === "" ? null : "", false)} className={`flex flex-none items-center rounded-full border px-2.5 py-1 text-[12px] ${project === "" ? "border-ink text-ink" : "border-line text-mute"}`}>未仕訳</button>
         </div>
       )}
       <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-6">

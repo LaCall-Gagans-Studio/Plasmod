@@ -66,7 +66,7 @@ describe("プロジェクト（PJ）", () => {
     expect(tasks.links(parent.id).children.length).toBe(4);
   });
 
-  test("中身と一覧（プロジェクトごと・プロジェクトなし・期限切れの数）", () => {
+  test("中身と一覧（プロジェクトごと・未仕訳・期限切れの数）", () => {
     const { memos, tasks, projects } = setup();
     tasks.create({ title: "遅れ", project: "A", due: "2000-01-01" }, "app");
     tasks.create({ title: "近い", project: "A", due: "2999-01-01" }, "app");
