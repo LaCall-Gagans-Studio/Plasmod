@@ -146,8 +146,8 @@ export function MemoListPage() {
     if (archived) p.set("archived", "1");
     const t = setTimeout(
       () => {
-        // 端末の写しをすぐ出して、サーバーの一覧で置き換える
-        void localMemoList(p).then((l) => l.memos.length && setList((cur) => cur ?? l)).catch(() => {});
+        // 端末の写しをすぐ出して、サーバーの一覧で置き換える。語を探すときは本文を読むので、先出しはしない（つながらなければ memoList が端末で探す）
+        if (!q.trim()) void localMemoList(p).then((l) => l.memos.length && setList((cur) => cur ?? l)).catch(() => {});
         memoList(p)
           .then((l) => {
             setList(l);

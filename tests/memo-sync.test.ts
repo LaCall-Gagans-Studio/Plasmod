@@ -7,7 +7,8 @@ function fakeDb(): MemoDb {
   const pending = new Map<number, PendingChange>();
   let last = 0;
   return {
-    allMemos: async () => [...memos.values()],
+    archivedIds: async () => [...memos.values()].filter((m) => m.archivedAt).map((m) => m.id),
+    listLocal: async (o) => localList([...memos.values()], o),
     getMemo: async (id) => memos.get(id),
     putMemo: async (m) => void memos.set(m.id, m),
     deleteMemo: async (id) => void memos.delete(id),
@@ -196,7 +197,8 @@ describe("アーカイブは端末に置かない", () => {
     const m = new Map(seed.map((x) => [x.id, x]));
     const p = new Map(pendingIds.map((id) => [id, { id, base: 1 } as PendingChange]));
     const db: MemoDb = {
-      allMemos: async () => [...m.values()],
+      archivedIds: async () => [...m.values()].filter((x) => x.archivedAt).map((x) => x.id),
+      listLocal: async (o) => localList([...m.values()], o),
       getMemo: async (id) => m.get(id),
       putMemo: async (x) => void m.set(x.id, x),
       deleteMemo: async (id) => void m.delete(id),
