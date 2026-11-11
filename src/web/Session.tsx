@@ -10,6 +10,7 @@ import { DEFAULT_TEAM, DEFAULT_TEAMS, teamOfProfile } from "../shared/types";
 import { ALL, CHAT_PICK, sessionKey, useAllSessions, useAgents, useAgentList, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
 import { CreditsLine, ViewBody } from "./SessionBody";
 import { Composer } from "./Composer";
+import { useLongPress } from "./touch";
 import { Beckon, Seeking, Skeleton } from "./loading";
 
 /** 一覧の「新しいセッション」の下に置く、cron の回を省くトグル */
@@ -25,27 +26,47 @@ function CronToggle({ className = "" }: { className?: string }) {
   );
 }
 
-/** 「全員」の画面で、誰と新しいセッションを始めるかを、プロフィール画像で選ぶ */
-function NewWho({ agents, snap, value, active, onPick, size = 24, className = "" }: { agents: { id: string }[]; snap: Snapshot | null; value: string | null; active: boolean; onPick: (id: string) => void; size?: number; className?: string }) {
-  if (!snap) return null;
+/** 「全員」の画面で、新しいセッションの相手を示す小さい丸。押すとその相手で始め、長押し（PC は右クリック）で相手を変える */
+function NewWhoDot({ agents, snap, value, active, onPick, onStart, size = 26, align = "right", className = "" }: { agents: { id: string }[]; snap: Snapshot | null; value: string | null; active: boolean; onPick: (id: string) => void; onStart: () => void; size?: number; align?: "left" | "right"; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  const lp = useLongPress(() => setOpen(true));
+  useEffect(() => {
+    if (!open) return;
+    const on = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("pointerdown", on);
+    return () => document.removeEventListener("pointerdown", on);
+  }, [open]);
+  if (!snap || !value) return null;
   return (
-    <div className={`flex flex-wrap items-center gap-1.5 ${className}`} role="group" aria-label="新しいセッションの相手">
-      {agents.map((a) => {
-        const on = value === a.id;
-        return (
-          <button
-            key={a.id}
-            onClick={() => onPick(a.id)}
-            aria-pressed={on}
-            aria-label={`${NAME(snap, a.id)}と新しいセッションを始める`}
-            title={NAME(snap, a.id)}
-            className={`flex-none rounded-full p-0.5 ${on ? (active ? "ring-2 ring-ink" : "ring-1 ring-line-2") : "opacity-60 hover:opacity-100"}`}
-          >
-            <Avatar p={profileOf(snap.agents, a.id)} size={size} />
-          </button>
-        );
-      })}
-    </div>
+    <span ref={box} className={`relative flex-none ${className}`}>
+      <button
+        {...lp}
+        onClick={onStart}
+        aria-label={`${NAME(snap, value)}と新しいセッションを始める（長押しで相手を変える）`}
+        title={`${NAME(snap, value)}（長押しで相手を変える）`}
+        className={`select-none rounded-full p-0.5 [-webkit-touch-callout:none] ${active ? "ring-2 ring-ink" : "ring-1 ring-line-2"}`}
+      >
+        <Avatar p={profileOf(snap.agents, value)} size={size} />
+      </button>
+      {open && (
+        <div role="menu" aria-label="新しいセッションの相手" className={`absolute top-full z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-line bg-panel-2 shadow-lg ${align === "right" ? "right-0" : "left-0"}`}>
+          {agents.map((a) => (
+            <button
+              key={a.id}
+              role="menuitemradio"
+              aria-checked={a.id === value}
+              onClick={() => (setOpen(false), onPick(a.id))}
+              className={`flex min-h-10 w-full items-center gap-2 border-b border-line px-2.5 text-left font-sans text-[12.5px] last:border-b-0 ${a.id === value ? "font-semibold text-ink" : "text-ink-2"}`}
+            >
+              <Avatar p={profileOf(snap.agents, a.id)} size={22} />
+              <span className="min-w-0 flex-1 truncate">{NAME(snap, a.id)}</span>
+              {a.id === value && <span aria-hidden="true">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -208,13 +229,15 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
       <div className="flex min-h-0 flex-1">
         {agent && (
           <aside className="hidden w-[210px] flex-none flex-col border-r border-line md:flex" aria-label="セッションの一覧">
-            <button
-              onClick={() => (setFresh(true), setPicking(false))}
-              className={`mx-2 mt-2 flex min-h-9 flex-none items-center gap-1.5 rounded-lg border border-dashed px-2.5 text-[12px] ${fresh ? "border-ink text-ink" : "border-line-2 text-ink-2"}`}
-            >
-              ＋ 新しいセッション
-            </button>
-            {isAll && <NewWho agents={available} snap={snap} value={target} active={fresh} size={24} className="mx-2.5 mt-2" onPick={(id) => (setNewWith(id), setFresh(true), setPicking(false))} />}
+            <div className="mx-2 mt-2 flex items-center gap-1.5">
+              <button
+                onClick={() => (setFresh(true), setPicking(false))}
+                className={`flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-dashed px-2.5 text-[12px] ${fresh ? "border-ink text-ink" : "border-line-2 text-ink-2"}`}
+              >
+                ＋ 新しいセッション
+              </button>
+              {isAll && <NewWhoDot agents={available} snap={snap} value={newTarget} active={fresh} onPick={(id) => (setNewWith(id), setFresh(true), setPicking(false))} onStart={() => (setFresh(true), setPicking(false))} />}
+            </div>
             <CronToggle className="mx-2.5 mt-2" />
             <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
               {sessions?.map((s) => (
@@ -249,7 +272,6 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
               ) : (
                 <span className="truncate">新しいセッション</span>
               )}
-              {isAll && !latest && <NewWho agents={available} snap={snap} value={target} active size={20} className="md:hidden" onPick={(id) => (setNewWith(id), setFresh(true), setPicking(false))} />}
               <button
                 onClick={() => (setFresh(true), setPicking(false))}
                 aria-label="新しいセッションを始める"
@@ -258,6 +280,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
               >
                 +
               </button>
+              {isAll && <NewWhoDot agents={available} snap={snap} value={newTarget} active={fresh} size={18} align="left" className="md:hidden" onPick={(id) => (setNewWith(id), setFresh(true), setPicking(false))} onStart={() => (setFresh(true), setPicking(false))} />}
               <button
                 ref={pickerBtn}
                 onClick={() => setPicking((x) => !x)}
