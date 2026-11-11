@@ -6,6 +6,7 @@ import { parseRelay, relayNotice, tokenOk } from "../notify-relay";
 import type { RouteContext } from "./context";
 import { devTarget } from "./dev";
 import { AppSettings } from "../profiles";
+import { TokenTotal } from "../token-total";
 import { CLAUDE_AGENT } from "../../shared/types";
 import pkg from "../../../package.json";
 import { getTimeZone } from "../../shared/time";
@@ -33,7 +34,7 @@ export function liveRoutes(ctx: RouteContext) {
         joined = Math.min(Date.now(), oldest("tasks") ?? Infinity, oldest("memos") ?? Infinity);
         s.set("joined_at", String(joined));
       }
-      return { ownerTitle: s.get("owner_title") ?? "", ownerColor: s.get("owner_color") ?? undefined, ownerAvatar: s.get("owner_avatar") || undefined, joinedAt: joined };
+      return { ownerTitle: s.get("owner_title") ?? "", ownerColor: s.get("owner_color") ?? undefined, ownerAvatar: s.get("owner_avatar") || undefined, joinedAt: joined, tokensTotal: new TokenTotal(s).get() };
     } catch {
       return {};
     }

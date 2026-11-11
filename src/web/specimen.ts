@@ -4,8 +4,9 @@
 
 export const W = 300;
 export const H = 290;
-const SEGS = 11;
 const GAP = 18;
+const MAX_SEGS = 26;
+const MAX_JOINTS = 7;
 
 type Pt = [number, number];
 
@@ -17,6 +18,42 @@ export function seeded(text: string) {
     h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909);
     return ((h ^= h >>> 16) >>> 0) / 4294967296;
   };
+}
+
+/** 使ったトークンの総数から、育ち具合（0〜）を決める。対数なので、序盤はぐんぐん、後半はゆっくり育つ */
+export const growth = (tokens: number) => Math.log2(1 + Math.max(0, tokens || 0) / 2e5);
+
+/** トークン数を短く（1.23B など） */
+export function fmtTokens(n: number): string {
+  n = Math.max(0, Math.floor(n || 0));
+  if (n < 1000) return String(n);
+  const units = ["K", "M", "B", "T", "Q"];
+  let v = n;
+  let u = -1;
+  while (v >= 1000 && u < units.length - 1) {
+    v /= 1000;
+    u++;
+  }
+  return `${v >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(1) : v.toFixed(2)}${units[u]}`;
+}
+
+/** 節についた飾り。生えてくる時期は節ごとにばらばら */
+export interface Organ {
+  kind: "fin" | "spike" | "bud";
+  side: number;
+  /** 伸びきったときの長さ */
+  max: number;
+  /** 今の長さ（育ち具合から） */
+  len: number;
+  tilt: number;
+}
+
+export interface SegInfo {
+  /** 生えたての節は小さい */
+  scale: number;
+  sx: number;
+  sy: number;
+  organs: Organ[];
 }
 
 interface Wire {
@@ -38,47 +75,114 @@ export interface Creature {
   segs: Pt[];
   wires: Wire[];
   radii: number[];
+  /** 育ち具合 */
+  g: number;
+  info: SegInfo[];
+  /** 頭にある、よぶんな目 */
+  eyes: { x: number; y: number; r: number }[];
   shards: { x: number; y: number; w: number; h: number; o: number }[];
 }
 
-export function makeCreature(seed: string): Creature {
-  const r = seeded(seed || "plasmod");
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/**
+ * 名前から決まる姿を、トークンの総数に応じて育てる。
+ * 決め打ちの段階は無く、法則だけがある:
+ *  - 節は増え続ける（上限あり）。生えたての節は小さい
+ *  - 肢は節ごと・左右ごとに、別々の時期に生える。生えてからの年数で、関節が増え、長くなる
+ *  - 肢は一本ごとに決まった向きへ巻く癖がある
+ *  - ひれ・とげ・こぶは、節ごとにばらばらの時期に現れる
+ *  - 目は育つと増える
+ * 乱数は部位ごとに独立しているので、育っても既にある部位の形は変わらない。
+ */
+export function makeCreature(seed: string, tokens = 0): Creature {
+  const base = seed || "plasmod";
+  const g = growth(tokens);
+  const r = seeded(base);
   const x = W * 0.62;
   const y = H * 0.68;
   const dir = -0.5 + r();
+  const ph = r() * 6.28;
+  const radii = Array.from({ length: 14 }, () => 27 + r() * 9);
+  const headScale = 1 + Math.min(g, 14) * 0.025;
+  const count = Math.min(MAX_SEGS, 6 + Math.floor(g * 1.5));
+
   const segs: Pt[] = [];
+  const info: SegInfo[] = [];
+  const wires: Wire[] = [];
   // 最初は弧を描いて巻いた形
   let px = x;
   let py = y;
   let a = dir + Math.PI;
-  for (let i = 0; i < SEGS; i++) {
+  for (let i = 0; i < count; i++) {
     px += (i === 0 ? 32 : GAP) * Math.cos(a);
     py += (i === 0 ? 32 : GAP) * Math.sin(a);
     segs.push([px, py]);
     a += 0.2;
-  }
-  const wires: Wire[] = [];
-  for (let i = 0; i < SEGS; i++) {
+
+    const sr = seeded(`${base}|seg${i}`);
+    const born = Math.max(0, (i - 6) / 1.5); // 節が生えた時期（育ち具合）
+    const scale = i < 6 ? 1 : 0.35 + 0.65 * clamp01((g - born) / 0.8);
+    const sx = 0.8 + sr() * 0.5;
+    const sy = 0.85 + sr() * 0.45;
+
+    const organs: Organ[] = [];
+    const nOrgans = sr() < 0.55 ? 1 + Math.floor(sr() * 2) : 0;
+    for (let k = 0; k < nOrgans; k++) {
+      const kr = sr();
+      const kind: Organ["kind"] = kr < 0.4 ? "fin" : kr < 0.75 ? "spike" : "bud";
+      const birth = 2 + sr() * 9 + i * 0.1;
+      const max = 7 + sr() * 15;
+      const side = sr() < 0.5 ? -1 : 1;
+      const tilt = (sr() - 0.5) * 0.9;
+      if (g > birth) organs.push({ kind, side, max, len: max * clamp01((g - birth) / 3), tilt });
+    }
+    info.push({ scale, sx, sy, organs });
+
     for (const side of [-1, 1]) {
-      const n = 2 + Math.floor(r() * 2);
+      const wr = seeded(`${base}|wire${i}|${side}`);
+      // 生える時期はばらばら。全部の節に生えるわけではない
+      const has = wr() < 0.85;
+      const birth = (i < 6 ? 0 : (i - 6) / 1.5) * 0.5 + wr() * 4 - 2;
+      const a0 = side * (1.2 + wr() * 0.5);
+      const rate = 0.6 + wr() * 0.9;
+      const drift = (wr() - 0.5) * 0.7; // 巻く癖
+      const lens = Array.from({ length: MAX_JOINTS }, () => 16 + wr() * 24);
+      const bends = Array.from({ length: MAX_JOINTS }, () => drift + (wr() - 0.5) * 0.8);
+      const ph2 = wr() * 6.28;
+      const age = g - birth;
+      if (!has || age < 0) continue;
+      const joints = Math.min(MAX_JOINTS, 2 + Math.floor(age * 0.55 * rate));
+      const stretch = Math.min(2.4, 0.3 + age * 0.3 * rate);
       wires.push({
         seg: i,
         side,
-        a0: side * (1.2 + r() * 0.5),
-        lens: Array.from({ length: n }, () => 16 + r() * 24),
-        bends: Array.from({ length: n }, () => (r() - 0.5) * 1.1),
-        ph: r() * 6.28,
+        a0,
+        lens: lens.slice(0, joints).map((l) => l * stretch),
+        bends: bends.slice(0, joints),
+        ph: ph2,
       });
     }
   }
+
+  const er = seeded(`${base}|eyes`);
+  const eyes = Array.from({ length: Math.min(5, Math.floor(g / 3.5)) }, () => {
+    const ang = er() * Math.PI * 2;
+    const d = 20 + er() * 10;
+    return { x: Math.cos(ang) * d * headScale, y: Math.sin(ang) * d * headScale, r: 3.5 + er() * 3.5 };
+  });
+
   return {
     x,
     y,
     dir,
-    ph: r() * 6.28,
+    ph,
     segs,
     wires,
-    radii: Array.from({ length: 14 }, () => 27 + r() * 9),
+    radii: radii.map((v) => v * headScale),
+    g,
+    info,
+    eyes,
     shards: Array.from({ length: 7 }, () => ({ x: r() * W, y: r() * H, w: 6 + r() * 26, h: 1.5 + r() * 3, o: 0.12 + r() * 0.25 })),
   };
 }
@@ -143,7 +247,7 @@ export const wirePath = (pts: Pt[]) => pts.map((p, k) => `${k ? "L" : "M"}${p[0]
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** カードの絵（1枚の SVG）。画面の生き物の今の姿をそのまま入れる。foreignObject を使わないので画像にできる */
-export function cardSvg(o: { specimen: string; name: string; title: string; color: string; days: number; joined: string }): string {
+export function cardSvg(o: { specimen: string; name: string; title: string; color: string; days: number; joined: string; tokens?: number }): string {
   const c = esc(o.color);
   const bars = Array.from({ length: 22 }, (_, i) => `<rect x="${40 + i * 14}" y="718" width="12" height="7" fill="${c}" opacity="${(((i * 7) % 11) / 11 + 0.12).toFixed(2)}"/>`).join("");
   const sans = `font-family="'IBM Plex Sans JP','Noto Sans JP',system-ui,sans-serif"`;
@@ -174,6 +278,8 @@ ${bars}
 <rect x="128" y="842" width="20" height="30" fill="${c}" opacity=".35"/>
 <text x="158" y="862">${esc(o.joined)}</text>
 </g>
+<text x="580" y="770" text-anchor="end" ${mono} font-size="12" font-weight="700" letter-spacing="2.4" fill="${c}" opacity=".75">TOKENS</text>
+<text x="580" y="800" text-anchor="end" ${mono} font-size="30" font-weight="800" fill="${c}">${esc(fmtTokens(o.tokens ?? 0))}</text>
 <text x="580" y="848" text-anchor="end" ${mono} font-size="16" font-weight="700" letter-spacing="2" fill="${c}">SO</text>
 <text x="580" y="868" text-anchor="end" ${mono} font-size="16" font-weight="700" letter-spacing="2" fill="${c}">ELECTRIC</text>
 </svg>`;
