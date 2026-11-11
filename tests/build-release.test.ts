@@ -24,6 +24,9 @@ describe("配布パッケージ", () => {
     const c = tree({ "broker/x": "1", "broker/sub/y": "3" });
     expect(treeDigest(a, ["broker"])).toBe(treeDigest(b, ["broker"]));
     expect(treeDigest(a, ["broker"])).not.toBe(treeDigest(c, ["broker"]));
+    // deploy/update/plasmod-update の tree_digest と同じ値になること（tests/test_update.py にも同じ値がある）
+    const f = tree({ "broker/x": "a", "broker/sub/y": "bb", "broker/sub/a": "c" });
+    expect(treeDigest(f, ["broker"])).toBe("400556a80339bab1493adb51e4427e22a2fea4703f31cd0323fe4d93f2240e3c");
     expect(walk(a)).toEqual(["broker/sub/y", "broker/x"]);
   });
 });

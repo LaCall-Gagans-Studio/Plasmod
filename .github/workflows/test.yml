@@ -29,6 +29,8 @@ jobs:
         run: python3 -I rootd/test_plasmod_rootd.py
       - name: 仲介のテスト
         run: python3 -I -m unittest discover -s tests -p 'test_broker.py'
+      - name: 更新 CLI のテスト
+        run: python3 -I -W ignore -m unittest discover -s tests -p 'test_update.py'
       - name: 監察の集計のテスト
         run: python3 -I deploy/watch/test_watch_collect.py
       - name: 自動デプロイのテスト

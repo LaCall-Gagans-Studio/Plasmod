@@ -182,3 +182,18 @@ sudo userdel plasmod; sudo userdel plasmod-build
 ```
 
 Hermes の `.env` に足した `API_SERVER_KEY` は残ります。
+
+## 固定の版（安定版）で更新する
+
+main に追いつく自動デプロイの代わりに、タグ `vX.Y.Z` の Release にあるパッケージを、検証してから入れる方式です（実験中。設定画面のボタンはこれから）。自動デプロイとは同時に使えません（`plasmod-deploy.timer` が動いていると止まります）。
+
+```
+sudo plasmod-update check                 # 最新の版・いまの版・権限に関わる部品の差を見る（何も変えない）
+sudo plasmod-update apply --version 3.1.0
+sudo plasmod-update status                # 前回の結果（STATE/update-status.json）
+```
+
+- 入れる前に、sha256 と GitHub の出所証明（`gh attestation verify`。`gh` が要ります）、アーカイブの安全（外へ出るパス・リンク・デバイスを拒否）、権限に関わる部品（broker・bridge・rootd・sudoers・systemd・autodeploy・update）に差がないことを確かめます。差があれば止まるので、中身を確かめて root の手順で入れてください（確かめたうえでアプリだけ入れるなら `--accept-privileged`）。
+- 別の場所に展開し、サービスを止めて入れ替え、起動後に health・画面・認証なしの拒否を確かめます。だめなら前の版（`/opt/plasmod.prev`）に自動で戻します。設定とデータには触りません。DB は戻しません。
+- 本体は `deploy/update/plasmod-update`。`/usr/local/sbin/` に root で置きます（アプリのパッケージには入りません）。
+
