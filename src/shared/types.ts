@@ -823,7 +823,7 @@ export interface AppNotice {
 export type NoticeEvent = AppNotice | { id: number; at: number; type: "clear"; key: string };
 
 /** 速さの記録: startup_*＝起動の内訳（startupStages）、startup＝起動から操作できるまで、session_new・session_reply＝話しかけてから最初の返事が見えるまで（新しいセッション・続き） */
-export type PerfName = "startup" | "startup_entry" | "startup_doc" | "startup_script" | "startup_data" | "startup_retry" | "session_new" | "session_reply";
+export type PerfName = "startup" | "startup_entry" | "startup_doc" | "startup_script" | "startup_data" | "startup_retry" | "startup_server" | "startup_net" | "session_new" | "session_reply";
 export interface PerfRow {
   name: PerfName;
   via: "apk" | "browser";

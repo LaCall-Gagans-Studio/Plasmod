@@ -71,7 +71,15 @@ export function liveRoutes(ctx: RouteContext) {
       timeZone: getTimeZone(),
     }),
   );
-  app.get("/api/snapshot", (c) => c.json(hub.snapshot()));
+  // 作るのにかかった時間を Server-Timing で返す（起動の「最初のデータ」が、サーバーと通信のどちらで遅いかを分ける）
+  app.get("/api/snapshot", (c) => {
+    const t0 = performance.now();
+    const s = hub.snapshot();
+    const body = JSON.stringify(s);
+    c.header("Server-Timing", `snap;dur=${(performance.now() - t0).toFixed(1)}`);
+    c.header("Content-Type", "application/json; charset=UTF-8");
+    return c.body(body);
+  });
 
   app.get("/api/stream", (c) => {
     const res = streamSSE(c, async (stream) => {

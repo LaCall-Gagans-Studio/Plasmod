@@ -32,6 +32,19 @@ describe("速さの記録", () => {
     expect(await (await app.request("/api/perf")).json()).toEqual([{ name: "session_reply", via: "browser", n: 1, p50: 1234, p90: 1234 }]);
   });
 
+  test("最初のデータの内訳: スナップショットは作った時間を Server-Timing で返し、内訳の名前は記録に入る", async () => {
+    const store = new Store(":memory:");
+    const app = createApp({ ...config, devNoAuth: true }, { snapshot: () => ({ cards: [] }), subscribe: () => () => {} } as never, store, "/nonexistent");
+    const r = await app.request("/api/snapshot");
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ cards: [] });
+    expect(r.headers.get("Server-Timing")).toMatch(/^snap;dur=\d+(\.\d)?$/);
+    const log = new PerfLog(store.db);
+    log.add("startup_server", "apk", 3, 1000);
+    log.add("startup_net", "apk", 900, 1000);
+    expect(log.summary(30, 1000).map((x) => x.name).sort()).toEqual(["startup_net", "startup_server"]);
+  });
+
   test("返事の判定: 送った発言より後のエージェントの文だけ数える", () => {
     const chat = (messages: { role: string; text: string }[]): SessionView => ({ kind: "chat", messages, alive: true, working: false });
     expect(replySeen(chat([{ role: "user", text: "前の話" }, { role: "assistant", text: "前の返事" }]), "こんにちは")).toBe(false);

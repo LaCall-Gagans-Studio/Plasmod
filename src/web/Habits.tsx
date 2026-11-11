@@ -2,7 +2,7 @@
 import { type PointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { Habit, HabitOverview } from "../shared/types";
 import { Skeleton } from "./loading";
-import { json } from "./memo-fields";
+import { json } from "./memo-light";
 import { Page } from "./ui";
 
 /** チェックを付ける・外す。結果のルーティーンが返る */

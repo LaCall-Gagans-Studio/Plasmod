@@ -434,7 +434,7 @@ function serviceState(s: VpsService): { label: string; tone: "ok" | "idle" | "ba
   return s.oneshot ? { label: "待機（タイマー）", tone: "idle" } : { label: "停止", tone: "bad" };
 }
 
-const PERF_LABEL: Record<PerfName, string> = { startup: "起動", startup_entry: "起動: 入口の画面", startup_doc: "起動: 画面の取得", startup_script: "起動: スクリプト", startup_data: "起動: 最初のデータ", startup_retry: "起動: データの取り直し（回）", session_new: "新しいセッションの最初の返事", session_reply: "続きの返事" };
+const PERF_LABEL: Record<PerfName, string> = { startup: "起動", startup_entry: "起動: 入口の画面", startup_doc: "起動: 画面の取得", startup_script: "起動: スクリプト", startup_data: "起動: 最初のデータ", startup_retry: "起動: データの取り直し（回）", startup_server: "起動: 最初のデータ（サーバー）", startup_net: "起動: 最初のデータ（通信）", session_new: "新しいセッションの最初の返事", session_reply: "続きの返事" };
 const sec = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}秒`;
 
 /** 速さの基準値（直近30日）。v2.0 の改善の前後を比べる */

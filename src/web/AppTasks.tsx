@@ -3,7 +3,7 @@
 import { ing } from "./dots";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppTask, AppTaskList, AppTaskStatus, Snapshot } from "../shared/types";
-import { FolderIcon, json } from "./memo-fields";
+import { FolderIcon, json } from "./memo-light";
 import { PjTabs } from "./pjtabs";
 import { AddField } from "./AddField";
 import { createTask, fetchTaskList, patchTask, taskSync, TaskSyncBadge } from "./task-db";

@@ -2,7 +2,7 @@
 import { ing, Dots } from "./dots";
 import { useEffect, useState } from "react";
 import type { AppTask, AppTaskLinks, AppTaskStatus, Snapshot } from "../shared/types";
-import { FolderIcon, json } from "./memo-fields";
+import { FolderIcon, json } from "./memo-light";
 import { fetchTask } from "./task-db";
 import { openTaskMenu } from "./taskmenu";
 import { CopyRef, useLongPress } from "./touch";

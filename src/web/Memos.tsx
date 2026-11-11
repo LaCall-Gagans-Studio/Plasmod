@@ -5,7 +5,7 @@ import { memoRef } from "../shared/memo-ref";
 import type { MemoList, MemoSummary } from "../shared/types";
 import { PjTabs } from "./pjtabs";
 import { Icon, Nav, RAIL, ago } from "./ui";
-import { json, FolderIcon, TagIcon } from "./memo-fields";
+import { json, FolderIcon, TagIcon } from "./memo-light";
 import { Skeleton } from "./loading";
 import { MemoLink } from "./pjmenus";
 import { localMemoList, memoList, SyncBadge, useMemoSyncStatus } from "./memo-db";

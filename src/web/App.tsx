@@ -5,23 +5,35 @@ import { TaskMenu } from "./taskmenu";
 import { MemoMenu, ProjectMenu } from "./pjmenus";
 import { Drawer } from "./ui";
 import { useStale } from "./version";
-import { CardView } from "./CardView";
 import { Home } from "./Home";
-import { Report } from "./Report";
-import { Root } from "./Root";
-import { Search } from "./Search";
 import { OpenLastSession, SessionPage } from "./Session";
-import { Share } from "./Share";
-import { System } from "./System";
-import { TaskView } from "./Task";
-import { Watching } from "./Watching";
-import { WatchPage } from "./WatchPage";
 import { Toaster } from "./touch";
 import { AmoebaLoader } from "./loading";
 import { useAbout } from "./identity";
-import { Welcome } from "./Welcome";
 
 // メモはエディタ（CodeMirror）が大きいので、開いたときに読み込む
+// ホームに要らない画面は、最初の読み込みから外す（起動のスクリプトを軽くする）。表示のあと手すきに先読みする
+const loadCardView = () => import("./CardView");
+const CardView = lazy(() => loadCardView().then((m) => ({ default: m.CardView })));
+const loadReport = () => import("./Report");
+const Report = lazy(() => loadReport().then((m) => ({ default: m.Report })));
+const loadRoot = () => import("./Root");
+const Root = lazy(() => loadRoot().then((m) => ({ default: m.Root })));
+const loadSearch = () => import("./Search");
+const Search = lazy(() => loadSearch().then((m) => ({ default: m.Search })));
+const loadShare = () => import("./Share");
+const Share = lazy(() => loadShare().then((m) => ({ default: m.Share })));
+const loadSystem = () => import("./System");
+const System = lazy(() => loadSystem().then((m) => ({ default: m.System })));
+const loadTaskView = () => import("./Task");
+const TaskView = lazy(() => loadTaskView().then((m) => ({ default: m.TaskView })));
+const loadWatching = () => import("./Watching");
+const Watching = lazy(() => loadWatching().then((m) => ({ default: m.Watching })));
+const loadWatchPage = () => import("./WatchPage");
+const WatchPage = lazy(() => loadWatchPage().then((m) => ({ default: m.WatchPage })));
+const loadWelcome = () => import("./Welcome");
+const Welcome = lazy(() => loadWelcome().then((m) => ({ default: m.Welcome })));
+const PRELOAD = [loadCardView, loadReport, loadRoot, loadSearch, loadShare, loadSystem, loadTaskView, loadWatching, loadWatchPage, loadWelcome, () => import("./MemoPage"), () => import("./Projects")];
 const MemoPage = lazy(() => import("./MemoPage").then((m) => ({ default: m.MemoPage })));
 const VoiceMemo = lazy(() => import("./VoiceMemo").then((m) => ({ default: m.VoiceMemo })));
 const PjShell = lazy(() => import("./Projects").then((m) => ({ default: m.PjShell })));
@@ -55,11 +67,29 @@ function UpdateBar() {
 }
 
 export function App() {
+  // 最初の表示が済んだら、手すきのときに残りの画面を順に先読みする（開くときに待たせない）
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      for (const load of PRELOAD) {
+        if (!alive) return;
+        await load().catch(() => {});
+      }
+    };
+    const idle = (cb: () => void) => ("requestIdleCallback" in window ? requestIdleCallback(cb, { timeout: 4000 }) : setTimeout(cb, 1500));
+    const t = setTimeout(() => idle(() => void run()), 1200);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, []);
   return (
     <>
       <UpdateBar />
       <Toaster />
-      <Routes />
+      <Suspense fallback={loading}>
+        <Routes />
+      </Suspense>
       <Drawer />
       <TaskMenu />
       <MemoMenu />
