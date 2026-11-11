@@ -1,10 +1,10 @@
 // 設定のエージェント: サッカーの選手紹介のようなカード。開くと名前・顔・役割・色を変えられて、モデルと中身も見られる。
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { type AgentInfo, type AgentProfile, DEFAULT_TEAM, type Team, teamOfProfile } from "../shared/types";
+import { type AgentInfo, type AgentProfile, DEFAULT_TEAM, type NameSync, type Team, teamOfProfile } from "../shared/types";
 import { fetchRetry } from "./api";
 import { Avatar } from "./ui";
 
-export type ManagedAgent = AgentProfile & { hidden?: boolean };
+export type ManagedAgent = AgentProfile & { hidden?: boolean; nameSync?: NameSync };
 
 /** 色の明るさから、上に載せる文字の色を決める（WCAG の相対輝度） */
 export function inkOn(color: string): "#17171a" | "#ffffff" {
@@ -72,7 +72,12 @@ export function useAgentSettings() {
       return false;
     }
   };
-  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover };
+  // Hermes の表示名への反映をやり直す（失敗の再試行・競合から上書きを選んだとき）
+  const syncName = (id: string, force = false) => {
+    const at = ++edits.current;
+    return fetch(`/api/agents-settings/${encodeURIComponent(id)}/sync-name`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) }).then((r) => take(r, at)).catch(fail);
+  };
+  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName };
 }
 
 /** 選手カードの表の面 */
@@ -115,8 +120,37 @@ export function PlayerCard({ a, info, no, open, onToggle, teamName }: { teamName
   );
 }
 
+/** 名前を Hermes の表示名に写した結果（#36）。Hermes のエージェントだけ。役割・人格・モデルは写さない */
+function NameSyncNote({ a, syncName }: { a: ManagedAgent; syncName: (id: string, force?: boolean) => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  const run = (force: boolean) => {
+    setBusy(true);
+    void syncName(a.id, force).finally(() => setBusy(false));
+  };
+  const s = a.nameSync;
+  const btn = "ml-1.5 rounded-md border border-line-2 px-2 py-0.5 text-[11px] font-semibold text-ink-2 disabled:opacity-50";
+  const base = "pl-[3.75rem] text-[11px] leading-relaxed";
+  if (!s)
+    return <div className={`${base} text-mute`}>名前を変えると、Hermes の表示名にも反映される。内部の ID・人格（SOUL）・モデル・権限・役割は変わらない</div>;
+  if (s.state === "synced")
+    return <div className={`${base} text-mute`}>Hermes の表示名にも反映済み（「{s.synced}」）。内部の ID・人格・モデル・権限・役割は変わっていない</div>;
+  if (s.state === "conflict")
+    return (
+      <div className={`${base} text-orange-ink`} role="alert">
+        Hermes 側の表示名は「{s.current || "（空）"}」で、Plasmod の名前と違う。Hermes 側を直した可能性があるので、上書きしていない
+        <button disabled={busy} onClick={() => confirm(`Hermes の表示名「${s.current}」を「${a.name}」で上書きしますか？`) && run(true)} className={btn}>{busy ? "…" : "Plasmod の名前で上書き"}</button>
+      </div>
+    );
+  return (
+    <div className={`${base} text-orange-ink`} role="alert">
+      Hermes に反映できなかった（Plasmod の名前は保存済み）: {s.error}
+      <button disabled={busy} onClick={() => run(false)} className={btn}>{busy ? "…" : "再試行"}</button>
+    </div>
+  );
+}
+
 /** プロフィールの編集: 顔・名前・役割・色・隠す */
-export function ProfileEditor({ a, patch, upload, teams }: { teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void }) {
+export function ProfileEditor({ a, patch, upload, teams, syncName }: { teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void; syncName?: (id: string, force?: boolean) => Promise<unknown> }) {
   const row = (label: string, control: ReactNode) => (
     <label className="flex items-center gap-3">
       <span className="w-12 flex-none text-[11.5px] text-mute">{label}</span>
@@ -138,6 +172,7 @@ export function ProfileEditor({ a, patch, upload, teams }: { teams: Team[]; a: M
         "名前",
         <input key={`n:${a.name}`} defaultValue={a.name} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== a.name && void patch(a.id, { name: e.target.value })} aria-label={`${a.id} の名前`} className={input} />,
       )}
+      {a.runtime !== "claude-code" && syncName && <NameSyncNote a={a} syncName={syncName} />}
       {row(
         "役割",
         <input key={`r:${a.role ?? ""}`} defaultValue={a.role ?? ""} placeholder="例: WINGMAN" onBlur={(e) => e.target.value.trim() !== (a.role ?? "") && void patch(a.id, { role: e.target.value })} aria-label={`${a.name}の役割`} className={input} />,

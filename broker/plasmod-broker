@@ -24,6 +24,8 @@
   agents                     プロファイルごとの人格（SOUL.md）・スキルの一覧・設定ファイルの場所・モデル。JSON
   cron-output PROFILE        そのプロファイルの cron の最近の出力（監察チームの報告）。返答の部分だけ、新しい順に 8 件。JSON
   connections                Nous と MCP の接続の状況。有無と時刻だけで、トークンの値は出さない。更新もかけない
+  display-names              プロファイルごとの表示名（profile.yaml の display_name）。JSON
+  set-display-name PROFILE JSON  表示名だけを書く。JSON は {"name": 新しい名前, "expect": 今あるはずの名前}。今の値が expect と違えば書かずに conflict を返す（expect を省くと確認なしで書く）。内部の id・SOUL・モデル・権限・説明は触らない
   cron                       プロファイルごとの定期実行（cron/jobs.json）。スケジュール・状態・前回の結果だけで、送り先の ID などは出さない。JSON
 
 読み取りは kanban.db を読み取り専用で開く。書き込みは hermes の CLI を通す（Hermes 側の整合性チェックを使うため）。
@@ -817,6 +819,61 @@ def cron_output(profile):
     print(json.dumps(out, ensure_ascii=False))
 
 
+# 表示名（profile.yaml の display_name）。Hermes の CLI の rename は名前つきのプロファイルではプロファイル自体の改名になる
+# （ディレクトリ・サービスまで変わる）ので使わない。Hermes 自身の読み書きの関数を、Hermes の Python の中で呼ぶ
+DISPLAY_NAMES_CODE = r"""
+import json
+import os
+from pathlib import Path
+from hermes_cli.profiles import read_profile_meta
+homes = json.loads(os.environ["PLASMOD_PROFILE_HOMES"])
+print(json.dumps({n: read_profile_meta(Path(h))["display_name"] for n, h in homes.items()}, ensure_ascii=False))
+"""
+SET_DISPLAY_NAME_CODE = r"""
+import json
+import os
+from pathlib import Path
+from hermes_cli.profiles import read_profile_meta, set_profile_display_name
+name = os.environ["PLASMOD_PROFILE"]
+want = os.environ["PLASMOD_DISPLAY_NAME"]
+expect = os.environ.get("PLASMOD_EXPECT")
+cur = read_profile_meta(Path(os.environ["PLASMOD_PROFILE_HOME"]))["display_name"]
+if expect is not None and cur != expect and cur != want:
+    print(json.dumps({"ok": False, "conflict": True, "current": cur}, ensure_ascii=False))
+else:
+    if cur != want:
+        set_profile_display_name(name, want)
+    print(json.dumps({"ok": True, "current": want}, ensure_ascii=False))
+"""
+DISPLAY_NAME_MAX = 64
+
+
+def display_names():
+    homes = profiles()
+    print(json.dumps(hermes_exec(DISPLAY_NAMES_CODE, {"PLASMOD_PROFILE_HOMES": json.dumps(homes)}, "表示名の取得"), ensure_ascii=False))
+
+
+def set_display_name(profile, raw):
+    homes = profiles()
+    if not PROFILE_RE.match(profile) or profile not in homes:
+        die("そのプロファイルは無い")
+    try:
+        arg = json.loads(raw)
+    except ValueError:
+        die("引数の JSON が読めない")
+    if not isinstance(arg, dict) or not isinstance(arg.get("name"), str):
+        die("name が要る")
+    name = arg["name"].strip()
+    if not name or len(name) > DISPLAY_NAME_MAX or any(ord(c) < 32 or ord(c) == 127 for c in name):
+        die(f"名前は 1〜{DISPLAY_NAME_MAX} 文字で、改行や制御文字は使えない")
+    env = {"PLASMOD_PROFILE": profile, "PLASMOD_PROFILE_HOME": homes[profile], "PLASMOD_DISPLAY_NAME": name}
+    if "expect" in arg:
+        if not isinstance(arg["expect"], str):
+            die("expect は文字列")
+        env["PLASMOD_EXPECT"] = arg["expect"]
+    print(json.dumps(hermes_exec(SET_DISPLAY_NAME_CODE, env, "表示名の書き込み"), ensure_ascii=False))
+
+
 def cron():
     print(json.dumps({name: cron_jobs(home) for name, home in profiles().items()}, ensure_ascii=False))
 
@@ -871,6 +928,14 @@ def main(argv):
         agents()
     elif op == "cron-output" and len(rest) == 1 and PROFILE_RE.match(rest[0]):
         cron_output(rest[0])
+    elif op == "display-names" and not rest:
+        with contextlib.suppress(OSError):
+            os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
+        display_names()
+    elif op == "set-display-name" and len(rest) == 2:
+        with contextlib.suppress(OSError):
+            os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
+        set_display_name(rest[0], rest[1])
     elif op == "cron" and not rest:
         cron()
     elif op == "archive" and len(rest) == 1:

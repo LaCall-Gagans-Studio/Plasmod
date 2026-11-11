@@ -22,7 +22,11 @@ import type { TaskStore } from "../tasks";
 import type { WatchService } from "../watch";
 
 /** アプリにつなぐ部品。無いものは、その機能だけ使えない */
+import type { HermesNameSync } from "../hermes-names";
+
 export interface AppServices {
+  /** Plasmod の名前を Hermes の表示名に写す（#36）。Hermes につながっていなければ無い */
+  names?: HermesNameSync;
   sessions?: SessionService;
   dev?: DevService;
   merge?: MergeDesk;

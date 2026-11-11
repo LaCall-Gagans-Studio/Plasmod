@@ -1,7 +1,7 @@
 // エージェントの一覧（v2.0 H3）。設定（PLASMOD_PROFILES）に無くても、Hermes のプロファイルから自動で見つける。
 // 名前・色・顔・隠すは、アプリの設定画面で変えられる（データベースに保存）。
 import type { Database } from "bun:sqlite";
-import { type AgentProfile, CLAUDE_AGENT } from "../shared/types";
+import { type AgentProfile, CLAUDE_AGENT, type NameSync } from "../shared/types";
 
 export interface ProfileOverride {
   id: string;
@@ -15,7 +15,7 @@ export interface ProfileOverride {
   role?: string;
 }
 
-export type ManagedProfile = AgentProfile & { hidden?: boolean };
+export type ManagedProfile = AgentProfile & { hidden?: boolean; /** 名前を Hermes に写した結果（Hermes のエージェントだけ） */ nameSync?: NameSync };
 
 const COLORS = ["#8FB8FF", "#E8A27C", "#7FD8C6", "#F2C98A", "#C7A6F2", "#F29CB7", "#9BD57F"];
 

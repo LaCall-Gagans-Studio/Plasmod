@@ -14,6 +14,7 @@ import { HermesApi, parseHermesApi, SessionService } from "./sessions";
 import { SessionIndexer } from "./session-index";
 import { ConnectionWatch } from "./connections";
 import { UsageAlert } from "./usage-alert";
+import { HermesNameSync } from "./hermes-names";
 import { AppSettings, ProfileRegistry } from "./profiles";
 import { ShareStore } from "./share";
 import { MediaService } from "./media";
@@ -64,6 +65,7 @@ const sessions = new SessionService(bridge, hermes, () => hub.changed(), (id) =>
 sessions.onReply((agent, id, text) => notifier.reply(agent, id, text));
 config.ownerName = new AppSettings(store.db).get("owner") ?? config.ownerName;
 const teams = new TeamStore(store.db, config.teams);
+const names = new HermesNameSync(store.db, source instanceof BrokerSource ? source.call : null);
 const registry = new ProfileRegistry(store.db, config.profiles, () => existsSync(config.bridgeSock));
 // API の窓口があるプロファイルだけでなく、Hermes のプロファイル全部を見つける。
 // 設定画面のカードは全部に出るのに、チームなどを保存できるのが窓口のあるものだけだった（#29）
@@ -140,7 +142,7 @@ taskSync.start(() => hub.changed());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
 const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
 connections.start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
+const app = createApp(config, hub, store, webRoot, { registry, names, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,
