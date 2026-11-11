@@ -33,6 +33,21 @@ describe("メモの受け渡し", () => {
     expect([...agentUids("cc=dev,hermes=hermes,root=root,nobody=x,cc=BAD NAME", pw)]).toEqual([[1001, "dev"], [1002, "hermes"]]);
   });
 
+  test("AI からヘッダー画像を付ける・差し替える・外す", () => {
+    const { dir, memos, spool } = setup();
+    send(dir, "cccccccc", { op: "create", args: { title: "旅", headerImage: "https://example.com/a.jpg" } });
+    spool.tick();
+    const r = reply(dir, "cccccccc");
+    expect(memos.get(r.result.id)!.headerImage).toBe("https://example.com/a.jpg");
+    send(dir, "dddddddd", { op: "update", args: { id: r.result.id, headerImage: "https://example.com/b.jpg" } });
+    spool.tick();
+    expect(memos.get(r.result.id)!.headerImage).toBe("https://example.com/b.jpg");
+    send(dir, "eeeeeeee", { op: "update", args: { id: r.result.id, headerImage: null } });
+    spool.tick();
+    expect(memos.get(r.result.id)!.headerImage).toBeNull();
+    spool.stop();
+  });
+
   test("依頼の持ち主で記録の名前が決まる。as で名乗れる", () => {
     const { dir, memos, spool } = setup();
     send(dir, "aaaaaaaa", { op: "create", args: { title: "宿", body: "本文", project: "旅", tags: ["予約"] } });

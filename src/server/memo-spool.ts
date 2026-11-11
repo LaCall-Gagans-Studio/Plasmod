@@ -153,6 +153,8 @@ export class MemoSpool {
     };
     const tags = Array.isArray(a.tags) ? (a.tags as string[]) : undefined;
     const project = typeof a.project === "string" || a.project === null ? (a.project as string | null) : undefined;
+    // ヘッダー画像のリンク（http(s) だけ。null か空で外す）
+    const headerImage = typeof a.headerImage === "string" || a.headerImage === null ? (a.headerImage as string | null) : undefined;
     switch (op) {
       case "list":
         return this.memos.list({ q: str("q"), project: project === undefined ? null : (project ?? ""), tag: str("tag") ?? null, archived: a.archived === true, limit: Number(a.limit) || 50 });
@@ -164,11 +166,11 @@ export class MemoSpool {
       case "history":
         return this.memos.history(id());
       case "create":
-        return this.memos.create({ title: str("title"), body: str("body"), project, tags, parentId: typeof a.parentId === "number" && a.parentId > 0 ? a.parentId : null }, author);
+        return this.memos.create({ title: str("title"), body: str("body"), project, tags, headerImage, parentId: typeof a.parentId === "number" && a.parentId > 0 ? a.parentId : null }, author);
       case "update": {
         const updated = this.memos.update(
           id(),
-          { title: str("title"), body: str("body"), project, tags, baseUpdatedAt: typeof a.baseUpdatedAt === "number" ? a.baseUpdatedAt : undefined },
+          { title: str("title"), body: str("body"), project, tags, headerImage, baseUpdatedAt: typeof a.baseUpdatedAt === "number" ? a.baseUpdatedAt : undefined },
           author,
         );
         if (a.parentId === null || typeof a.parentId === "number") return this.memos.setParent(updated.id, a.parentId === null ? null : a.parentId);
