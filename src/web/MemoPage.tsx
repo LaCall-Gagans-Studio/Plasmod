@@ -118,7 +118,7 @@ function ParentPicker({ self, onPick, onClose }: { self: number | null; onPick: 
   );
 }
 
-type Draft = { title: string; body: string; project: string; tags: string[] };
+type Draft = { title: string; body: string; project: string; tags: string[]; headerImage: string };
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error" | "conflict" | "local";
 
@@ -143,7 +143,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
     if (initialId !== "new") return null;
     const p = hashQuery();
     const link = p.get("link");
-    return { title: "", body: link && /^[A-Z][A-Z0-9]{1,9}-\d{1,6}$/.test(link) ? `関連: [[${link}]]\n\n` : "", project: p.get("project") ?? "", tags: p.get("tag") ? [p.get("tag")!] : [] };
+    return { title: "", body: link && /^[A-Z][A-Z0-9]{1,9}-\d{1,6}$/.test(link) ? `関連: [[${link}]]\n\n` : "", project: p.get("project") ?? "", tags: p.get("tag") ? [p.get("tag")!] : [], headerImage: "" };
   });
   const [save, setSave] = useState<SaveState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +170,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
 
   const show = useCallback((m: Memo) => {
     setMemo(m);
-    const d = { title: m.title, body: m.body, project: m.project ?? "", tags: m.tags };
+    const d = { title: m.title, body: m.body, project: m.project ?? "", tags: m.tags, headerImage: m.headerImage ?? "" };
     latest.current = d;
     savedJson.current = JSON.stringify(d);
     setDraft(d);
@@ -331,7 +331,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
     const run = (async () => {
       try {
         // まず端末に残す。サーバーへは同期で送る（電波が無くても失われない）
-        const m = await memoSync.save(idRef.current, { title: d.title, body: d.body, project: d.project.trim() || null, tags: d.tags, ...(idRef.current === null ? { parentId: newParent.current } : {}) });
+        const m = await memoSync.save(idRef.current, { title: d.title, body: d.body, project: d.project.trim() || null, tags: d.tags, headerImage: d.headerImage.trim() || null, ...(idRef.current === null ? { parentId: newParent.current } : {}) });
         if (idRef.current === null) {
           idRef.current = m.id;
           setId(m.id);
@@ -382,6 +382,41 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
       await memoSync.adopt(m);
       setMemo(m);
       setMenu(false);
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
+  const setPinned = async (pinned: boolean) => {
+    if (idRef.current === null) return;
+    await flush();
+    await memoSync.run();
+    if (idRef.current < 0 || memoSync.status.offline) return void toast("ピン留めは、つながっているときにできる", "error");
+    try {
+      const m = await json<Memo>(await fetch(`/api/memos/${idRef.current}/${pinned ? "pin" : "unpin"}`, { method: "POST" }));
+      await memoSync.adopt(m);
+      setMemo(m);
+      setMenu(false);
+      toast(pinned ? "ピン留めした" : "ピン留めを外した");
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
+  const deleteMemo = async () => {
+    if (idRef.current === null) return;
+    setMenu(false);
+    if (!confirm("このメモを削除します。履歴も消え、元に戻せません。子のメモは残り、このメモの親の下に移ります。よいですか？")) return;
+    await flush();
+    await memoSync.run();
+    if (idRef.current < 0 || memoSync.status.offline) return void toast("削除は、つながっているときにできる", "error");
+    try {
+      const id = idRef.current;
+      const res = await fetch(`/api/memos/${id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 404) throw new Error(`HTTP ${res.status}`);
+      await memoSync.forget(id);
+      toast("メモを削除した");
+      location.hash = "#/memos";
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     }
@@ -441,10 +476,16 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                     <span className="flex-1">手書きをハイライト</span>
                     {highlight && <span aria-hidden="true" className="font-bold">✓</span>}
                   </button>
+                  {!archived && (
+                    <button role="menuitem" onClick={() => void setPinned(!memo?.pinnedAt)} className="block w-full px-4 py-2.5 text-left text-[13.5px] hover:bg-chip">
+                      {memo?.pinnedAt ? "ピン留めを外す" : "ピン留めする"}
+                    </button>
+                  )}
                   <button role="menuitem" onClick={showHistory} className="block w-full px-4 py-2.5 text-left text-[13.5px] hover:bg-chip">履歴を見る</button>
                   <button role="menuitem" onClick={() => void setArchived(!archived)} className="block w-full px-4 py-2.5 text-left text-[13.5px] hover:bg-chip">
                     {archived ? "アーカイブから戻す" : "アーカイブする"}
                   </button>
+                  <button role="menuitem" onClick={() => void deleteMemo()} className="block w-full px-4 py-2.5 text-left text-[13.5px] text-red-ink hover:bg-chip">削除する</button>
                 </div>
               </>
             )}
@@ -485,6 +526,18 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                 className="mt-3 block w-full resize-none overflow-hidden bg-transparent text-[22px] font-bold leading-tight tracking-tight text-ink outline-none placeholder:text-line-2"
               />
 
+              {draft.headerImage.trim() && /^https?:\/\//i.test(draft.headerImage.trim()) && (
+                <img
+                  src={draft.headerImage.trim()}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                  onError={(e) => (e.currentTarget.style.display = "none")}
+                  onLoad={(e) => (e.currentTarget.style.display = "")}
+                  className="mt-3 block max-h-64 w-full rounded-xl object-cover"
+                />
+              )}
+
               {/* プロパティ */}
               <div className="mt-3 flex flex-col gap-0.5 border-b border-line pb-3 text-[13px]">
                 <div className="flex items-center gap-3 rounded-md">
@@ -512,6 +565,18 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                   ) : (
                     <button onClick={() => setPickingParent(true)} disabled={archived} className="min-h-8 flex-1 text-left text-mute">なし</button>
                   )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute"><Icon name="memo" size={14} />ヘッダー画像</span>
+                  <input
+                    value={draft.headerImage}
+                    onChange={(e) => change({ headerImage: e.target.value })}
+                    readOnly={archived}
+                    inputMode="url"
+                    placeholder="画像のリンク（https://…）"
+                    aria-label="ヘッダー画像のリンク"
+                    className="min-h-8 min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
+                  />
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute"><TagIcon />タグ</span>

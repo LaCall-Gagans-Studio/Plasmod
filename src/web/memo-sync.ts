@@ -9,6 +9,7 @@ export interface MemoFields {
   body: string;
   project: string | null;
   tags: string[];
+  headerImage?: string | null;
   /** 作るときだけ使う（親を変えるのは /parent で） */
   parentId?: number | null;
 }
@@ -40,6 +41,8 @@ export interface MemoApi {
   update(id: number, f: MemoFields, baseUpdatedAt: number | null): Promise<Memo>;
   get(id: number): Promise<Memo>;
   changedSince(since: number): Promise<Memo[]>;
+  /** この時刻以降にサーバーで消えたメモの id */
+  deletedSince?(since: number): Promise<number[]>;
 }
 
 export type SyncEvent =
@@ -56,7 +59,7 @@ export interface SyncStatus {
 
 export const CONFLICT_SUFFIX = "（衝突したコピー）";
 
-const fieldsOf = (m: Memo): MemoFields => ({ title: m.title, body: m.body, project: m.project, tags: m.tags, parentId: m.parentId ?? null });
+const fieldsOf = (m: Memo): MemoFields => ({ title: m.title, body: m.body, project: m.project, tags: m.tags, headerImage: m.headerImage ?? null, parentId: m.parentId ?? null });
 const statusOf = (e: unknown) => (e as { status?: number }).status;
 
 export class MemoSync {
@@ -116,6 +119,7 @@ export class MemoSync {
       createdAt: cur?.createdAt ?? at,
       updatedAt: at,
       archivedAt: cur?.archivedAt ?? null,
+      pinnedAt: cur?.pinnedAt ?? null,
     };
     const had = (await this.db.allPending()).some((p) => p.id === memo.id);
     if (!had) await this.db.putPending({ id: memo.id, base: memo.id < 0 ? null : (cur?.updatedAt ?? null) });
@@ -134,6 +138,13 @@ export class MemoSync {
   private async store(m: Memo) {
     if (m.archivedAt) await this.db.deleteMemo(m.id);
     else await this.db.putMemo(m);
+  }
+
+  /** サーバーで消したメモを端末からも消す（送っていない変更も一緒に捨てる） */
+  async forget(id: number) {
+    await this.db.deleteMemo(id);
+    await this.db.deletePending(id);
+    await this.countPending();
   }
 
   /** 前の版で端末に入れたアーカイブを片付ける。送っていない変更があるものは残す */
@@ -230,6 +241,9 @@ export class MemoSync {
       await this.adopt(m);
       newest = Math.max(newest, m.updatedAt);
     }
+    // 別の端末で消したメモ。ここで書き足した分があれば、消さずに残す（次の送信で新しいメモとして戻る）
+    const pending = new Set((await this.db.allPending()).map((p) => p.id));
+    for (const id of (await this.api.deletedSince?.(since)) ?? []) if (!pending.has(id)) await this.db.deleteMemo(id);
     if (newest !== since) await this.db.setLastSync(newest);
   }
 }
@@ -251,7 +265,7 @@ export function localList(all: Memo[], o: LocalListOptions = {}, limit = Infinit
   const memos = all
     .filter((m) => matchesFilter({ ...m, archived: !!m.archivedAt }, o))
     .filter((m) => !word || m.id === exact || `${m.title}\n${m.body}`.toLowerCase().includes(word))
-    .sort((a, b) => Number(b.id === exact) - Number(a.id === exact) || b.updatedAt - a.updatedAt)
+    .sort((a, b) => Number(b.id === exact) - Number(a.id === exact) || Number(!!b.pinnedAt) - Number(!!a.pinnedAt) || b.updatedAt - a.updatedAt)
     .slice(0, limit)
     .map(summaryOf);
   return { memos, projects: count(live.flatMap((m) => (m.project ? [m.project] : []))), tags: count(live.flatMap((m) => m.tags)) };

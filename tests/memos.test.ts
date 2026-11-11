@@ -5,7 +5,7 @@ import { createApp } from "../src/server/app";
 import { config } from "../src/server/config";
 import { Hub } from "../src/server/hub";
 import { FixtureSource } from "../src/server/kanban";
-import { MemoStore, memoTitle, normalizeTags } from "../src/server/memos";
+import { MemoStore, memoTitle, normalizeImageUrl, normalizeTags } from "../src/server/memos";
 import { Store } from "../src/server/store";
 import type { Memo, MemoEvent, MemoList } from "../src/shared/types";
 
@@ -20,6 +20,56 @@ describe("memos", () => {
     expect(normalizeTags(["#旅", "旅", "  宿  の 予約 ", "", 3])).toEqual(["旅", "宿 の 予約"]);
     expect(memoTitle("", "\n# 夏の旅行\n本文")).toBe("夏の旅行");
     expect(memoTitle("  ", "")).toBe("無題のメモ");
+  });
+
+  test("ピン留めは一覧の先頭・アーカイブで外れる・外すと元の並び", () => {
+    const s = fresh();
+    const a = s.create({ title: "古い" }, "app", 1000);
+    const b = s.create({ title: "新しい" }, "app", 2000);
+    expect(s.list().memos.map((m) => m.id)).toEqual([b.id, a.id]);
+    const p = s.setPinned(a.id, true, 3000);
+    expect(p.pinnedAt).toBe(3000);
+    expect(s.list().memos.map((m) => [m.id, m.pinned])).toEqual([[a.id, true], [b.id, false]]);
+    // 同期に載るよう更新時刻が進む
+    expect(s.changedSince(3000).map((m) => m.id)).toEqual([a.id]);
+    s.setPinned(a.id, false, 4000);
+    expect(s.list().memos.map((m) => m.id)).toEqual([a.id, b.id]);
+    s.setPinned(a.id, true, 5000);
+    s.setArchived(a.id, true, "app", 6000);
+    expect(s.get(a.id)!.pinnedAt).toBeNull();
+    expect(() => s.setPinned(a.id, true)).toThrow("アーカイブ");
+  });
+
+  test("削除は履歴・タグ・検索から消し、子は親へ繋ぎ直し、削除の印が同期に出る", () => {
+    const s = fresh();
+    const top = s.create({ title: "親", tags: ["旅"] }, "app", 1000);
+    const mid = s.create({ title: "間", parentId: top.id }, "app", 2000);
+    const leaf = s.create({ title: "子", parentId: mid.id }, "app", 3000);
+    s.delete(mid.id, 4000);
+    expect(s.get(mid.id)).toBeNull();
+    expect(() => s.history(mid.id)).toThrow();
+    expect(s.get(leaf.id)).toMatchObject({ parentId: top.id, updatedAt: 4000 });
+    expect(s.changedSince(4000).map((m) => m.id)).toEqual([leaf.id]);
+    expect(s.deletedSince(4000)).toEqual([mid.id]);
+    expect(s.deletedSince(4001)).toEqual([]);
+    expect(s.list({ q: "間" }).memos).toEqual([]);
+    expect(() => s.delete(mid.id)).toThrow("無い");
+    // 親のないメモを消すと子は一番上へ
+    s.delete(top.id, 5000);
+    expect(s.get(leaf.id)!.parentId).toBeNull();
+  });
+
+  test("ヘッダー画像は http(s) のリンクだけ。付ける・外す・一覧に出る", () => {
+    expect(normalizeImageUrl(" https://example.com/a b.png ")).toBe("https://example.com/a%20b.png");
+    for (const bad of ["javascript:alert(1)", "data:image/png;base64,AAAA", "ftp://x/y.png", "not a url", "", null, 3]) expect(normalizeImageUrl(bad)).toBeNull();
+    const s = fresh();
+    const m = s.create({ title: "旅", headerImage: "https://example.com/h.jpg" }, "app", 1000);
+    expect(m.headerImage).toBe("https://example.com/h.jpg");
+    expect(s.list().memos[0].headerImage).toBe("https://example.com/h.jpg");
+    // 渡さなければそのまま・不正なリンクは外れる・null で外す
+    expect(s.update(m.id, { body: "本文" }, "app", 2000).headerImage).toBe("https://example.com/h.jpg");
+    expect(s.update(m.id, { headerImage: "https://example.com/2.jpg" }, "app", 3000)).toMatchObject({ headerImage: "https://example.com/2.jpg", updatedAt: 3000 });
+    expect(s.update(m.id, { headerImage: null }, "app", 4000)).toMatchObject({ headerImage: null, updatedAt: 4000 });
   });
 
   test("作る・書き換える・履歴が残る", () => {

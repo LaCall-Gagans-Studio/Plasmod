@@ -4,7 +4,7 @@ import type { Memo } from "../src/shared/types";
 import { createIdb, LIST_LIMIT } from "../src/web/memo-idb";
 import { localList } from "../src/web/memo-sync";
 
-const memo = (id: number, p: Partial<Memo> = {}): Memo => ({ id, title: `題${id}`, body: `本文${id}`, project: null, tags: [], parentId: null, author: "app", createdAt: 1, updatedAt: id, archivedAt: null, ...p });
+const memo = (id: number, p: Partial<Memo> = {}): Memo => ({ id, title: `題${id}`, body: `本文${id}`, project: null, tags: [], parentId: null, author: "app", createdAt: 1, updatedAt: id, archivedAt: null, pinnedAt: null, ...p });
 
 describe("端末の保存（IndexedDB）", () => {
   test("一覧は全件を読む基準の localList と同じ結果になる", async () => {
@@ -24,6 +24,14 @@ describe("端末の保存（IndexedDB）", () => {
     expect(await db.archivedIds()).toEqual([]);
     await db.deleteMemo(2);
     expect((await db.listLocal({})).memos.map((m) => m.id)).toEqual([4, 3, 1]);
+  });
+
+  test("ピン留めは古くても先頭に出て、localList と同じ結果になる", async () => {
+    const db = createIdb(new IDBFactory());
+    const all = [memo(1, { pinnedAt: 5 }), memo(2, { updatedAt: 90 }), memo(3, { updatedAt: 50, pinnedAt: 6 }), memo(4, { updatedAt: 70, archivedAt: 2 })];
+    for (const m of all) await db.putMemo(m);
+    for (const o of [{}, { q: "本文" }, { archived: true }]) expect(await db.listLocal(o)).toEqual(localList(all, o, LIST_LIMIT));
+    expect((await db.listLocal({})).memos.map((m) => m.id)).toEqual([3, 1, 2]);
   });
 
   test("一覧は LIST_LIMIT 件で止まる（探すときも）。数え上げは全件", async () => {

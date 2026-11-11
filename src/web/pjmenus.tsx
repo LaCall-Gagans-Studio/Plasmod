@@ -50,7 +50,7 @@ function useCloseKeys(open: boolean, close: () => void) {
 }
 
 // ---- メモ ----
-type MemoOpen = { m: Pick<MemoSummary, "id" | "title" | "project" | "archived">; onChanged?: () => void };
+type MemoOpen = { m: Pick<MemoSummary, "id" | "title" | "project" | "archived" | "pinned" | "headerImage">; onChanged?: () => void };
 const memoMenu = menuStore<MemoOpen>();
 export const openMemoMenu = memoMenu.open;
 
@@ -59,10 +59,12 @@ export function MemoMenu() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirm, setConfirm] = useState(false);
   useCloseKeys(!!o, memoMenu.close);
   useEffect(() => {
     setErr(null);
     setCopied(false);
+    setConfirm(false);
   }, [o]);
   if (!o) return null;
   const { m } = o;
@@ -84,6 +86,41 @@ export function MemoMenu() {
       setBusy(false);
     }
   };
+  const pin = async () => {
+    setBusy(true);
+    try {
+      await memoSync.run();
+      if (memoSync.status.offline) throw new Error("ピン留めは、つながっているときにできる");
+      const next = await json<Memo>(await fetch(`/api/memos/${m.id}/${m.pinned ? "unpin" : "pin"}`, { method: "POST" }));
+      await memoSync.adopt(next);
+      toast(m.pinned ? "ピン留めを外した" : "ピン留めした");
+      o.onChanged?.();
+      memoMenu.close();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    setBusy(true);
+    try {
+      // 端末に残っている変更は先に送ってから消す（送れないまま消すと、あとで新しいメモとして戻ってしまう）
+      await memoSync.run();
+      if (memoSync.status.offline) throw new Error("削除は、つながっているときにできる");
+      const res = await fetch(`/api/memos/${m.id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 404) throw new Error(`HTTP ${res.status}`);
+      await memoSync.forget(m.id);
+      toast("メモを削除した");
+      o.onChanged?.();
+      memoMenu.close();
+      if (location.hash.startsWith(`#/memo/${m.id}`)) location.hash = "#/memos";
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const child = new URLSearchParams({ parent: String(m.id), ...(m.project ? { project: m.project } : {}) });
   return (
     <Sheet label={`「${m.title}」のメニュー`} onClose={memoMenu.close}>
@@ -92,8 +129,12 @@ export function MemoMenu() {
           {ref && <div className="font-mono text-[11px] text-mute"><CopyRef text={ref} /></div>}
           <div className="line-clamp-2 text-[15.5px] font-semibold leading-snug">{m.title}</div>
         </div>
+        {confirm ? (
+          <ConfirmDelete text="このメモを削除します。履歴も消え、元に戻せません。子のメモは残り、このメモの親の下に移ります。" busy={busy} onCancel={() => setConfirm(false)} onConfirm={() => void remove()} />
+        ) : (
         <Tiles>
           <TileLink icon="open" label="開く" href={`#/memo/${m.id}`} />
+          {ref && !m.archived && <TileButton icon="pin" label={m.pinned ? "ピン留めを外す" : "ピン留め"} on={!!m.pinned} disabled={busy} onClick={() => void pin()} />}
           {ref && !m.archived && <TileLink icon="plus" label="子のメモ" href={`#/memo/new?${child}`} />}
           {ref && (
             <TileButton
@@ -110,8 +151,10 @@ export function MemoMenu() {
           )}
           {ref && <TileButton icon={m.archived ? "undo" : "archive"} label={m.archived ? "戻す" : "アーカイブ"} disabled={busy} onClick={() => void archive()} />}
         </Tiles>
+        )}
         {err && <div className="mx-3.5 mb-3 rounded-xl bg-orange-soft px-3 py-2 text-xs text-orange-ink" role="alert">{err}</div>}
       </SheetCard>
+      {!confirm && ref && <DangerButton label="削除" disabled={busy} onClick={() => setConfirm(true)} />}
     </Sheet>
   );
 }
@@ -120,7 +163,15 @@ export function MemoMenu() {
 export function MemoLink({ m, onChanged, className = "", children }: { m: MemoOpen["m"]; onChanged?: () => void; className?: string; children: ReactNode }) {
   const press = useLongPress(() => openMemoMenu({ m, onChanged }));
   return (
-    <a href={`#/memo/${m.id}`} {...press} className={`select-none [-webkit-touch-callout:none] ${className}`}>
+    <a href={`#/memo/${m.id}`} {...press} className={`select-none [-webkit-touch-callout:none] ${m.headerImage ? "relative isolate overflow-hidden" : ""} ${className}`}>
+      {m.headerImage && (
+        // 左下から右上へ溶けるように見せる背景。文字の邪魔にならないよう薄く
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center opacity-50"
+          style={{ backgroundImage: `url("${m.headerImage.replace(/["\\\n]/g, "")}")`, WebkitMaskImage: "linear-gradient(to top right, #000 0%, transparent 70%)", maskImage: "linear-gradient(to top right, #000 0%, transparent 70%)" }}
+        />
+      )}
       {children}
     </a>
   );
