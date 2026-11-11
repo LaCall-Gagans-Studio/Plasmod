@@ -22,7 +22,7 @@ REPO=$STATE/repo
 DEST=${DEST:-}                                  # テスト用: 入れ先の接頭辞（本番は空）
 SYSTEMCTL=${SYSTEMCTL:-systemctl}
 DEPLOY=${DEPLOY:-/usr/local/sbin/plasmod-deploy}
-HOLD_RE=${HOLD_RE:-'^(broker/|bridge/|rootd/|deploy/(sudoers|systemd|tmpfiles|autodeploy|rootd)/)'}
+HOLD_RE=${HOLD_RE:-'^(broker/|bridge/|rootd/|deploy/(sudoers|systemd|tmpfiles|autodeploy|rootd|update)/)'}
 GNUPGHOME=${GNUPGHOME:-/etc/plasmod-deploy/gnupg}
 export GNUPGHOME
 
@@ -65,6 +65,7 @@ while IFS= read -r f; do
     rootd/test_*) ;;
     deploy/rootd/plasmod-rootd.service) inst 644 "$f" /etc/systemd/system/plasmod-rootd.service; reload=1; restart_rootd=1 ;;
     deploy/rootd/apply-held.sh) inst 755 "$f" /usr/local/sbin/plasmod-apply-held ;;   # 自分自身（install は別 inode に置き換えるので、実行中でも壊れない）
+    deploy/update/plasmod-update) inst 755 "$f" /usr/local/sbin/plasmod-update ;;
     deploy/rootd/*) ;;                                                    # 見本・依頼用の request-held.sh。入れない
     *) unhandled+=("$f") ;;
   esac

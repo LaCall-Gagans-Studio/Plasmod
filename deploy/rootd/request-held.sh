@@ -8,7 +8,7 @@ REPO=$STATE/repo
 LAST=$(cat "$STATE/deployed")
 COMMIT=$(git -c safe.directory="$REPO" -C "$REPO" rev-parse origin/main)
 [ "$LAST" != "$COMMIT" ] || { echo "反映済み。依頼は要らない"; exit 0; }
-HOLD_RE='^(broker/|bridge/|rootd/|deploy/(sudoers|systemd|tmpfiles|autodeploy|rootd)/)'
+HOLD_RE='^(broker/|bridge/|rootd/|deploy/(sudoers|systemd|tmpfiles|autodeploy|rootd|update)/)'
 HELD=$(git -c safe.directory="$REPO" -C "$REPO" diff --name-only "$LAST" "$COMMIT" | grep -E "$HOLD_RE" || true)
 [ -n "$HELD" ] || { echo "保留の対象は無い。自動デプロイが入れる"; exit 0; }
 SUBJECT=$(git -c safe.directory="$REPO" -C "$REPO" log -1 --format=%s "$COMMIT")
