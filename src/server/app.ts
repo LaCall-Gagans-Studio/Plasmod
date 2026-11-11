@@ -21,6 +21,7 @@ import { rootRoutes } from "./routes/root";
 import { memosRoutes } from "./routes/memos";
 import { projectsRoutes } from "./routes/projects";
 import { habitsRoutes } from "./routes/habits";
+import { recurringRoutes } from "./routes/recurring";
 import { pushRoutes } from "./routes/push";
 
 export type { AppServices } from "./routes/context";
@@ -56,6 +57,7 @@ export function createApp(cfg: Config, hub: Hub, store: Store, webRoot: string, 
   memosRoutes(ctx);
   projectsRoutes(ctx);
   habitsRoutes(ctx);
+  recurringRoutes(ctx);
   pushRoutes(ctx);
 
   // 画面の版（index.html の中身のハッシュ。ビルドするたびに変わる）。インストールしたアプリが古い版のまま開いていないかを、画面が確かめる

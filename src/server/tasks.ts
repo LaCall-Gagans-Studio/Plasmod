@@ -416,6 +416,25 @@ export class TaskStore {
     return true;
   }
 
+  /**
+   * 繰り返しのルールが作る回。元（source + key）がぴったり同じものは1度しか作らない（消した回も作り直さない）。
+   * upsert と違い、題名が近い別のタスクとは混ぜない（毎週同じ題名で来るため）。作ったら Todo（オーナーがやる）
+   */
+  spawn(input: { source: string; key: string; title: string; body: string; project: string | null; due: string }, author: string, now = Date.now()): Task | null {
+    return this.db.transaction(() => {
+      if (this.bySource(input.source, input.key) || this.wasDeleted(input.source, input.key)) return null;
+      const r = this.db
+        .query(
+          `INSERT INTO tasks (ref, title, body, kind, status, source, source_key, project_id, due, created_by, inbox_at, created_at, updated_at)
+           VALUES (?, ?, ?, 'todo', 'todo', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(this.nextRef(), clean(input.title).slice(0, 200), input.body.slice(0, 20_000), input.source, input.key, this.projectId(input.project, now), input.due, author, now, now, now);
+      const id = Number(r.lastInsertRowid);
+      this.event(id, "create", author, `繰り返しのルールから（期日 ${input.due}）`, now);
+      return this.fresh(id);
+    })();
+  }
+
   /** 画面で足したタスク（元は app、key は無し）。既定は「オーナーがやる」 */
   create(input: { title: string; body?: string; project?: string | null; due?: string | null; status?: TaskStatus; parentId?: number | null; tags?: string[] }, author: string, now = Date.now()): Task {
     const title = clean(input.title ?? "").slice(0, 200);
