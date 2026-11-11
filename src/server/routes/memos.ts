@@ -15,12 +15,13 @@ export function memosRoutes({ app, memos }: RouteContext) {
     if (!Number.isSafeInteger(id) || id <= 0) throw new MemoError("不正なメモID", 400);
     return id;
   };
-  type MemoBody = { title?: unknown; body?: unknown; project?: unknown; tags?: unknown; baseUpdatedAt?: unknown; parentId?: unknown };
+  type MemoBody = { title?: unknown; body?: unknown; project?: unknown; tags?: unknown; baseUpdatedAt?: unknown; parentId?: unknown; headerImage?: unknown };
   const memoInput = (b: MemoBody) => ({
     title: typeof b.title === "string" ? b.title : undefined,
     body: typeof b.body === "string" ? b.body : undefined,
     project: typeof b.project === "string" || b.project === null ? b.project : undefined,
     tags: Array.isArray(b.tags) ? (b.tags as string[]) : undefined,
+    headerImage: typeof b.headerImage === "string" || b.headerImage === null ? b.headerImage : undefined,
     baseUpdatedAt: typeof b.baseUpdatedAt === "number" ? b.baseUpdatedAt : undefined,
   });
   app.get("/api/memos-sync", (c) => {

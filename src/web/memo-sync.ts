@@ -9,6 +9,7 @@ export interface MemoFields {
   body: string;
   project: string | null;
   tags: string[];
+  headerImage?: string | null;
   /** 作るときだけ使う（親を変えるのは /parent で） */
   parentId?: number | null;
 }
@@ -58,7 +59,7 @@ export interface SyncStatus {
 
 export const CONFLICT_SUFFIX = "（衝突したコピー）";
 
-const fieldsOf = (m: Memo): MemoFields => ({ title: m.title, body: m.body, project: m.project, tags: m.tags, parentId: m.parentId ?? null });
+const fieldsOf = (m: Memo): MemoFields => ({ title: m.title, body: m.body, project: m.project, tags: m.tags, headerImage: m.headerImage ?? null, parentId: m.parentId ?? null });
 const statusOf = (e: unknown) => (e as { status?: number }).status;
 
 export class MemoSync {

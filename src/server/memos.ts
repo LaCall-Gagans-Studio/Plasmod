@@ -5,7 +5,20 @@ import type { Memo, MemoEvent, MemoList, MemoSummary } from "../shared/types";
 import { SearchIndex } from "./search";
 import { memoIdOf } from "../shared/memo-ref";
 
-export const MEMO_LIMITS = { title: 200, body: 100_000, project: 60, tag: 40, tags: 20 } as const;
+export const MEMO_LIMITS = { title: 200, body: 100_000, project: 60, tag: 40, tags: 20, image: 2000 } as const;
+
+/** ヘッダー画像のリンク。http(s) だけ（javascript: などは受けない）。空・不正は null */
+export function normalizeImageUrl(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim().slice(0, MEMO_LIMITS.image);
+  if (!t) return null;
+  try {
+    const u = new URL(t);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
 
 export class MemoError extends Error {
   constructor(
@@ -21,6 +34,8 @@ export interface MemoInput {
   body?: string;
   project?: string | null;
   tags?: string[];
+  /** ヘッダー画像のリンク。null・空で外す */
+  headerImage?: string | null;
   /** 作るときの親。変えるのは setParent */
   parentId?: number | null;
 }
@@ -36,6 +51,7 @@ interface MemoRow {
   updated_at: number;
   archived_at: number | null;
   pinned_at: number | null;
+  header_image: string | null;
 }
 
 /** 空白をまとめ、前後を落とす */
@@ -130,6 +146,7 @@ export class MemoStore {
     db.exec("CREATE INDEX IF NOT EXISTS memos_parent ON memos(parent_id)");
     // ピン留め（一覧の一番上に固定）
     if (!cols.includes("pinned_at")) db.exec("ALTER TABLE memos ADD COLUMN pinned_at INTEGER");
+    if (!cols.includes("header_image")) db.exec("ALTER TABLE memos ADD COLUMN header_image TEXT");
     // 起動時に索引を合わせる（中身が同じなら upsert は何もしない）
     const ids = this.db.query("SELECT id FROM memos WHERE archived_at IS NULL").all() as { id: number }[];
     for (const { id } of ids) this.index(this.get(id)!);
@@ -191,6 +208,7 @@ export class MemoStore {
       updatedAt: r.updated_at,
       archivedAt: r.archived_at,
       pinnedAt: r.pinned_at,
+      headerImage: r.header_image,
     };
   }
 
@@ -205,8 +223,8 @@ export class MemoStore {
     if (!clean(input.title ?? "") && !body.trim()) throw new MemoError("題か本文が要る", 400);
     return this.db.transaction(() => {
       const r = this.db
-        .query("INSERT INTO memos (title, body, project_id, author, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(memoTitle(input.title ?? "", body), body, this.projectId(input.project, now), author, now, now);
+        .query("INSERT INTO memos (title, body, project_id, author, created_at, updated_at, header_image) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(memoTitle(input.title ?? "", body), body, this.projectId(input.project, now), author, now, now, normalizeImageUrl(input.headerImage));
       const id = Number(r.lastInsertRowid);
       this.setTags(id, normalizeTags(input.tags));
       // 親が消えていても書いた分は失わない（オフラインで作ったメモが同期で止まらないように）
@@ -246,11 +264,12 @@ export class MemoStore {
       const title = input.title !== undefined ? memoTitle(input.title, body) : cur.title;
       const projectId = input.project !== undefined ? this.projectId(input.project, now) : this.projectId(cur.project, now);
       const tags = input.tags !== undefined ? normalizeTags(input.tags) : cur.tags;
-      const same = title === cur.title && body === cur.body && (input.project === undefined || clean(input.project ?? "") === (cur.project ?? "")) && tags.join("\n") === cur.tags.join("\n");
+      const headerImage = input.headerImage !== undefined ? normalizeImageUrl(input.headerImage) : cur.headerImage ?? null;
+      const same = headerImage === (cur.headerImage ?? null) && title === cur.title && body === cur.body && (input.project === undefined || clean(input.project ?? "") === (cur.project ?? "")) && tags.join("\n") === cur.tags.join("\n");
       if (same) return cur;
       // 同じ時刻に2回保存しても baseUpdatedAt が区別できるように進める
       const at = Math.max(now, cur.updatedAt + 1);
-      this.db.query("UPDATE memos SET title = ?, body = ?, project_id = ?, updated_at = ? WHERE id = ?").run(title, body, projectId, at, id);
+      this.db.query("UPDATE memos SET title = ?, body = ?, project_id = ?, header_image = ?, updated_at = ? WHERE id = ?").run(title, body, projectId, headerImage, at, id);
       this.setTags(id, tags);
       const m = this.must(id);
       this.event(m, "edit", author, at);
@@ -368,11 +387,11 @@ export class MemoStore {
     const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
     const rows = this.db
       .query(
-        `SELECT m.id, m.title, m.body, p.name AS project, m.parent_id, m.updated_at, m.archived_at, m.pinned_at FROM memos m
+        `SELECT m.id, m.title, m.body, p.name AS project, m.parent_id, m.updated_at, m.archived_at, m.pinned_at, m.header_image FROM memos m
          LEFT JOIN memo_projects p ON p.id = m.project_id
          WHERE ${where.join(" AND ")} ORDER BY m.id = ${exact} DESC, m.pinned_at IS NOT NULL DESC, m.updated_at DESC LIMIT ${limit}`,
       )
-      .all(...args) as { id: number; title: string; body: string; project: string | null; parent_id: number | null; updated_at: number; archived_at: number | null; pinned_at: number | null }[];
+      .all(...args) as { id: number; title: string; body: string; project: string | null; parent_id: number | null; updated_at: number; archived_at: number | null; pinned_at: number | null; header_image: string | null }[];
     const tagRows = rows.length
       ? (this.db.query(`SELECT memo_id, tag FROM memo_tags WHERE memo_id IN (${rows.map(() => "?").join(",")}) ORDER BY rowid`).all(...rows.map((r) => r.id)) as {
           memo_id: number;
@@ -389,6 +408,7 @@ export class MemoStore {
       updatedAt: r.updated_at,
       archived: r.archived_at !== null,
       pinned: r.pinned_at !== null,
+      headerImage: r.header_image,
     }));
     const projects = this.db
       .query(

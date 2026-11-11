@@ -118,7 +118,7 @@ function ParentPicker({ self, onPick, onClose }: { self: number | null; onPick: 
   );
 }
 
-type Draft = { title: string; body: string; project: string; tags: string[] };
+type Draft = { title: string; body: string; project: string; tags: string[]; headerImage: string };
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error" | "conflict" | "local";
 
@@ -143,7 +143,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
     if (initialId !== "new") return null;
     const p = hashQuery();
     const link = p.get("link");
-    return { title: "", body: link && /^[A-Z][A-Z0-9]{1,9}-\d{1,6}$/.test(link) ? `関連: [[${link}]]\n\n` : "", project: p.get("project") ?? "", tags: p.get("tag") ? [p.get("tag")!] : [] };
+    return { title: "", body: link && /^[A-Z][A-Z0-9]{1,9}-\d{1,6}$/.test(link) ? `関連: [[${link}]]\n\n` : "", project: p.get("project") ?? "", tags: p.get("tag") ? [p.get("tag")!] : [], headerImage: "" };
   });
   const [save, setSave] = useState<SaveState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +170,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
 
   const show = useCallback((m: Memo) => {
     setMemo(m);
-    const d = { title: m.title, body: m.body, project: m.project ?? "", tags: m.tags };
+    const d = { title: m.title, body: m.body, project: m.project ?? "", tags: m.tags, headerImage: m.headerImage ?? "" };
     latest.current = d;
     savedJson.current = JSON.stringify(d);
     setDraft(d);
@@ -331,7 +331,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
     const run = (async () => {
       try {
         // まず端末に残す。サーバーへは同期で送る（電波が無くても失われない）
-        const m = await memoSync.save(idRef.current, { title: d.title, body: d.body, project: d.project.trim() || null, tags: d.tags, ...(idRef.current === null ? { parentId: newParent.current } : {}) });
+        const m = await memoSync.save(idRef.current, { title: d.title, body: d.body, project: d.project.trim() || null, tags: d.tags, headerImage: d.headerImage.trim() || null, ...(idRef.current === null ? { parentId: newParent.current } : {}) });
         if (idRef.current === null) {
           idRef.current = m.id;
           setId(m.id);
@@ -526,6 +526,18 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                 className="mt-3 block w-full resize-none overflow-hidden bg-transparent text-[22px] font-bold leading-tight tracking-tight text-ink outline-none placeholder:text-line-2"
               />
 
+              {draft.headerImage.trim() && /^https?:\/\//i.test(draft.headerImage.trim()) && (
+                <img
+                  src={draft.headerImage.trim()}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                  onError={(e) => (e.currentTarget.style.display = "none")}
+                  onLoad={(e) => (e.currentTarget.style.display = "")}
+                  className="mt-3 block max-h-64 w-full rounded-xl object-cover"
+                />
+              )}
+
               {/* プロパティ */}
               <div className="mt-3 flex flex-col gap-0.5 border-b border-line pb-3 text-[13px]">
                 <div className="flex items-center gap-3 rounded-md">
@@ -553,6 +565,18 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                   ) : (
                     <button onClick={() => setPickingParent(true)} disabled={archived} className="min-h-8 flex-1 text-left text-mute">なし</button>
                   )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute"><Icon name="memo" size={14} />ヘッダー画像</span>
+                  <input
+                    value={draft.headerImage}
+                    onChange={(e) => change({ headerImage: e.target.value })}
+                    readOnly={archived}
+                    inputMode="url"
+                    placeholder="画像のリンク（https://…）"
+                    aria-label="ヘッダー画像のリンク"
+                    className="min-h-8 min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
+                  />
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute"><TagIcon />タグ</span>

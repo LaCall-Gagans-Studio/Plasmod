@@ -50,7 +50,7 @@ function useCloseKeys(open: boolean, close: () => void) {
 }
 
 // ---- メモ ----
-type MemoOpen = { m: Pick<MemoSummary, "id" | "title" | "project" | "archived" | "pinned">; onChanged?: () => void };
+type MemoOpen = { m: Pick<MemoSummary, "id" | "title" | "project" | "archived" | "pinned" | "headerImage">; onChanged?: () => void };
 const memoMenu = menuStore<MemoOpen>();
 export const openMemoMenu = memoMenu.open;
 
@@ -163,7 +163,15 @@ export function MemoMenu() {
 export function MemoLink({ m, onChanged, className = "", children }: { m: MemoOpen["m"]; onChanged?: () => void; className?: string; children: ReactNode }) {
   const press = useLongPress(() => openMemoMenu({ m, onChanged }));
   return (
-    <a href={`#/memo/${m.id}`} {...press} className={`select-none [-webkit-touch-callout:none] ${className}`}>
+    <a href={`#/memo/${m.id}`} {...press} className={`select-none [-webkit-touch-callout:none] ${m.headerImage ? "relative isolate overflow-hidden" : ""} ${className}`}>
+      {m.headerImage && (
+        // 左下から右上へ溶けるように見せる背景。文字の邪魔にならないよう薄く
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center opacity-50"
+          style={{ backgroundImage: `url("${m.headerImage.replace(/["\\\n]/g, "")}")`, WebkitMaskImage: "linear-gradient(to top right, #000 0%, transparent 70%)", maskImage: "linear-gradient(to top right, #000 0%, transparent 70%)" }}
+        />
+      )}
       {children}
     </a>
   );

@@ -14,7 +14,7 @@ type Row = MemoSummary & { a: 0 | 1; p: 0 | 1 };
 
 export const excerptOf = (body: string) => body.replace(/^\s*```html\s*$[\s\S]*?^\s*```\s*$/gm, "").replace(/\s+/g, " ").trim().slice(0, 120);
 
-export const summaryOf = (m: Memo): MemoSummary => ({ id: m.id, title: m.title, excerpt: excerptOf(m.body), project: m.project, tags: m.tags, parentId: m.parentId ?? null, updatedAt: m.updatedAt, archived: !!m.archivedAt, pinned: !!m.pinnedAt });
+export const summaryOf = (m: Memo): MemoSummary => ({ id: m.id, title: m.title, excerpt: excerptOf(m.body), project: m.project, tags: m.tags, parentId: m.parentId ?? null, updatedAt: m.updatedAt, archived: !!m.archivedAt, pinned: !!m.pinnedAt, headerImage: m.headerImage ?? null });
 
 export const rowOf = (m: Memo): Row => ({ ...summaryOf(m), a: m.archivedAt ? 1 : 0, p: m.pinnedAt ? 1 : 0 });
 const plain = ({ a: _a, p: _p, ...s }: Row): MemoSummary => s;

@@ -437,6 +437,8 @@ export interface Memo {
   archivedAt: number | null;
   /** ピン留めした時刻（留めていなければ null）。留めたメモは一覧の一番上 */
   pinnedAt?: number | null;
+  /** ヘッダー画像のリンク。本文の上と一覧の背景に出す */
+  headerImage?: string | null;
 }
 
 export interface MemoSummary {
@@ -449,6 +451,7 @@ export interface MemoSummary {
   updatedAt: number;
   archived: boolean;
   pinned?: boolean;
+  headerImage?: string | null;
 }
 
 export interface MemoList {

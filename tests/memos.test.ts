@@ -5,7 +5,7 @@ import { createApp } from "../src/server/app";
 import { config } from "../src/server/config";
 import { Hub } from "../src/server/hub";
 import { FixtureSource } from "../src/server/kanban";
-import { MemoStore, memoTitle, normalizeTags } from "../src/server/memos";
+import { MemoStore, memoTitle, normalizeImageUrl, normalizeTags } from "../src/server/memos";
 import { Store } from "../src/server/store";
 import type { Memo, MemoEvent, MemoList } from "../src/shared/types";
 
@@ -57,6 +57,19 @@ describe("memos", () => {
     // 親のないメモを消すと子は一番上へ
     s.delete(top.id, 5000);
     expect(s.get(leaf.id)!.parentId).toBeNull();
+  });
+
+  test("ヘッダー画像は http(s) のリンクだけ。付ける・外す・一覧に出る", () => {
+    expect(normalizeImageUrl(" https://example.com/a b.png ")).toBe("https://example.com/a%20b.png");
+    for (const bad of ["javascript:alert(1)", "data:image/png;base64,AAAA", "ftp://x/y.png", "not a url", "", null, 3]) expect(normalizeImageUrl(bad)).toBeNull();
+    const s = fresh();
+    const m = s.create({ title: "旅", headerImage: "https://example.com/h.jpg" }, "app", 1000);
+    expect(m.headerImage).toBe("https://example.com/h.jpg");
+    expect(s.list().memos[0].headerImage).toBe("https://example.com/h.jpg");
+    // 渡さなければそのまま・不正なリンクは外れる・null で外す
+    expect(s.update(m.id, { body: "本文" }, "app", 2000).headerImage).toBe("https://example.com/h.jpg");
+    expect(s.update(m.id, { headerImage: "https://example.com/2.jpg" }, "app", 3000)).toMatchObject({ headerImage: "https://example.com/2.jpg", updatedAt: 3000 });
+    expect(s.update(m.id, { headerImage: null }, "app", 4000)).toMatchObject({ headerImage: null, updatedAt: 4000 });
   });
 
   test("作る・書き換える・履歴が残る", () => {
