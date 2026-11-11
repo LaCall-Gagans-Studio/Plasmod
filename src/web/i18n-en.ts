@@ -63,6 +63,7 @@ export const EN: Record<string, string> = {
   "画像を選ぶ（PNG・JPEG・WebP）": "Choose an image (PNG, JPEG, WebP)",
   外す: "Remove",
   日目: "days",
+  総トークン数: "total tokens",
   長押しでメニュー: "Long press for menu",
   長押しで肩書きを足す: "Long press to add a title",
   画像で保存: "Save image",

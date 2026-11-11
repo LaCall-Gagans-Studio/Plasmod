@@ -1,8 +1,9 @@
 // システム（使用量・モデル・VPS・定期実行・ファイル）
 import { type Context } from "hono";
+import { AppSettings } from "../profiles";
 import type { RouteContext } from "./context";
 
-export function systemRoutes({ app, system, connections }: RouteContext) {
+export function systemRoutes({ app, system, connections, store }: RouteContext) {
   // ---- システム ----
   const sysFail = (c: Context, e: unknown) =>
     c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, e instanceof Error && /見せない|外は見られない|不正/.test(e.message) ? 403 : 500);
@@ -13,6 +14,22 @@ export function systemRoutes({ app, system, connections }: RouteContext) {
     } catch (e) {
       return sysFail(c, e);
     }
+  });
+  // プロフィールカードの総トークン数。Hermes の各プロファイルの30日合計（System の「トークン」と同じ定義）。
+  // 30日の窓から古い分が落ちても減らないよう、これまでの最大値を覚えて返す
+  app.get("/api/system/tokens-total", async (c) => {
+    const settings = new AppSettings(store.db);
+    const stored = Number(settings.get("tokens_peak") ?? 0) || 0;
+    let now = 0;
+    try {
+      const u = system ? await system.usage() : null;
+      for (const h of Object.values(u?.hermes ?? {})) if (!("error" in h)) now += h.d30.tokens || 0;
+    } catch {
+      /* 取れなければ覚えている値 */
+    }
+    const total = Math.max(stored, Math.round(now));
+    if (total > stored) settings.set("tokens_peak", String(total));
+    return c.json({ tokens: total });
   });
   app.get("/api/system/connections", async (c) => {
     if (!connections) return c.json({ ok: false, error: "接続の状況は使えない" }, 404);

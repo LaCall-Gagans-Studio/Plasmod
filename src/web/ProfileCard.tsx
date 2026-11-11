@@ -6,7 +6,7 @@ import { blobPath } from "./amoeba";
 import { t } from "./i18n";
 import { loadAbout, saveOwner, useAbout } from "./identity";
 import { DangerButton, Glyph, Sheet, SheetCard, TileButton, Tiles } from "./sheet";
-import { cardSvg, H, makeCreature, segAngle, step, W, wirePath, wirePoints } from "./specimen";
+import { cardSvg, fmtTokens, H, makeCreature, segAngle, step, W, wirePath, wirePoints } from "./specimen";
 import { toast, useLongPress } from "./touch";
 
 const fmtDay = (ms: number) => {
@@ -15,8 +15,8 @@ const fmtDay = (ms: number) => {
 };
 
 /** 枠の中を動く生き物 */
-function Specimen({ seed, color, avatar, svgRef }: { seed: string; color: string; avatar?: string; svgRef: React.RefObject<SVGSVGElement | null> }) {
-  const c = useMemo(() => makeCreature(seed), [seed]);
+function Specimen({ seed, tokens, color, avatar, svgRef }: { seed: string; tokens: number; color: string; avatar?: string; svgRef: React.RefObject<SVGSVGElement | null> }) {
+  const c = useMemo(() => makeCreature(seed, tokens), [seed, tokens]);
   const clip = useMemo(() => `pl-av-${Math.random().toString(36).slice(2, 8)}`, []);
   useEffect(() => {
     const svg = svgRef.current;
@@ -184,6 +184,10 @@ export function ProfileCard() {
   const joined = about.joinedAt ?? Date.now();
   const days = Math.max(1, Math.floor((Date.now() - joined) / 86_400_000) + 1);
   const hasName = !about.ownerIsDefault;
+  const [tokens, setTokens] = useState(0);
+  useEffect(() => {
+    fetch("/api/system/tokens-total").then((r) => r.json()).then((j: { tokens?: number }) => setTokens(Number(j.tokens) || 0)).catch(() => {});
+  }, []);
   const press = useLongPress(() => setMenu(true));
 
   const patch = async (body: Record<string, unknown>) => {
@@ -207,7 +211,7 @@ export function ProfileCard() {
     try {
       let specimen = svgRef.current.innerHTML;
       if (about.ownerAvatar) specimen = specimen.split(about.ownerAvatar).join(await toDataUrl(about.ownerAvatar));
-      const svg = cardSvg({ specimen, name: hasName ? about.owner : "", title, color, days, joined: fmtDay(joined) });
+      const svg = cardSvg({ specimen, name: hasName ? about.owner : "", title, color, days, joined: fmtDay(joined), tokens });
       await saveBlob(await svgToPng(svg, 1240, 1800), "plasmod-card.png");
       toast(t("カードを保存した"));
       setMenu(false);
@@ -228,7 +232,7 @@ export function ProfileCard() {
             <span>PLATE {String(days).padStart(4, "0")}</span>
           </span>
           <span className="relative block aspect-[300/290] w-full overflow-hidden rounded-t-[999px] border" style={{ borderColor: color }}>
-            <Specimen key={about.owner} seed={about.owner} color={color} avatar={about.ownerAvatar} svgRef={svgRef} />
+            <Specimen key={`${about.owner}:${tokens}`} seed={about.owner} tokens={tokens} color={color} avatar={about.ownerAvatar} svgRef={svgRef} />
           </span>
           <span className="mt-3.5 truncate font-sans text-[30px] font-black leading-tight tracking-tight text-white">{hasName ? about.owner : t("あなたの名前")}</span>
           <span className="min-h-[1.4em] truncate text-[13px] tracking-wide" style={{ color }}>{title || t("長押しで肩書きを足す")}</span>
@@ -244,7 +248,11 @@ export function ProfileCard() {
                 <span className="flex items-center px-1.5 tabular-nums">{fmtDay(joined)}</span>
               </span>
             </span>
-            <span className="text-right text-[11px] font-bold leading-tight tracking-[0.12em]" style={{ color }}>SO<br />ELECTRIC</span>
+            <span className="text-right font-bold leading-tight" style={{ color }}>
+              <span className="block text-[9px] tracking-[0.14em] opacity-75">TOTAL TOKENS</span>
+              <span className="block text-[15px] tabular-nums" aria-label={`${t("総トークン数")} ${tokens}`}>{fmtTokens(tokens)}</span>
+              <span className="mt-1 block text-[11px] tracking-[0.12em]">SO<br />ELECTRIC</span>
+            </span>
           </span>
         </div>
       </div>
