@@ -110,7 +110,7 @@ bun run dev:web                                                                 
 
 ## 開発
 
-- 開発者: とうま（[LaCall-Gagans-Studio](https://github.com/LaCall-Gagans-Studio)）
+- 開発者:（[LaCall-Gagans-Studio](https://github.com/LaCall-Gagans-Studio)）
 - 共同開発者: [Mickey0321](https://github.com/Mickey0321)
 
 ## ライセンス
