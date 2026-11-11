@@ -739,7 +739,7 @@ export class TaskStore {
   }
 
   /** 状態の絞り込み以外（プロジェクト・元・語）の条件 */
-  private filters(opts: { source?: string; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean }) {
+  private filters(opts: { source?: string; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean; dueFrom?: string; dueTo?: string }) {
     const where: string[] = [];
     const args: (string | number)[] = [];
     // 片付いた承認依頼は記録なので、Done の一覧では既定で見せない（まだカードの承認依頼は残す）
@@ -753,6 +753,15 @@ export class TaskStore {
       where.push("p.name = ?");
       args.push(opts.project);
     }
+    // 期日の範囲（カレンダー用。YYYY-MM-DD の両端を含む）
+    if (opts.dueFrom) {
+      where.push("t.due >= ?");
+      args.push(opts.dueFrom);
+    }
+    if (opts.dueTo) {
+      where.push("t.due <= ?");
+      args.push(opts.dueTo);
+    }
     if (opts.source) {
       where.push("t.source = ?");
       args.push(opts.source);
@@ -765,7 +774,7 @@ export class TaskStore {
     return { where, args };
   }
 
-  list(opts: { status?: (TaskStatus | typeof LEGACY_DISMISSED)[]; source?: string; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean; limit?: number } = {}): Task[] {
+  list(opts: { status?: (TaskStatus | typeof LEGACY_DISMISSED)[]; source?: string; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean; dueFrom?: string; dueTo?: string; limit?: number } = {}): Task[] {
     const { where, args } = this.filters(opts);
     const wanted = opts.status ?? OPEN;
     const statuses = wanted.filter((s): s is TaskStatus => (TASK_STATUSES as string[]).includes(s));
@@ -785,8 +794,9 @@ export class TaskStore {
   }
 
   /** 画面の一覧: タスクと、状態ごとの件数・プロジェクトごとの件数（開いているもの） */
-  view(opts: { status?: TaskStatus[]; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean }): AppTaskList {
-    const tasks = this.list({ ...opts, limit: 300 });
+  view(opts: { status?: TaskStatus[]; q?: string; project?: string | null; tag?: string | null; hideDoneApprovals?: boolean; dueFrom?: string; dueTo?: string }): AppTaskList {
+    // 期日の範囲を指定したとき（カレンダー）は、その範囲のものを多めに返す。件数の集計は範囲に関係なく出す
+    const tasks = this.list({ ...opts, limit: opts.dueFrom || opts.dueTo ? 500 : 300 });
     const { where, args } = this.filters({ q: opts.q, project: opts.project, tag: opts.tag, hideDoneApprovals: opts.hideDoneApprovals });
     const rows = this.db
       .query(`SELECT t.status AS status, COUNT(*) AS n FROM tasks t LEFT JOIN memo_projects p ON p.id = t.project_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY t.status`)

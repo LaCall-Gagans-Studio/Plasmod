@@ -38,6 +38,7 @@ const MemoPage = lazy(() => import("./MemoPage").then((m) => ({ default: m.MemoP
 const VoiceMemo = lazy(() => import("./VoiceMemo").then((m) => ({ default: m.VoiceMemo })));
 const PjShell = lazy(() => import("./Projects").then((m) => ({ default: m.PjShell })));
 const PjSettings = lazy(() => import("./Projects").then((m) => ({ default: m.PjSettings })));
+const Calendar = lazy(() => import("./Calendar").then((m) => ({ default: m.Calendar })));
 const Habits = lazy(() => import("./Habits").then((m) => ({ default: m.Habits })));
 const ProjectPage = lazy(() => import("./Projects").then((m) => ({ default: m.ProjectPage })));
 const loading = <AmoebaLoader />;
@@ -128,6 +129,7 @@ function Routes() {
   if (hash.startsWith("#/memo/voice")) return <Suspense fallback={loading}><VoiceMemo /></Suspense>;
   const memo = hash.match(/^#\/memo\/(new|-?[0-9]{1,18})(?:\?|$)/);
   if (memo) return <Suspense fallback={loading}><MemoPage key={memo[1]} id={memo[1] === "new" ? "new" : Number(memo[1])} /></Suspense>;
+  if (hash === "#/calendar") return <Suspense fallback={loading}><Calendar /></Suspense>;
   if (hash === "#/habits") return <Suspense fallback={loading}><Habits /></Suspense>;
   // システムは「設定」になった（#/system は古いリンク用）
   if (hash === "#/settings" || hash.startsWith("#/settings?") || hash === "#/system") return <System snap={snap} />;

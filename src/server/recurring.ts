@@ -2,7 +2,12 @@
 // 作ったタスクは今のタスクの画面にそのまま出る。元（source = recur, key = ルールID:期日）で、同じ回は二重に作らない。
 // 前の回が終わっていない（Todo / AI-Driven / BackLog に残っている）間は、新しい回を重ねない。
 import type { Database } from "bun:sqlite";
+import { type Cadence, type RecurringRule, occurrences, shiftDay as shift } from "../shared/recurrence";
 import { localDay } from "../shared/time";
+
+export { type Cadence, type RecurringRule, occurrences, occursOn } from "../shared/recurrence";
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 import type { Task, TaskStore } from "./tasks";
 
 export class RecurError extends Error {
@@ -12,65 +17,6 @@ export class RecurError extends Error {
   ) {
     super(message);
   }
-}
-
-/** 周期。days は曜日（0=日〜6=土）。monthly の day は 1〜31（その月に無い日は月末）。every は起点（anchor）から n 日ごと */
-export type Cadence =
-  | { type: "daily" }
-  | { type: "weekdays" }
-  | { type: "weekly"; days: number[] }
-  | { type: "monthly"; day: number }
-  | { type: "every"; n: number };
-
-export interface RecurringRule {
-  id: number;
-  title: string;
-  body: string;
-  project: string | null;
-  cadence: Cadence;
-  /** 数え始める日（YYYY-MM-DD）。every はこの日が起点 */
-  anchor: string;
-  /** 期日の何日前に浮上させるか（0〜60） */
-  leadDays: number;
-  enabled: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
-
-const DAY = 86_400_000;
-const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const num = (day: string) => Math.floor(Date.parse(`${day}T00:00:00Z`) / DAY);
-const shift = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
-const lastDayOfMonth = (day: string) => new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate();
-
-/** その日にルールの回が来るか（anchor より前は来ない） */
-export function occursOn(rule: Pick<RecurringRule, "cadence" | "anchor">, day: string): boolean {
-  if (day < rule.anchor) return false;
-  const c = rule.cadence;
-  const dow = new Date(`${day}T00:00:00Z`).getUTCDay();
-  switch (c.type) {
-    case "daily":
-      return true;
-    case "weekdays":
-      return dow >= 1 && dow <= 5;
-    case "weekly":
-      return c.days.includes(dow);
-    case "monthly":
-      return Number(day.slice(8, 10)) === Math.min(c.day, lastDayOfMonth(day));
-    case "every":
-      return (num(day) - num(rule.anchor)) % c.n === 0;
-  }
-}
-
-/** from〜to（両端を含む）に来る回の日付。カレンダー表示にも使う。長くても 400 日まで */
-export function occurrences(rule: Pick<RecurringRule, "cadence" | "anchor">, from: string, to: string): string[] {
-  const out: string[] = [];
-  const end = Math.min(num(to), num(from) + 400);
-  for (let d = num(from); d <= end; d++) {
-    const day = shift("1970-01-01", d);
-    if (occursOn(rule, day)) out.push(day);
-  }
-  return out;
 }
 
 /** 受け取った周期を検査して整える */
@@ -113,7 +59,7 @@ interface Row {
   updated_at: number;
 }
 
-const toRule = (r: Row): RecurringRule => ({ id: r.id, title: r.title, body: r.body, project: r.project, cadence: JSON.parse(r.cadence) as Cadence, anchor: r.anchor, leadDays: r.lead_days, enabled: !!r.enabled, createdAt: r.created_at, updatedAt: r.updated_at });
+const toRule = (r: Row, skips: string[] = []): RecurringRule => ({ id: r.id, title: r.title, body: r.body, project: r.project, cadence: JSON.parse(r.cadence) as Cadence, anchor: r.anchor, leadDays: r.lead_days, enabled: !!r.enabled, skips, createdAt: r.created_at, updatedAt: r.updated_at });
 
 export interface RuleInput {
   title?: unknown;
@@ -144,17 +90,42 @@ export class RecurringStore {
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS recurring_skips (
+      rule_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      PRIMARY KEY (rule_id, day)
     )`);
   }
 
+  private skipsOf(id: number): string[] {
+    return (this.db.query("SELECT day FROM recurring_skips WHERE rule_id = ? ORDER BY day").all(id) as { day: string }[]).map((x) => x.day);
+  }
+
   list(): RecurringRule[] {
-    return (this.db.query("SELECT * FROM recurring_rules ORDER BY id").all() as Row[]).map(toRule);
+    return (this.db.query("SELECT * FROM recurring_rules ORDER BY id").all() as Row[]).map((r) => toRule(r, this.skipsOf(r.id)));
   }
 
   get(id: number): RecurringRule {
     const r = this.db.query("SELECT * FROM recurring_rules WHERE id = ?").get(id) as Row | null;
     if (!r) throw new RecurError("ルールが見つからない", 404);
-    return toRule(r);
+    return toRule(r, this.skipsOf(id));
+  }
+
+  /** その回だけやめる（skip=false で戻す）。ルールに無い日・もうタスクになった回は受けない */
+  skip(id: number, day: unknown, skip = true, now = Date.now()): RecurringRule {
+    const rule = this.get(id);
+    const d = String(day);
+    if (!DAY_RE.test(d)) throw new RecurError("日は YYYY-MM-DD");
+    if (skip) {
+      if (!occurrences(rule, d, d).length) throw new RecurError("その日はルールの回ではない");
+      if (this.db.query("SELECT 1 FROM tasks WHERE source = ? AND source_key = ?").get(SOURCE, `${id}:${d}`)) throw new RecurError("もうタスクになっている回はやめられない。タスクの方を閉じてください");
+      this.db.query("INSERT OR IGNORE INTO recurring_skips (rule_id, day) VALUES (?, ?)").run(id, d);
+    } else {
+      this.db.query("DELETE FROM recurring_skips WHERE rule_id = ? AND day = ?").run(id, d);
+    }
+    this.db.query("UPDATE recurring_rules SET updated_at = ? WHERE id = ?").run(now, id);
+    return this.get(id);
   }
 
   private fields(i: RuleInput, cur?: RecurringRule, now = Date.now()) {
@@ -192,6 +163,7 @@ export class RecurringStore {
   /** ルールを消す。作ったタスクはそのまま残る */
   remove(id: number) {
     this.get(id);
+    this.db.query("DELETE FROM recurring_skips WHERE rule_id = ?").run(id);
     this.db.query("DELETE FROM recurring_rules WHERE id = ?").run(id);
   }
 
@@ -209,7 +181,7 @@ export class RecurringStore {
     const made: Task[] = [];
     for (const rule of this.list()) {
       if (!rule.enabled || this.hasOpen(rule.id)) continue;
-      const due = occurrences(rule, today, shift(today, rule.leadDays))[0];
+      const due = occurrences(rule, today, shift(today, rule.leadDays)).find((d) => !rule.skips.includes(d));
       if (!due) continue;
       const t = this.tasks.spawn({ source: SOURCE, key: `${rule.id}:${due}`, title: rule.title, body: rule.body, project: rule.project, due }, "recur", now);
       if (t) made.push(t);
