@@ -21,6 +21,7 @@ const api: MemoApi = {
   update: (id, f: MemoFields, base) => call<Memo>(`/api/memos/${id}`, { method: "PUT", body: JSON.stringify({ ...f, ...(base === null ? {} : { baseUpdatedAt: base }) }) }),
   get: (id) => call<Memo>(`/api/memos/${id}`),
   changedSince: (since) => call<Memo[]>(`/api/memos-sync?since=${since}`),
+  deletedSince: (since) => call<number[]>(`/api/memos-deleted?since=${since}`),
 };
 
 export const memoSync = new MemoSync(idb, api);

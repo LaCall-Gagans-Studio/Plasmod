@@ -7,17 +7,17 @@ import type { LocalListOptions, MemoDb, PendingChange } from "./memo-sync";
 
 export const LIST_LIMIT = 200;
 const DB_NAME = "plasmod-memos";
-const VERSION = 2;
+const VERSION = 3;
 
 /** summaries の行。a は索引用（IndexedDB は真偽値を鍵にできない） */
-type Row = MemoSummary & { a: 0 | 1 };
+type Row = MemoSummary & { a: 0 | 1; p: 0 | 1 };
 
 export const excerptOf = (body: string) => body.replace(/^\s*```html\s*$[\s\S]*?^\s*```\s*$/gm, "").replace(/\s+/g, " ").trim().slice(0, 120);
 
-export const summaryOf = (m: Memo): MemoSummary => ({ id: m.id, title: m.title, excerpt: excerptOf(m.body), project: m.project, tags: m.tags, parentId: m.parentId ?? null, updatedAt: m.updatedAt, archived: !!m.archivedAt });
+export const summaryOf = (m: Memo): MemoSummary => ({ id: m.id, title: m.title, excerpt: excerptOf(m.body), project: m.project, tags: m.tags, parentId: m.parentId ?? null, updatedAt: m.updatedAt, archived: !!m.archivedAt, pinned: !!m.pinnedAt });
 
-export const rowOf = (m: Memo): Row => ({ ...summaryOf(m), a: m.archivedAt ? 1 : 0 });
-const plain = ({ a: _a, ...s }: Row): MemoSummary => s;
+export const rowOf = (m: Memo): Row => ({ ...summaryOf(m), a: m.archivedAt ? 1 : 0, p: m.pinnedAt ? 1 : 0 });
+const plain = ({ a: _a, p: _p, ...s }: Row): MemoSummary => s;
 
 /** 絞り込み。本文を見ない部分（一覧の行だけで決まる） */
 export function matchesFilter(m: { project: string | null; tags: string[]; parentId?: number | null; archived: boolean }, o: LocalListOptions): boolean {
@@ -69,6 +69,20 @@ function open(f: IDBFactory): Promise<IDBDatabase> {
           bump(f, row, 1);
           c.continue();
         };
+      }
+      if (ev.oldVersion < 3) {
+        // ピン留めの索引。v2 までの行には p が無い（留めたメモはまだ無いので 0 を入れる。v2 未満は上で作る行がもう持っている）
+        const s = t.objectStore("summaries");
+        s.createIndex("p", "p");
+        if (ev.oldVersion === 2) {
+          const cur = s.openCursor();
+          cur.onsuccess = () => {
+            const c = cur.result;
+            if (!c) return;
+            c.update({ ...(c.value as Row), p: 0, pinned: false });
+            c.continue();
+          };
+        }
       }
     };
     r.onsuccess = () => resolve(r.result);
@@ -140,11 +154,14 @@ export function createIdb(factory: IDBFactory): MemoDb {
         const exact = word ? memoIdOf(word) : null;
         let memos: MemoSummary[];
         if (!word) {
-          memos = (await newest<Row>(sums.index("updatedAt"), (r) => matchesFilter(r, o), LIST_LIMIT)).map(plain);
+          // 留めたメモは新しさに関わらず先頭に。残りを新しい順に
+          const pinned = ((await done(sums.index("p").getAll(1))) as Row[]).filter((r) => matchesFilter(r, o)).sort((a, b) => b.updatedAt - a.updatedAt);
+          const rest = await newest<Row>(sums.index("updatedAt"), (r) => !r.p && matchesFilter(r, o), LIST_LIMIT);
+          memos = [...pinned, ...rest].slice(0, LIST_LIMIT).map(plain);
         } else {
           // 語を探すときだけ本文を読む。新しい順に、LIST_LIMIT 件見つかったところで止める
           const hits = await newest<Memo>(t.objectStore("memos").index("updatedAt"), (m) => matchesFilter({ ...m, archived: !!m.archivedAt }, o) && `${m.title}\n${m.body}`.toLowerCase().includes(word), LIST_LIMIT);
-          memos = hits.map(summaryOf);
+          memos = hits.map(summaryOf).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
           if (exact !== null && !memos.some((m) => m.id === exact)) {
             const r = (await done(sums.get(exact))) as Row | undefined;
             if (r && matchesFilter(r, o)) memos.unshift(plain(r));

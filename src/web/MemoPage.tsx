@@ -387,6 +387,41 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
     }
   };
 
+  const setPinned = async (pinned: boolean) => {
+    if (idRef.current === null) return;
+    await flush();
+    await memoSync.run();
+    if (idRef.current < 0 || memoSync.status.offline) return void toast("ピン留めは、つながっているときにできる", "error");
+    try {
+      const m = await json<Memo>(await fetch(`/api/memos/${idRef.current}/${pinned ? "pin" : "unpin"}`, { method: "POST" }));
+      await memoSync.adopt(m);
+      setMemo(m);
+      setMenu(false);
+      toast(pinned ? "ピン留めした" : "ピン留めを外した");
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
+  const deleteMemo = async () => {
+    if (idRef.current === null) return;
+    setMenu(false);
+    if (!confirm("このメモを削除します。履歴も消え、元に戻せません。子のメモは残り、このメモの親の下に移ります。よいですか？")) return;
+    await flush();
+    await memoSync.run();
+    if (idRef.current < 0 || memoSync.status.offline) return void toast("削除は、つながっているときにできる", "error");
+    try {
+      const id = idRef.current;
+      const res = await fetch(`/api/memos/${id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 404) throw new Error(`HTTP ${res.status}`);
+      await memoSync.forget(id);
+      toast("メモを削除した");
+      location.hash = "#/memos";
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    }
+  };
+
   const showHistory = async () => {
     setMenu(false);
     if (idRef.current === null) return;
@@ -441,10 +476,16 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                     <span className="flex-1">手書きをハイライト</span>
                     {highlight && <span aria-hidden="true" className="font-bold">✓</span>}
                   </button>
+                  {!archived && (
+                    <button role="menuitem" onClick={() => void setPinned(!memo?.pinnedAt)} className="block w-full px-4 py-2.5 text-left text-[13.5px] hover:bg-chip">
+                      {memo?.pinnedAt ? "ピン留めを外す" : "ピン留めする"}
+                    </button>
+                  )}
                   <button role="menuitem" onClick={showHistory} className="block w-full px-4 py-2.5 text-left text-[13.5px] hover:bg-chip">履歴を見る</button>
                   <button role="menuitem" onClick={() => void setArchived(!archived)} className="block w-full px-4 py-2.5 text-left text-[13.5px] hover:bg-chip">
                     {archived ? "アーカイブから戻す" : "アーカイブする"}
                   </button>
+                  <button role="menuitem" onClick={() => void deleteMemo()} className="block w-full px-4 py-2.5 text-left text-[13.5px] text-red-ink hover:bg-chip">削除する</button>
                 </div>
               </>
             )}

@@ -23,6 +23,7 @@ function fakeDb(): MemoDb {
 /** 偽のサーバー。本物と同じく baseUpdatedAt が古ければ 409 */
 function fakeServer() {
   const memos = new Map<number, Memo>();
+  const deleted = new Set<number>();
   let clock = 1000;
   let nextId = 1;
   const state = { online: true, calls: [] as string[] };
@@ -31,7 +32,7 @@ function fakeServer() {
   };
   const fail = (status: number) => Object.assign(new Error(`HTTP ${status}`), { status });
   const write = (id: number, f: MemoFields, createdAt: number): Memo => {
-    const m: Memo = { id, ...f, parentId: f.parentId ?? null, author: "app", createdAt, updatedAt: ++clock, archivedAt: null };
+    const m: Memo = { id, ...f, parentId: f.parentId ?? null, author: "app", createdAt, updatedAt: ++clock, archivedAt: null, pinnedAt: null };
     memos.set(id, m);
     return m;
   };
@@ -47,8 +48,9 @@ function fakeServer() {
     },
     get: async (id) => (gate(), memos.get(id)!),
     changedSince: async (since) => (gate(), [...memos.values()].filter((m) => m.updatedAt >= since)),
+    deletedSince: async () => (gate(), [...deleted]),
   };
-  return { api, memos, state, write };
+  return { api, memos, deleted, state, write };
 }
 
 const F = (title: string, body = "本文"): MemoFields => ({ title, body, project: null, tags: [] });
@@ -81,6 +83,35 @@ describe("メモのオフライン", () => {
     expect(events).toEqual([{ type: "remap", from: m.id, to: 1 }]);
     expect(await db.getMemo(m.id)).toBeUndefined();
     expect((await sync.list()).memos.map((x) => x.id)).toEqual([1]);
+  });
+
+  test("別の端末で消したメモは端末からも消える。書き足した分があるものは残す", async () => {
+    const { sync, memos, deleted, db } = setup();
+    await sync.save(null, F("A"));
+    await sync.save(null, F("B"));
+    await sync.run();
+    expect((await sync.list()).memos.map((x) => x.title).sort()).toEqual(["A", "B"]);
+    // サーバーで A を消した
+    memos.delete(1);
+    deleted.add(1);
+    // B はこの端末で書き足してある（まだ送っていない）
+    memos.delete(2);
+    deleted.add(2);
+    await sync.save(2, F("B", "書き足した"));
+    await db.setLastSync(0);
+    await sync.run();
+    expect(await db.getMemo(1)).toBeUndefined();
+    // B はサーバーに無いので新しいメモとして戻り、書いた分は失われない
+    expect((await sync.list()).memos.map((x) => x.excerpt)).toEqual(["書き足した"]);
+  });
+
+  test("forget は写しと送っていない変更を捨てる", async () => {
+    const { sync, db } = setup();
+    const m = await sync.save(null, F("消す"));
+    await sync.forget(m.id);
+    expect(await db.getMemo(m.id)).toBeUndefined();
+    expect(await db.allPending()).toEqual([]);
+    expect(sync.status.pending).toBe(0);
   });
 
   test("他の端末の変更を取ってくる。送っていない変更は上書きしない", async () => {

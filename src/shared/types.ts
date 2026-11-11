@@ -435,6 +435,8 @@ export interface Memo {
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
+  /** ピン留めした時刻（留めていなければ null）。留めたメモは一覧の一番上 */
+  pinnedAt?: number | null;
 }
 
 export interface MemoSummary {
@@ -446,6 +448,7 @@ export interface MemoSummary {
   parentId: number | null;
   updatedAt: number;
   archived: boolean;
+  pinned?: boolean;
 }
 
 export interface MemoList {

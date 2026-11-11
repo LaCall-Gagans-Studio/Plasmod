@@ -71,7 +71,7 @@ function MemoNode({ m, kids, onChanged, depth = 0 }: { m: MemoSummary; kids: Map
 function groupByDate(memos: MemoSummary[]): [string, MemoSummary[]][] {
   const out: [string, MemoSummary[]][] = [];
   for (const m of memos) {
-    const b = bucket(m.updatedAt);
+    const b = m.pinned ? "ピン留め" : bucket(m.updatedAt);
     if (out.length && out[out.length - 1][0] === b) out[out.length - 1][1].push(m);
     else out.push([b, [m]]);
   }

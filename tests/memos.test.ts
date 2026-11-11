@@ -22,6 +22,43 @@ describe("memos", () => {
     expect(memoTitle("  ", "")).toBe("無題のメモ");
   });
 
+  test("ピン留めは一覧の先頭・アーカイブで外れる・外すと元の並び", () => {
+    const s = fresh();
+    const a = s.create({ title: "古い" }, "app", 1000);
+    const b = s.create({ title: "新しい" }, "app", 2000);
+    expect(s.list().memos.map((m) => m.id)).toEqual([b.id, a.id]);
+    const p = s.setPinned(a.id, true, 3000);
+    expect(p.pinnedAt).toBe(3000);
+    expect(s.list().memos.map((m) => [m.id, m.pinned])).toEqual([[a.id, true], [b.id, false]]);
+    // 同期に載るよう更新時刻が進む
+    expect(s.changedSince(3000).map((m) => m.id)).toEqual([a.id]);
+    s.setPinned(a.id, false, 4000);
+    expect(s.list().memos.map((m) => m.id)).toEqual([a.id, b.id]);
+    s.setPinned(a.id, true, 5000);
+    s.setArchived(a.id, true, "app", 6000);
+    expect(s.get(a.id)!.pinnedAt).toBeNull();
+    expect(() => s.setPinned(a.id, true)).toThrow("アーカイブ");
+  });
+
+  test("削除は履歴・タグ・検索から消し、子は親へ繋ぎ直し、削除の印が同期に出る", () => {
+    const s = fresh();
+    const top = s.create({ title: "親", tags: ["旅"] }, "app", 1000);
+    const mid = s.create({ title: "間", parentId: top.id }, "app", 2000);
+    const leaf = s.create({ title: "子", parentId: mid.id }, "app", 3000);
+    s.delete(mid.id, 4000);
+    expect(s.get(mid.id)).toBeNull();
+    expect(() => s.history(mid.id)).toThrow();
+    expect(s.get(leaf.id)).toMatchObject({ parentId: top.id, updatedAt: 4000 });
+    expect(s.changedSince(4000).map((m) => m.id)).toEqual([leaf.id]);
+    expect(s.deletedSince(4000)).toEqual([mid.id]);
+    expect(s.deletedSince(4001)).toEqual([]);
+    expect(s.list({ q: "間" }).memos).toEqual([]);
+    expect(() => s.delete(mid.id)).toThrow("無い");
+    // 親のないメモを消すと子は一番上へ
+    s.delete(top.id, 5000);
+    expect(s.get(leaf.id)!.parentId).toBeNull();
+  });
+
   test("作る・書き換える・履歴が残る", () => {
     const s = fresh();
     const m = s.create({ title: "宿", body: "京都の宿", project: "夏の旅行", tags: ["旅", "予約"] }, "app", 1000);

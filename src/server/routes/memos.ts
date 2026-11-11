@@ -27,6 +27,10 @@ export function memosRoutes({ app, memos }: RouteContext) {
     if (!memos) return c.json({ ok: false, error: "メモは使えない" }, 404);
     return c.json(memos.changedSince(Number(c.req.query("since") ?? 0) || 0));
   });
+  app.get("/api/memos-deleted", (c) => {
+    if (!memos) return c.json({ ok: false, error: "メモは使えない" }, 404);
+    return c.json(memos.deletedSince(Number(c.req.query("since") ?? 0) || 0));
+  });
   app.get("/api/memos", (c) => {
     if (!memos) return c.json({ ok: false, error: "メモは使えない" }, 404);
     const project = c.req.query("project");
@@ -87,6 +91,23 @@ export function memosRoutes({ app, memos }: RouteContext) {
     try {
       if (!memos) throw new MemoError("メモは使えない", 404);
       return c.json(memos.setArchived(memoId(c), c.req.param("op") === "archive", "app"));
+    } catch (e) {
+      return memoFail(c, e);
+    }
+  });
+  app.post("/api/memos/:id/:op{pin|unpin}", (c) => {
+    try {
+      if (!memos) throw new MemoError("メモは使えない", 404);
+      return c.json(memos.setPinned(memoId(c), c.req.param("op") === "pin"));
+    } catch (e) {
+      return memoFail(c, e);
+    }
+  });
+  app.delete("/api/memos/:id", (c) => {
+    try {
+      if (!memos) throw new MemoError("メモは使えない", 404);
+      memos.delete(memoId(c));
+      return c.json({ ok: true });
     } catch (e) {
       return memoFail(c, e);
     }

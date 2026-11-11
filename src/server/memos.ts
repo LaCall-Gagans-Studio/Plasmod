@@ -35,6 +35,7 @@ interface MemoRow {
   created_at: number;
   updated_at: number;
   archived_at: number | null;
+  pinned_at: number | null;
 }
 
 /** 空白をまとめ、前後を落とす */
@@ -117,11 +118,18 @@ export class MemoStore {
         tags TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS memo_events_memo ON memo_events(memo_id);
+      -- 消したメモの印。ほかの端末が写しを消せるように、いつ消したかを残す
+      CREATE TABLE IF NOT EXISTS memo_deleted (
+        memo_id INTEGER PRIMARY KEY,
+        at INTEGER NOT NULL
+      );
     `);
     // ネスト（親のメモ）。前の版の DB には列が無い
     const cols = (db.query("PRAGMA table_info(memos)").all() as { name: string }[]).map((c) => c.name);
     if (!cols.includes("parent_id")) db.exec("ALTER TABLE memos ADD COLUMN parent_id INTEGER REFERENCES memos(id)");
     db.exec("CREATE INDEX IF NOT EXISTS memos_parent ON memos(parent_id)");
+    // ピン留め（一覧の一番上に固定）
+    if (!cols.includes("pinned_at")) db.exec("ALTER TABLE memos ADD COLUMN pinned_at INTEGER");
     // 起動時に索引を合わせる（中身が同じなら upsert は何もしない）
     const ids = this.db.query("SELECT id FROM memos WHERE archived_at IS NULL").all() as { id: number }[];
     for (const { id } of ids) this.index(this.get(id)!);
@@ -182,6 +190,7 @@ export class MemoStore {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       archivedAt: r.archived_at,
+      pinnedAt: r.pinned_at,
     };
   }
 
@@ -266,12 +275,48 @@ export class MemoStore {
       const cur = this.must(id);
       if (!!cur.archivedAt === archived) return cur;
       const at = Math.max(now, cur.updatedAt + 1);
-      this.db.query("UPDATE memos SET archived_at = ?, updated_at = ? WHERE id = ?").run(archived ? at : null, at, id);
+      // アーカイブするとピン留めは外れる
+      this.db.query("UPDATE memos SET archived_at = ?, pinned_at = NULL, updated_at = ? WHERE id = ?").run(archived ? at : null, at, id);
       const m = this.must(id);
       this.event(m, archived ? "archive" : "restore", author, at);
       this.index(m);
       return m;
     })();
+  }
+
+  /** ピン留め・外す。同期で他の端末に届くよう更新時刻を進める。アーカイブしたメモは留められない */
+  setPinned(id: number, pinned: boolean, now = Date.now()): Memo {
+    return this.db.transaction(() => {
+      const cur = this.must(id);
+      if (!!cur.pinnedAt === pinned) return cur;
+      if (pinned && cur.archivedAt) throw new MemoError("アーカイブしたメモは留められない", 409);
+      const at = Math.max(now, cur.updatedAt + 1);
+      this.db.query("UPDATE memos SET pinned_at = ?, updated_at = ? WHERE id = ?").run(pinned ? at : null, at, id);
+      return this.must(id);
+    })();
+  }
+
+  /**
+   * 完全に消す（履歴・タグも）。子のメモは消さずに、このメモの親へ繋ぎ直す。
+   * ほかの端末が写しを消せるよう memo_deleted に残す
+   */
+  delete(id: number, now = Date.now()): void {
+    this.db.transaction(() => {
+      const cur = this.must(id);
+      const at = Math.max(now, cur.updatedAt + 1);
+      // 子の親を付け替えるので、子の更新時刻も進めて同期に載せる
+      this.db.query("UPDATE memos SET parent_id = ?, updated_at = ? WHERE parent_id = ?").run(cur.parentId, at, id);
+      this.db.query("DELETE FROM memo_tags WHERE memo_id = ?").run(id);
+      this.db.query("DELETE FROM memo_events WHERE memo_id = ?").run(id);
+      this.db.query("DELETE FROM memos WHERE id = ?").run(id);
+      this.db.query("INSERT INTO memo_deleted (memo_id, at) VALUES (?, ?) ON CONFLICT(memo_id) DO UPDATE SET at = excluded.at").run(id, at);
+      this.search.remove("memo", String(id));
+    })();
+  }
+
+  /** 同期用: この時刻以降に消えたメモの id */
+  deletedSince(since: number): number[] {
+    return (this.db.query("SELECT memo_id FROM memo_deleted WHERE at >= ? ORDER BY at").all(since) as { memo_id: number }[]).map((r) => r.memo_id);
   }
 
   history(id: number): MemoEvent[] {
@@ -323,11 +368,11 @@ export class MemoStore {
     const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
     const rows = this.db
       .query(
-        `SELECT m.id, m.title, m.body, p.name AS project, m.parent_id, m.updated_at, m.archived_at FROM memos m
+        `SELECT m.id, m.title, m.body, p.name AS project, m.parent_id, m.updated_at, m.archived_at, m.pinned_at FROM memos m
          LEFT JOIN memo_projects p ON p.id = m.project_id
-         WHERE ${where.join(" AND ")} ORDER BY m.id = ${exact} DESC, m.updated_at DESC LIMIT ${limit}`,
+         WHERE ${where.join(" AND ")} ORDER BY m.id = ${exact} DESC, m.pinned_at IS NOT NULL DESC, m.updated_at DESC LIMIT ${limit}`,
       )
-      .all(...args) as { id: number; title: string; body: string; project: string | null; parent_id: number | null; updated_at: number; archived_at: number | null }[];
+      .all(...args) as { id: number; title: string; body: string; project: string | null; parent_id: number | null; updated_at: number; archived_at: number | null; pinned_at: number | null }[];
     const tagRows = rows.length
       ? (this.db.query(`SELECT memo_id, tag FROM memo_tags WHERE memo_id IN (${rows.map(() => "?").join(",")}) ORDER BY rowid`).all(...rows.map((r) => r.id)) as {
           memo_id: number;
@@ -343,6 +388,7 @@ export class MemoStore {
       parentId: r.parent_id,
       updatedAt: r.updated_at,
       archived: r.archived_at !== null,
+      pinned: r.pinned_at !== null,
     }));
     const projects = this.db
       .query(
