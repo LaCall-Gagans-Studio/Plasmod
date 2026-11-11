@@ -6,7 +6,7 @@ import { blobPath } from "./amoeba";
 import { t } from "./i18n";
 import { loadAbout, saveOwner, useAbout } from "./identity";
 import { DangerButton, Glyph, Sheet, SheetCard, TileButton, Tiles } from "./sheet";
-import { cardSvg, H, makeCreature, segAngle, step, W, wirePath, wirePoints } from "./specimen";
+import { type Organ as OrganT, cardSvg, fmtTokens, H, makeCreature, segAngle, step, W, wirePath, wirePoints } from "./specimen";
 import { toast, useLongPress } from "./touch";
 
 const fmtDay = (ms: number) => {
@@ -15,8 +15,8 @@ const fmtDay = (ms: number) => {
 };
 
 /** 枠の中を動く生き物 */
-function Specimen({ seed, color, avatar, svgRef }: { seed: string; color: string; avatar?: string; svgRef: React.RefObject<SVGSVGElement | null> }) {
-  const c = useMemo(() => makeCreature(seed), [seed]);
+function Specimen({ seed, tokens, color, avatar, svgRef }: { seed: string; tokens: number; color: string; avatar?: string; svgRef: React.RefObject<SVGSVGElement | null> }) {
+  const c = useMemo(() => makeCreature(seed, tokens), [seed, tokens]);
   const clip = useMemo(() => `pl-av-${Math.random().toString(36).slice(2, 8)}`, []);
   useEffect(() => {
     const svg = svgRef.current;
@@ -81,14 +81,27 @@ function Specimen({ seed, color, avatar, svgRef }: { seed: string; color: string
       <g fill="#F4FF9A">
         {pts.flatMap((p, i) => p.slice(1).map((q, k) => <circle key={`${i}-${k}`} data-tip="" cx={q[0]} cy={q[1]} r={k === p.length - 2 ? 1.9 : 1.1} />))}
       </g>
-      {c.segs.map((s, i) => (
-        <g key={i} data-seg="" transform={`translate(${s[0].toFixed(1)} ${s[1].toFixed(1)}) rotate(${((segAngle(c, i) * 180) / Math.PI).toFixed(1)})`}>
-          <rect x="-8" y="-11" width="16" height="22" fill={i % 3 === 0 ? color : "#07080A"} fillOpacity={i % 3 === 0 ? 0.92 : 1} stroke="#E9FF6B" strokeWidth="1.1" className="pl-seg" style={{ animationDelay: `${i * 0.28}s` }} />
-          <path d="M-8,0H8M0,-11V11" stroke={i % 3 === 0 ? "#07080A" : "#E9FF6B"} strokeWidth="0.9" />
-        </g>
-      ))}
+      {c.segs.map((s, i) => {
+        const f = c.info[i];
+        const alt = i % 3 === 0;
+        return (
+          <g key={i} data-seg="" transform={`translate(${s[0].toFixed(1)} ${s[1].toFixed(1)}) rotate(${((segAngle(c, i) * 180) / Math.PI).toFixed(1)})`}>
+            <g transform={`scale(${(f.scale * f.sx).toFixed(2)} ${(f.scale * f.sy).toFixed(2)})`}>
+              {f.organs.map((o, k) => <Organ key={k} o={o} color={color} />)}
+              <rect x="-8" y="-11" width="16" height="22" fill={alt ? color : "#07080A"} fillOpacity={alt ? 0.92 : 1} stroke="#E9FF6B" strokeWidth="1.1" className="pl-seg" style={{ animationDelay: `${i * 0.28}s` }} />
+              <path d="M-8,0H8M0,-11V11" stroke={alt ? "#07080A" : "#E9FF6B"} strokeWidth="0.9" />
+            </g>
+          </g>
+        );
+      })}
       <g data-body="" transform={`translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})`}>
         <path data-blob="" d={blobPath(0, 0, c.radii, c.dir)} fill={color} style={{ filter: `drop-shadow(0 0 7px ${color})` }} />
+        {c.eyes.map((e, i) => (
+          <g key={i} transform={`translate(${e.x.toFixed(1)} ${e.y.toFixed(1)})`}>
+            <circle r={e.r} fill="#F3F1EC" stroke="#07080A" strokeWidth="1" />
+            <circle r={e.r * 0.5} cx={e.r * 0.15} fill="#07080A" />
+          </g>
+        ))}
         {avatar ? (
           <>
             <clipPath id={clip}><circle r="20" /></clipPath>
@@ -106,6 +119,21 @@ function Specimen({ seed, color, avatar, svgRef }: { seed: string; color: string
         )}
       </g>
     </svg>
+  );
+}
+
+/** 節についたひれ・とげ・こぶ（節の座標。±y が左右） */
+function Organ({ o, color }: { o: OrganT; color: string }) {
+  const y0 = o.side * 11;
+  const y1 = o.side * (11 + o.len);
+  const x1 = o.len * Math.sin(o.tilt);
+  if (o.kind === "fin") return <path d={`M-6,${y0}L${(x1 + 2).toFixed(1)},${y1.toFixed(1)}L7,${y0}Z`} fill={color} fillOpacity="0.35" stroke={color} strokeWidth="0.9" />;
+  if (o.kind === "spike") return <path d={`M-1.5,${y0}L${x1.toFixed(1)},${(o.side * (11 + o.len * 1.2)).toFixed(1)}L1.5,${y0}`} fill="#E9FF6B" stroke="#E9FF6B" strokeWidth="0.6" />;
+  return (
+    <g stroke={color} strokeWidth="0.9">
+      <path d={`M0,${y0}L${x1.toFixed(1)},${y1.toFixed(1)}`} fill="none" />
+      <circle cx={x1} cy={y1} r={1.5 + o.len * 0.14} fill="#F4FF9A" stroke="none" />
+    </g>
   );
 }
 
@@ -183,6 +211,7 @@ export function ProfileCard() {
   const title = about.ownerTitle ?? "";
   const joined = about.joinedAt ?? Date.now();
   const days = Math.max(1, Math.floor((Date.now() - joined) / 86_400_000) + 1);
+  const tokens = about.tokensTotal ?? 0;
   const hasName = !about.ownerIsDefault;
   const press = useLongPress(() => setMenu(true));
 
@@ -207,7 +236,7 @@ export function ProfileCard() {
     try {
       let specimen = svgRef.current.innerHTML;
       if (about.ownerAvatar) specimen = specimen.split(about.ownerAvatar).join(await toDataUrl(about.ownerAvatar));
-      const svg = cardSvg({ specimen, name: hasName ? about.owner : "", title, color, days, joined: fmtDay(joined) });
+      const svg = cardSvg({ specimen, name: hasName ? about.owner : "", title, color, days, joined: fmtDay(joined), tokens });
       await saveBlob(await svgToPng(svg, 1240, 1800), "plasmod-card.png");
       toast(t("カードを保存した"));
       setMenu(false);
@@ -228,7 +257,7 @@ export function ProfileCard() {
             <span>PLATE {String(days).padStart(4, "0")}</span>
           </span>
           <span className="relative block aspect-[300/290] w-full overflow-hidden rounded-t-[999px] border" style={{ borderColor: color }}>
-            <Specimen key={about.owner} seed={about.owner} color={color} avatar={about.ownerAvatar} svgRef={svgRef} />
+            <Specimen key={about.owner} seed={about.owner} tokens={tokens} color={color} avatar={about.ownerAvatar} svgRef={svgRef} />
           </span>
           <span className="mt-3.5 truncate font-sans text-[30px] font-black leading-tight tracking-tight text-white">{hasName ? about.owner : t("あなたの名前")}</span>
           <span className="min-h-[1.4em] truncate text-[13px] tracking-wide" style={{ color }}>{title || t("長押しで肩書きを足す")}</span>
@@ -244,7 +273,13 @@ export function ProfileCard() {
                 <span className="flex items-center px-1.5 tabular-nums">{fmtDay(joined)}</span>
               </span>
             </span>
-            <span className="text-right text-[11px] font-bold leading-tight tracking-[0.12em]" style={{ color }}>SO<br />ELECTRIC</span>
+            <span className="flex flex-col items-end gap-2" style={{ color }}>
+              <span className="flex flex-col items-end leading-none" aria-label={`${t("使ったトークン")} ${tokens.toLocaleString()}`}>
+                <span className="text-[8.5px] font-bold tracking-[0.18em] opacity-75">TOKENS</span>
+                <span className="mt-0.5 text-[19px] font-extrabold tabular-nums">{fmtTokens(tokens)}</span>
+              </span>
+              <span className="text-right text-[11px] font-bold leading-tight tracking-[0.12em]">SO<br />ELECTRIC</span>
+            </span>
           </span>
         </div>
       </div>

@@ -18,6 +18,8 @@ export interface About {
   ownerColor?: string;
   ownerAvatar?: string;
   joinedAt?: number;
+  /** 使ったトークンの総数（生き物の育ち具合） */
+  tokensTotal?: number;
   /** 初回の案内を終えたか */
   setupDone?: boolean;
   developer: string;
