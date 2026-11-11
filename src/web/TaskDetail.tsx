@@ -1,4 +1,5 @@
 // タスクの詳細（本文・つながり・記録）
+import { Glyph, IconButton } from "./sheet";
 import { ing } from "./dots";
 import type { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -85,7 +86,7 @@ function LinkPicker({ selfId, exclude, onPick, onClose }: { selfId: number; excl
         ))}
       </ul>
       <div className="flex justify-end border-t border-line px-2 py-1.5">
-        <button onClick={onClose} className="rounded-md px-2.5 py-1 text-[12px] text-mute hover:text-ink">閉じる</button>
+        <IconButton name="close" label="閉じる" onClick={onClose} className="!size-8" size={16} />
       </div>
     </div>
   );
@@ -417,7 +418,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
                     <span className="flex w-28 flex-none items-center gap-2 text-mute">リンク</span>
                     <span className="min-w-0 flex-1 truncate text-ink-2">
                       {src}
-                      {task.url && <a href={task.url} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue">開く ↗</a>}
+                      {task.url && <IconButton name="external" label="元を開く" href={task.url} external size={15} className="!ml-1 !size-6 align-middle text-blue" />}
                     </span>
                   </div>
                 )}
@@ -448,7 +449,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
                 <div className="flex items-baseline pb-2 text-[12px] font-semibold text-mute">
                   このタスクに触れているメモ
                   {task.ref && (
-                    <a href={`#/memo/new?${new URLSearchParams({ link: task.ref, ...(task.project ? { project: task.project } : {}) })}`} className="ml-auto font-normal text-ink-2">＋ メモを書く</a>
+                    <a href={`#/memo/new?${new URLSearchParams({ link: task.ref, ...(task.project ? { project: task.project } : {}) })}`} className="ml-auto font-normal text-ink-2" aria-label="メモを書く" title="メモを書く"><Glyph name="plus" size={16} /></a>
                   )}
                 </div>
                 {mentions.length === 0 && <div className="text-[12.5px] text-mute">まだありません。メモに [[{task.ref ?? "TASK-123"}]] と書くと、ここに出ます</div>}

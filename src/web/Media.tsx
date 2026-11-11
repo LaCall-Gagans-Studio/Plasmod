@@ -1,4 +1,5 @@
 // チャットに出す写真・ファイル。画像はその場に表示してタップで拡大、PDF・その他は開く／保存。
+import { IconButton } from "./sheet";
 import { useEffect, useState } from "react";
 import type { MediaItem } from "../shared/types";
 import { RichText } from "./markdown";
@@ -15,7 +16,7 @@ function Image({ m, onOpen }: { m: MediaItem; onOpen: () => void }) {
     return (
       <span className="flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-[11px] text-mute">
         🖼 {m.name}（表示できなかった）
-        <a href={dl(m.url)} className="underline">保存</a>
+        <IconButton name="download" label="保存" href={dl(m.url)} size={16} className="!size-7" />
       </span>
     );
   return (
@@ -36,7 +37,7 @@ function Lightbox({ m, onClose }: { m: MediaItem; onClose: () => void }) {
       <div className="flex items-center gap-3 px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] text-[12px] text-white/80">
         <span className="min-w-0 flex-1 truncate">{m.name}</span>
         <a href={dl(m.url)} onClick={(e) => e.stopPropagation()} className="rounded-md border border-white/30 px-2.5 py-1.5">保存</a>
-        <button type="button" onClick={onClose} aria-label="閉じる" className="flex size-9 items-center justify-center text-[18px]">×</button>
+        <IconButton name="close" label="閉じる" onClick={onClose} />
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center p-2">
         <img src={m.url} alt={m.name} className="max-h-full max-w-full object-contain" onClick={(e) => e.stopPropagation()} />
@@ -66,7 +67,7 @@ function MarkdownPreview({ m, onClose }: { m: MediaItem; onClose: () => void }) 
     <div role="dialog" aria-label={`${m.name} のプレビュー`} className="fixed inset-0 z-50 flex flex-col bg-paper md:inset-y-0 md:left-auto md:right-0 md:w-[min(560px,45vw)] md:border-l md:border-line md:shadow-xl">
       <div className="flex items-center gap-3 border-b border-line px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] text-[12px] text-ink-2">
         <span className="min-w-0 flex-1 truncate font-semibold text-ink">{m.name}</span>
-        <a href={dl(m.url)} className="rounded-md border border-line-2 px-2.5 py-1.5">保存</a>
+        <IconButton name="download" label="保存" href={dl(m.url)} tone="chip" />
         <button type="button" onClick={onClose} aria-label="閉じる" className="flex size-9 items-center justify-center text-[18px]">×</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[13px] leading-6 text-ink">
@@ -91,9 +92,9 @@ function FileCard({ m, onPreview }: { m: MediaItem; onPreview?: () => void }) {
         <span className="block truncate font-semibold text-ink">{m.name}</span>
         {m.size != null && <span className="text-[10.5px] text-mute">{size(m.size)}</span>}
       </span>
-      {onPreview && <button type="button" onClick={onPreview} className="flex-none rounded-md border border-line-2 px-2 py-1">プレビュー</button>}
-      {m.kind === "pdf" && <a href={m.url} target="_blank" rel="noopener noreferrer" className="flex-none rounded-md border border-line-2 px-2 py-1">開く</a>}
-      <a href={dl(m.url)} className="flex-none rounded-md border border-line-2 px-2 py-1">保存</a>
+      {onPreview && <IconButton name="eye" label="プレビュー" onClick={onPreview} tone="chip" className="!size-8" size={16} />}
+      {m.kind === "pdf" && <IconButton name="external" label="開く" href={m.url} external tone="chip" className="!size-8" size={16} />}
+      <IconButton name="download" label="保存" href={dl(m.url)} tone="chip" className="!size-8" size={16} />
     </span>
   );
 }

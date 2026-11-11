@@ -1,4 +1,5 @@
 // メモの編集画面
+import { Glyph } from "./sheet";
 import { ing } from "./dots";
 import { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -553,7 +554,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                 <section className="mt-6 border-t border-line pt-4" aria-label="子のメモ">
                   <div className="flex items-baseline pb-2 text-[12px] font-semibold text-mute">
                     子のメモ
-                    <a href={`#/memo/new?${new URLSearchParams({ parent: String(id), ...(draft.project.trim() ? { project: draft.project.trim() } : {}) })}`} className="ml-auto font-normal text-ink-2">＋ 子のメモを書く</a>
+                    <a href={`#/memo/new?${new URLSearchParams({ parent: String(id), ...(draft.project.trim() ? { project: draft.project.trim() } : {}) })}`} className="ml-auto font-normal text-ink-2" aria-label="子のメモを書く" title="子のメモを書く"><Glyph name="plus" size={16} /></a>
                   </div>
                   {children.length === 0 && <div className="text-[12.5px] text-mute">まだありません</div>}
                   {children.map((m) => (
@@ -571,7 +572,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                 <section className="mt-6 border-t border-line pb-24 pt-4" aria-label="関連するメモ">
                   <div className="flex items-baseline pb-2 text-[12px] font-semibold text-mute">
                     このメモに触れているメモ
-                    <a href={`#/memo/new?${new URLSearchParams({ link: ref, ...(draft.project.trim() ? { project: draft.project.trim() } : {}) })}`} className="ml-auto font-normal text-ink-2">＋ メモを書く</a>
+                    <a href={`#/memo/new?${new URLSearchParams({ link: ref, ...(draft.project.trim() ? { project: draft.project.trim() } : {}) })}`} className="ml-auto font-normal text-ink-2" aria-label="メモを書く" title="メモを書く"><Glyph name="plus" size={16} /></a>
                   </div>
                   {mentions.length === 0 && <div className="text-[12.5px] text-mute">まだありません。別のメモに [[{ref}]] と書くと、ここに出ます</div>}
                   {mentions.map((m) => (

@@ -1,6 +1,6 @@
 // 長押しで下から出るメニューの共通の部品。チャットの一覧とタスクで同じ見た目にする。
 // 浮いたカード（スマホは下、広い画面は真ん中）に、見出し・大きなボタンの列・行を並べ、消す操作は別のかたまりに分ける。
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 const PATHS: Record<string, ReactNode> = {
   open: <path d="M5 12h14M13 6l6 6-6 6" />,
@@ -36,6 +36,19 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M5 18l5-5 3 3 3-3 3 3" />
     </>
   ),
+  close: <path d="M6 6l12 12M18 6L6 18" />,
+  pause: <path d="M9 5v14M15 5v14" />,
+  play: <path d="M8 5l11 7-11 7z" />,
+  list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="2.8" />
+    </>
+  ),
+  external: <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />,
+  back: <path d="M19 12H5M11 6l-6 6 6 6" />,
+  retry: <path d="M20 5v5h-5M4 19v-5h5M5.6 9A7 7 0 0118 7.5L20 10M18.4 15A7 7 0 016 16.5L4 14" />,
   calendar: (
     <>
       <rect x="3.5" y="5" width="17" height="15" rx="2" />
@@ -106,14 +119,82 @@ export function DangerButton({ label, disabled, onClick }: { label: string; disa
 }
 
 /** 消す前の確かめ */
-export function ConfirmDelete({ text, busy, onCancel, onConfirm }: { text: string; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+export function ConfirmDelete({ text, busy, label = "削除する", onCancel, onConfirm }: { text: string; busy: boolean; label?: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <div className="flex flex-col gap-3 p-3.5">
       <p className="m-0 px-0.5 text-[13.5px] leading-relaxed text-ink-2">{text}</p>
       <div className="flex gap-2">
         <button onClick={onCancel} className="h-11 flex-1 rounded-2xl bg-chip/70 text-[14px] font-medium text-ink">キャンセル</button>
-        <button onClick={onConfirm} disabled={busy} className="h-11 flex-1 rounded-2xl bg-[#c2410c] text-[14px] font-semibold text-white disabled:opacity-50">削除する</button>
+        <button onClick={onConfirm} disabled={busy} className="h-11 flex-1 rounded-2xl bg-[#c2410c] text-[14px] font-semibold text-white disabled:opacity-50">{label}</button>
       </div>
     </div>
   );
+}
+
+/** 文字の代わりに絵で出すボタン（href があればリンク）。説明（aria-label と title）は必ず付ける */
+export function IconButton({
+  name,
+  label,
+  onClick,
+  href,
+  tone = "plain",
+  size = 18,
+  disabled,
+  className = "",
+  download,
+  external,
+}: {
+  name: keyof typeof PATHS;
+  label: string;
+  onClick?: () => void;
+  href?: string;
+  tone?: "plain" | "chip" | "danger" | "solid";
+  size?: number;
+  disabled?: boolean;
+  className?: string;
+  download?: boolean;
+  external?: boolean;
+}) {
+  const look = {
+    plain: "text-mute hover:text-ink",
+    chip: "bg-chip text-ink-2 hover:bg-line/60",
+    danger: "text-mute hover:text-red-ink",
+    solid: "bg-ink text-paper",
+  }[tone];
+  const cls = `inline-flex size-9 flex-none items-center justify-center rounded-full no-underline transition-colors disabled:opacity-40 ${look} ${className}`;
+  const icon = <Glyph name={name} size={size} />;
+  if (href !== undefined)
+    return (
+      <a href={href} aria-label={label} title={label} className={cls} {...(download ? { download: "" } : {})} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+        {icon}
+      </a>
+    );
+  return (
+    <button type="button" aria-label={label} title={label} disabled={disabled} onClick={onClick} className={cls}>
+      {icon}
+    </button>
+  );
+}
+
+/** 取り返しのつかない操作の前に出す警告。ask(文, 実行する関数) で開き、node を画面のどこかに置く */
+export function useConfirm() {
+  const [req, setReq] = useState<{ text: string; run: () => void; label?: string } | null>(null);
+  const node = req && (
+    <Sheet label="確認" onClose={() => setReq(null)}>
+      <SheetCard>
+        <ConfirmDelete
+          text={req.text}
+          label={req.label}
+          busy={false}
+          onCancel={() => setReq(null)}
+          onConfirm={() => {
+            const run = req.run;
+            setReq(null);
+            run();
+          }}
+        />
+      </SheetCard>
+    </Sheet>
+  );
+  return { ask: (text: string, run: () => void, label?: string) => setReq({ text, run, label }), node };
 }

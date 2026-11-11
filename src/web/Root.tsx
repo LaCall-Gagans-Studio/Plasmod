@@ -1,5 +1,6 @@
 // root 作業の承認（plasmod-rootd）。依頼の中身を全文見て、パスワードを入れたときだけ root が実行する。
 // パスワードはこの端末のメモリに一瞬あるだけ（保存しない・URL にもログにも出さない）。照合は root 側。
+import { Glyph, IconButton } from "./sheet";
 import { ing } from "./dots";
 import { useEffect, useRef, useState } from "react";
 import { Page, ago } from "./ui";
@@ -144,7 +145,7 @@ function RootList() {
   }, []);
   const locked = lock && lock.locked_until * 1000 > Date.now();
   return (
-    <Page title="root 作業" current="#/settings" right={<a href="#/settings" className="text-[13px] text-mute">戻る</a>}>
+    <Page title="root 作業" current="#/settings" right={<IconButton name="back" label="設定へ戻る" href="#/settings" />}>
       <div className="flex flex-col gap-3 px-4 pb-6 pt-2">
         <p className="m-0 text-xs text-mute">エージェントが頼んだ root の作業です。中身を全部読んで、パスワードを入れたときだけ実行されます。</p>
         <RunBox />
@@ -264,7 +265,7 @@ function RootDetail({ id }: { id: string }) {
   const files = d ? (action ? d.files.filter((f) => !ACTION_FILES.has(f.name)) : d.files) : [];
 
   return (
-    <Page title="root 作業" current="#/settings" right={<a href="#/root" className="text-[13px] text-mute">一覧</a>}>
+    <Page title="root 作業" current="#/settings" right={<IconButton name="list" label="依頼の一覧" href="#/root" />}>
       <div className="flex flex-col gap-3 px-4 pb-8 pt-2">
         {error && <div className="text-[13px] text-red-ink">{error}</div>}
         {d && (
@@ -384,8 +385,8 @@ function RootDetail({ id }: { id: string }) {
                       placeholder="パスワード"
                     />
                     <div className="flex gap-2">
-                      <button type="submit" disabled={busy || !pw} className="flex-1 rounded-lg bg-ink px-3 py-2.5 text-sm font-bold text-paper disabled:opacity-40">元に戻す</button>
-                      <button type="button" onClick={() => setUndoOpen(false)} disabled={busy} className="rounded-lg border border-line-2 px-4 py-2.5 text-sm">やめる</button>
+                      <button type="submit" disabled={busy || !pw} aria-label="元に戻す" title="元に戻す" className="flex flex-1 items-center justify-center rounded-lg bg-ink px-3 py-2.5 text-paper disabled:opacity-40"><Glyph name="undo" /></button>
+                      <button type="button" onClick={() => setUndoOpen(false)} disabled={busy} aria-label="やめる" title="やめる" className="flex items-center justify-center rounded-lg border border-line-2 px-4 py-2.5"><Glyph name="close" /></button>
                     </div>
                   </form>
                 )}

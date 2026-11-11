@@ -5,7 +5,7 @@ import type { Memo, MemoSummary, Project, ProjectStatus } from "../shared/types"
 import { memoRef } from "../shared/memo-ref";
 import { memoSync } from "./memo-db";
 import { json } from "./memo-light";
-import { ConfirmDelete, DangerButton, Sheet, SheetCard, TileButton, TileLink, Tiles } from "./sheet";
+import { ConfirmDelete, DangerButton, Sheet, SheetCard, TileButton, TileLink, Tiles, Glyph } from "./sheet";
 import { CopyRef, haptic, toast, useLongPress, writeClipboard } from "./touch";
 
 /** 開いているメニューを1つ持つ部品 */
@@ -186,8 +186,8 @@ export function ProjectMenu() {
               className="h-11 rounded-2xl border border-line-2 bg-transparent px-3 text-[14px] text-ink outline-none"
             />
             <div className="flex gap-2">
-              <button onClick={() => setName(null)} className="h-11 flex-1 rounded-2xl bg-chip/70 text-[14px] font-medium text-ink">キャンセル</button>
-              <button onClick={saveName} disabled={busy} className="h-11 flex-1 rounded-2xl bg-ink text-[14px] font-semibold text-paper disabled:opacity-50">変える</button>
+              <button onClick={() => setName(null)} aria-label="やめる" title="やめる" className="flex h-11 flex-1 items-center justify-center rounded-2xl bg-chip/70 text-ink"><Glyph name="close" /></button>
+              <button onClick={saveName} disabled={busy} aria-label="名前を変える" title="名前を変える" className="flex h-11 flex-1 items-center justify-center rounded-2xl bg-ink text-paper disabled:opacity-50"><Glyph name="check" /></button>
             </div>
           </div>
         ) : (

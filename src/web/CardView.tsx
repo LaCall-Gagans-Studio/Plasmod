@@ -1,3 +1,4 @@
+import { IconButton } from "./sheet";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { ing } from "./dots";
 import type { Card, CardOption, Snapshot, SnoozeKind } from "../shared/types";
@@ -372,7 +373,7 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
           <div className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
             {card.source && <span className="rounded-full bg-chip px-2.5 py-1 font-mono">{SOURCE[card.source] ?? card.source}</span>}
             {card.ref && <span className="rounded-full border border-line px-2.5 py-1 font-mono">{card.ref}</span>}
-            {card.url && <a href={card.url} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line-2 px-2.5 py-1 text-blue">開く ↗</a>}
+            {card.url && <IconButton name="external" label="元を開く" href={card.url} external tone="chip" size={16} className="text-blue" />}
           </div>
         )}
         {card.proposals && card.proposals.length > 0 && (

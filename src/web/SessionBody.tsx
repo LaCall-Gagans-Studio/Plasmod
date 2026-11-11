@@ -1,4 +1,5 @@
 // セッションの本文（会話・ターミナルの表示）
+import { IconButton, useConfirm } from "./sheet";
 import { Dots, MiniAmoeba } from "./dots";
 import { createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentProfile, ChatMessage, HermesMessage, NousCredits, SessionView } from "../shared/types";
@@ -122,6 +123,7 @@ export function Thumb({ f, onRemove }: { f: File; onRemove?: () => void }) {
 
 /** 送信中・送れなかった自分の発言。サーバーの返事を待たずに先に出す */
 function OutgoingBubble({ o }: { o: Outgoing }) {
+  const { ask, node } = useConfirm();
   return (
     <div className="flex max-w-[88%] flex-col items-end gap-1 self-end md:max-w-[70%]">
       <div className={`whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-chip px-3 py-2 text-[13px] leading-relaxed text-ink ${o.status === "sending" ? "opacity-70" : ""} ${o.status === "failed" ? "ring-1 ring-orange" : ""}`}>
@@ -137,10 +139,11 @@ function OutgoingBubble({ o }: { o: Outgoing }) {
       {o.status === "failed" && (
         <span className="flex items-center gap-2 text-[11px] text-orange-ink" role="alert">
           送れなかった{o.error ? `（${o.error}）` : ""}
-          <button onClick={() => void retry(o.key)} className="rounded-md border border-orange px-2 py-0.5">再送</button>
-          <button onClick={() => discard(o.key)} className="text-mute underline-offset-2 hover:underline">消す</button>
+          <IconButton name="retry" label="再送" onClick={() => void retry(o.key)} size={15} className="!size-7 text-orange-ink" />
+          <IconButton name="trash" label="消す" onClick={() => ask("送れなかった発言を消します。書いた内容は戻せません。", () => discard(o.key))} tone="danger" size={15} className="!size-7" />
         </span>
       )}
+      {node}
     </div>
   );
 }
