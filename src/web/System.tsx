@@ -217,13 +217,14 @@ function Agents({ snap }: { snap: Snapshot | null }) {
     if (!r.ok) throw new Error((b as { error?: string } | null)?.error ?? `HTTP ${r.status}`);
     return b as T;
   };
-  useEffect(() => {
-    get<AgentInfo[]>("/api/system/agents").then(setList).catch((e) => {
-      setList([]);
+  const reload = () => {
+    get<AgentInfo[]>("/api/system/agents").then((l) => { setList(l); setListError(null); }).catch((e) => {
+      setList((x) => x ?? []);
       setListError(String(e instanceof Error ? e.message : e).startsWith("HTTP 50") ? "読み込めませんでした。開き直してください" : String(e instanceof Error ? e.message : e));
     });
-    get<ModelEntry[]>("/api/system/models").then(setModels).catch(() => setModels([]));
-  }, []);
+    get<ModelEntry[]>("/api/system/models").then(setModels).catch(() => setModels((x) => x ?? []));
+  };
+  useEffect(reload, []);
   const modelsOf = (a: AgentInfo) => (models ?? []).filter((m) => (a.kind === "claude-code" ? m.key.startsWith("dev:") : m.key === `hermes:${a.id}`));
   const choose = async (m: ModelEntry, choice: string, label: string) => {
     if (saving) return;
@@ -256,6 +257,19 @@ function Agents({ snap }: { snap: Snapshot | null }) {
       {listError && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{listError}</div>}
       {settings.error && <div className="rounded-xl bg-orange/10 px-3 py-2 text-xs text-orange-ink lg:col-span-2">{settings.error}</div>}
       {msg && <div className={`rounded-xl px-3 py-2 text-xs lg:col-span-2 ${msg.ok ? "bg-lime-soft text-lime-ink" : "bg-orange/10 text-orange-ink"}`}>{msg.text}</div>}
+      <div className="flex flex-col gap-1.5 lg:col-span-2">
+        <button
+          onClick={() => void settings.rediscover().then((ok) => ok && reload())}
+          disabled={settings.scan.state === "busy"}
+          className="min-h-10 self-start rounded-full border border-line-2 px-4 text-[12.5px] font-semibold text-ink-2 hover:bg-chip disabled:opacity-50"
+        >
+          {settings.scan.state === "busy" ? ing("探している…") : "エージェント一覧を再検出"}
+        </button>
+        {settings.scan.text && (
+          <div role={settings.scan.state === "error" ? "alert" : "status"} className={`rounded-xl px-3 py-2 text-xs ${settings.scan.state === "error" ? "bg-orange/10 text-orange-ink" : "bg-lime-soft text-lime-ink"}`}>{settings.scan.text}</div>
+        )}
+        <div className="text-[11px] leading-relaxed text-mute">一覧に出ることと、チャットがつながることは別。つながるかはセッションの画面で確かめる</div>
+      </div>
       {settings.teams.length > 0 && <TeamsEditor teams={settings.teams} agents={settings.agents ?? []} onChange={() => void settings.loadTeams()} />}
       {players.map((p, n) => {
         const a = (list ?? []).find((i) => i.id === p.id);

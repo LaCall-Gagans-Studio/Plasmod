@@ -118,6 +118,18 @@ export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, regi
     return c.json({ agents: registry.all() });
   });
 
+  // Hermes で足したエージェントを、再起動なしで一覧に入れる。見つかったものは既定のチーム（既存の設定は変えない）
+  app.post("/api/agents-settings/rediscover", async (c) => {
+    if (!registry) return c.json({ ok: false, error: "使えない" }, 404);
+    try {
+      const { added } = await registry.refresh();
+      hub.changed();
+      return c.json({ ok: true, added, agents: registry.all() });
+    } catch (e) {
+      return c.json({ ok: false, error: e instanceof Error ? e.message : String(e), agents: registry.all() }, 502);
+    }
+  });
+
   app.patch("/api/agents-settings/:id", async (c) => {
     if (!registry) return c.json({ ok: false, error: "使えない" }, 404);
     const b = await c.req.json<{ name?: unknown; color?: unknown; hidden?: unknown; avatar?: unknown; role?: unknown; team?: unknown }>().catch(() => ({}) as Record<string, unknown>);

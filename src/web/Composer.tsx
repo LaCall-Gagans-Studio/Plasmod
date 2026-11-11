@@ -5,6 +5,7 @@ import { MicButton } from "./speech";
 import { Icon } from "./ui";
 import { recall, remember } from "./session-data";
 import { Thumb } from "./SessionBody";
+import { continueList } from "./list-continue";
 
 const PICK_ACCEPT = "image/*,application/pdf,text/*,application/zip,application/json,.md,.csv,.docx,.xlsx,.pptx";
 
@@ -135,7 +136,16 @@ export function Composer({ onSend, placeholder, busy, draftKey }: { onSend: (tex
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 submitNow();
+                return;
               }
+              // 日本語入力の確定の Enter には触れない。修飾キーつきも対象外（送信は Ctrl/⌘+Enter のまま）
+              if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.nativeEvent.isComposing) return;
+              const el = e.currentTarget;
+              const edit = continueList(el.value, el.selectionStart, el.selectionEnd);
+              if (!edit) return;
+              e.preventDefault();
+              setText(edit.value);
+              requestAnimationFrame(() => el.setSelectionRange(edit.caret, edit.caret));
             }}
             onPaste={(e) => {
               const imgs = Array.from(e.clipboardData.files);
