@@ -9,6 +9,7 @@ import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync,
 import { join } from "node:path";
 import type { HabitStore } from "./habits";
 import { MergeError, type MergeDesk } from "./merge";
+import { RecurError, type RecurringStore } from "./recurring";
 import { MemoError, type MemoStore } from "./memos";
 import { TASK_STATUSES, TaskError, type TaskStatus, type TaskStore } from "./tasks";
 
@@ -49,6 +50,7 @@ export class MemoSpool {
     private onTasks: () => void = () => {},
     private habits: HabitStore | null = null,
     private merge: MergeDesk | null = null,
+    private recurring: RecurringStore | null = null,
   ) {
     this.inDir = join(dir, "in");
     this.outDir = join(dir, "out");
@@ -113,7 +115,7 @@ export class MemoSpool {
       const as = typeof req.as === "string" && AS_RE.test(req.as) ? req.as : null;
       reply = { ok: true, result: this.run(String(req.op ?? ""), req.args ?? {}, as ? `${agent}/${as}` : agent) };
     } catch (e) {
-      reply = { ok: false, error: e instanceof Error ? e.message : String(e), status: e instanceof MemoError || e instanceof TaskError || e instanceof MergeError ? e.status : 500 };
+      reply = { ok: false, error: e instanceof Error ? e.message : String(e), status: e instanceof MemoError || e instanceof TaskError || e instanceof MergeError || e instanceof RecurError ? e.status : 500 };
     }
     drop();
     const tmp = join(this.outDir, `${id}.tmp`);
@@ -137,6 +139,7 @@ export class MemoSpool {
       this.onTasks();
       return { enabled: this.merge.enabled, request: r };
     }
+    if (op.startsWith("recur.")) return this.runRecur(op.slice("recur.".length), a);
     // ルーティーンは読むだけ（チェックはオーナーが画面で付ける）
     if (op === "habit.list") {
       if (!this.habits) throw new MemoError("ルーティーンは使えない", 404);
@@ -269,5 +272,44 @@ export class MemoSpool {
       default:
         throw new TaskError(`知らない操作: task.${op}`, 400);
     }
+  }
+
+  /** 繰り返しのルール。同じ題のルールは1件にまとまる（add は、あれば渡した項目だけ直す） */
+  private runRecur(op: string, a: Record<string, unknown>): unknown {
+    const rec = this.recurring;
+    if (!rec) throw new RecurError("繰り返しのルールは使えない", 404);
+    const id = () => {
+      const n = Number(a.id);
+      if (!Number.isSafeInteger(n) || n <= 0) throw new RecurError("id が要る");
+      return n;
+    };
+    const fields = { title: a.title, body: a.body, project: a.project, cadence: a.cadence, anchor: a.anchor, leadDays: a.leadDays, enabled: a.enabled, agent: a.agent };
+    // 渡されなかった項目は触らない（undefined のまま）
+    const given = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+    let out: unknown;
+    switch (op) {
+      case "list":
+        return { rules: rec.list() };
+      case "add": {
+        const title = String(a.title ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+        const same = title ? rec.list().find((r) => r.title.toLowerCase() === title) : undefined;
+        out = same ? { action: "updated", rule: rec.update(same.id, given) } : { action: "created", rule: rec.create(given) };
+        break;
+      }
+      case "edit":
+        out = { action: "updated", rule: rec.update(id(), given) };
+        break;
+      case "remove":
+        rec.remove(id());
+        out = { action: "removed" };
+        break;
+      case "skip":
+        out = { action: a.skip === false ? "unskipped" : "skipped", rule: rec.skip(id(), a.day, a.skip !== false) };
+        break;
+      default:
+        throw new RecurError(`知らない操作: recur.${op}`);
+    }
+    if (rec.tick().length) this.onTasks();
+    return out;
   }
 }

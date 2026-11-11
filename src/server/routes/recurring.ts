@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { RecurError } from "../recurring";
 import type { RouteContext } from "./context";
 
-export function recurringRoutes({ app, recurring, hub }: RouteContext) {
+export function recurringRoutes({ app, recurring, hub, cfg }: RouteContext) {
   if (!recurring) return;
   const fail = (c: Context, e: unknown) => c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, e instanceof RecurError ? e.status : 500);
   const idOf = (c: Context) => {
@@ -17,7 +17,9 @@ export function recurringRoutes({ app, recurring, hub }: RouteContext) {
     if (recurring.tick().length) hub.changed();
   };
 
-  app.get("/api/recurring", (c) => c.json({ rules: recurring.list() }));
+  /** 担当にできるエージェント（いるプロファイルのうち、オーナー宛てでないもの） */
+  const agents = () => cfg.profiles.filter((p) => recurring.agentOk(p.id)).map((p) => ({ id: p.id, name: p.name }));
+  app.get("/api/recurring", (c) => c.json({ rules: recurring.list(), agents: agents() }));
   app.post("/api/recurring", async (c) => {
     try {
       const r = recurring.create(await body(c));

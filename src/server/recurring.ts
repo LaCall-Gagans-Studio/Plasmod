@@ -55,11 +55,12 @@ interface Row {
   anchor: string;
   lead_days: number;
   enabled: number;
+  agent: string | null;
   created_at: number;
   updated_at: number;
 }
 
-const toRule = (r: Row, skips: string[] = []): RecurringRule => ({ id: r.id, title: r.title, body: r.body, project: r.project, cadence: JSON.parse(r.cadence) as Cadence, anchor: r.anchor, leadDays: r.lead_days, enabled: !!r.enabled, skips, createdAt: r.created_at, updatedAt: r.updated_at });
+const toRule = (r: Row, skips: string[] = []): RecurringRule => ({ id: r.id, title: r.title, body: r.body, project: r.project, cadence: JSON.parse(r.cadence) as Cadence, anchor: r.anchor, leadDays: r.lead_days, enabled: !!r.enabled, agent: r.agent, skips, createdAt: r.created_at, updatedAt: r.updated_at });
 
 export interface RuleInput {
   title?: unknown;
@@ -69,6 +70,8 @@ export interface RuleInput {
   anchor?: unknown;
   leadDays?: unknown;
   enabled?: unknown;
+  /** 担当のエージェント。null か空で、オーナー（Todo） */
+  agent?: unknown;
 }
 
 export const SOURCE = "recur";
@@ -96,7 +99,13 @@ export class RecurringStore {
       day TEXT NOT NULL,
       PRIMARY KEY (rule_id, day)
     )`);
+    if (!(db.query("PRAGMA table_info(recurring_rules)").all() as { name: string }[]).some((c) => c.name === "agent")) db.exec("ALTER TABLE recurring_rules ADD COLUMN agent TEXT");
   }
+
+  /** 担当にできるエージェントか（本番は index.ts で、いるプロファイルかつオーナー宛てでないものに絞る）。正しい ID を返す */
+  agentOk: (id: string) => string | null = (id) => id;
+  /** 担当のエージェントがいる回を、カンバンに渡す（本番は index.ts で）。渡せるまでは Todo のまま */
+  delegate: ((task: Task, rule: RecurringRule) => Promise<void>) | null = null;
 
   private skipsOf(id: number): string[] {
     return (this.db.query("SELECT day FROM recurring_skips WHERE rule_id = ? ORDER BY day").all(id) as { day: string }[]).map((x) => x.day);
@@ -140,14 +149,23 @@ export class RecurringStore {
     const project = i.project !== undefined ? (String(i.project ?? "").trim().slice(0, 60) || null) : cur?.project ?? null;
     const body = i.body !== undefined ? String(i.body).slice(0, 20_000) : cur?.body ?? "";
     const enabled = i.enabled !== undefined ? !!i.enabled : cur?.enabled ?? true;
-    return { title, cadence, anchor, lead, project, body, enabled };
+    let agent = cur?.agent ?? null;
+    if (i.agent !== undefined) {
+      const v = String(i.agent ?? "").trim();
+      if (!v) agent = null;
+      else {
+        agent = this.agentOk(v);
+        if (!agent) throw new RecurError(`担当のエージェント「${v}」は使えない（いないか、オーナー宛て）`);
+      }
+    }
+    return { title, cadence, anchor, lead, project, body, enabled, agent };
   }
 
   create(i: RuleInput, now = Date.now()): RecurringRule {
     const f = this.fields(i, undefined, now);
     const r = this.db
-      .query("INSERT INTO recurring_rules (title, body, project, cadence, anchor, lead_days, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(f.title, f.body, f.project, JSON.stringify(f.cadence), f.anchor, f.lead, f.enabled ? 1 : 0, now, now);
+      .query("INSERT INTO recurring_rules (title, body, project, cadence, anchor, lead_days, enabled, agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(f.title, f.body, f.project, JSON.stringify(f.cadence), f.anchor, f.lead, f.enabled ? 1 : 0, f.agent, now, now);
     return this.get(Number(r.lastInsertRowid));
   }
 
@@ -155,8 +173,8 @@ export class RecurringStore {
     const cur = this.get(id);
     const f = this.fields(i, cur, now);
     this.db
-      .query("UPDATE recurring_rules SET title = ?, body = ?, project = ?, cadence = ?, anchor = ?, lead_days = ?, enabled = ?, updated_at = ? WHERE id = ?")
-      .run(f.title, f.body, f.project, JSON.stringify(f.cadence), f.anchor, f.lead, f.enabled ? 1 : 0, now, id);
+      .query("UPDATE recurring_rules SET title = ?, body = ?, project = ?, cadence = ?, anchor = ?, lead_days = ?, enabled = ?, agent = ?, updated_at = ? WHERE id = ?")
+      .run(f.title, f.body, f.project, JSON.stringify(f.cadence), f.anchor, f.lead, f.enabled ? 1 : 0, f.agent, now, id);
     return this.get(id);
   }
 
@@ -183,10 +201,27 @@ export class RecurringStore {
       if (!rule.enabled || this.hasOpen(rule.id)) continue;
       const due = occurrences(rule, today, shift(today, rule.leadDays)).find((d) => !rule.skips.includes(d));
       if (!due) continue;
-      const t = this.tasks.spawn({ source: SOURCE, key: `${rule.id}:${due}`, title: rule.title, body: rule.body, project: rule.project, due }, "recur", now);
-      if (t) made.push(t);
+      const t = this.tasks.spawn({ source: SOURCE, key: `${rule.id}:${due}`, title: rule.title, body: rule.body, project: rule.project, due, agent: rule.agent }, "recur", now);
+      if (t) {
+        made.push(t);
+        if (rule.agent) void this.hand(t, rule);
+      }
     }
     return made;
+  }
+
+  /** 担当のエージェントに渡す。渡せなかったら Todo のまま残し、理由をタスクに書く（オーナーが見て拾える） */
+  private async hand(t: Task, rule: RecurringRule) {
+    try {
+      if (!this.delegate) throw new Error("カンバンにつながっていない");
+      await this.delegate(t, rule);
+    } catch (e) {
+      try {
+        this.tasks.comment(t.id, `${rule.agent} に渡せなかった（Todo のまま）: ${e instanceof Error ? e.message : String(e)}`, "recur");
+      } catch {
+        /* 消された */
+      }
+    }
   }
 
   start(onMade: () => void) {

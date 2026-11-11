@@ -20,6 +20,14 @@ BackLog に入れるのは、オーナーに決めてほしい問いだけ。題
   plasmod-task parent ID 親ID|--none          # 親を付ける・外す（ID は TASK-123 か #の数字）
   plasmod-task link ID 相手ID [--kind related|blocks] [--off]   # つながりを足す・外す（blocks＝ID が相手を止めている）
   plasmod-task links ID                        # 親・子・つながりの一覧
+  plasmod-task recur list                      # 繰り返しのルール（週ごと・月ごと・数日ごと）を読む
+  plasmod-task recur add --title 題 --cadence weekly:mon [--agent acct] [--lead 1] [--start YYYY-MM-DD] [--project P] [本文]
+                                               # 期日が近づくと Todo（--agent があればカンバンで任せて AI-Driven）として自動で出る
+                                               # 周期: daily / weekdays / weekly:mon,thu / monthly:25 / every:3（起点から3日ごと）
+                                               # 同じ題は1件にまとまる（あれば渡した項目だけ直す）
+  plasmod-task recur edit ID [--title ..] [--cadence ..] [--agent ..|--no-agent] [--lead N] [--on|--off]
+  plasmod-task recur rm ID                     # ルールを消す（作ったタスクは残る）
+  plasmod-task recur skip ID YYYY-MM-DD [--undo]   # その回だけやめる
   plasmod-task merge owner/repo#N [--sha SHA] [メモ]   # マージの承認を頼む（オーナーが画面で承認するとアプリがマージ）
   plasmod-task merge-status owner/repo#N       # 頼んだマージがどうなったか
 
@@ -100,6 +108,87 @@ def line(t):
     return f"{num:<9} {status_ja(t):<8} {t['source']}:{t.get('sourceKey') or '-'}  {t['title']}  {extra}".rstrip()
 
 
+WD = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "日": 0, "月": 1, "火": 2, "水": 3, "木": 4, "金": 5, "土": 6}
+WD_JA = ["日", "月", "火", "水", "木", "金", "土"]
+
+
+def cadence(text):
+    """daily / weekdays / weekly:mon,thu / monthly:25 / every:3 → アプリの周期"""
+    kind, _, rest = text.strip().partition(":")
+    kind = kind.lower()
+    try:
+        if kind in ("daily", "weekdays") and not rest:
+            return {"type": kind}
+        if kind == "weekly":
+            days = [WD[d.strip().lower()] if d.strip().lower() in WD else int(d) for d in rest.split(",") if d.strip()]
+            return {"type": "weekly", "days": days}
+        if kind == "monthly":
+            return {"type": "monthly", "day": int(rest)}
+        if kind == "every":
+            return {"type": "every", "n": int(rest)}
+    except (KeyError, ValueError):
+        pass
+    sys.exit(f"plasmod-task: 周期が読めない: {text}（daily / weekdays / weekly:mon,thu / monthly:25 / every:3）")
+
+
+def cadence_ja(c):
+    t = c["type"]
+    return {"daily": "毎日", "weekdays": "平日"}.get(t) or (
+        "毎週 " + "・".join(WD_JA[d] for d in c["days"]) if t == "weekly" else f"毎月 {c['day']}日" if t == "monthly" else f"{c['n']}日ごと"
+    )
+
+
+def rule_line(r):
+    who = r.get("agent") or "オーナー"
+    return f"#{r['id']} {r['title']}  {cadence_ja(r['cadence'])}・{r['leadDays']}日前から・担当 {who}" + ("" if r["enabled"] else "（停止中）") + (f"・やめた回 {','.join(r['skips'])}" if r.get("skips") else "")
+
+
+def recur(a, out):
+    if a.rcmd == "list":
+        r = call("recur.list", {}, a.as_)
+        if a.json:
+            return out(r)
+        for x in r["rules"]:
+            print(rule_line(x))
+        if not r["rules"]:
+            print("（繰り返しのルールは無い）")
+        return
+    if a.rcmd == "rm":
+        r = call("recur.remove", {"id": a.id}, a.as_)
+        return out(r) if a.json else print(f"#{a.id} を消した（作ったタスクは残る）")
+    if a.rcmd == "skip":
+        r = call("recur.skip", {"id": a.id, "day": a.day, "skip": not a.undo}, a.as_)
+        return out(r) if a.json else print(("戻した: " if a.undo else "やめた: ") + rule_line(r["rule"]))
+    args = {}
+    if a.rcmd == "add":
+        body = a.body if a.body is not None else ("" if sys.stdin.isatty() else sys.stdin.read())
+        args = {"title": a.title, "cadence": cadence(a.cadence), "body": body}
+    else:
+        args["id"] = a.id
+        if a.title is not None:
+            args["title"] = a.title
+        if a.cadence is not None:
+            args["cadence"] = cadence(a.cadence)
+        if a.body is not None:
+            args["body"] = a.body
+        if a.no_agent:
+            args["agent"] = ""
+        if a.on or a.off:
+            args["enabled"] = bool(a.on)
+    if a.agent is not None:
+        args["agent"] = a.agent
+    if a.lead is not None:
+        args["leadDays"] = a.lead
+    if a.start is not None:
+        args["anchor"] = a.start
+    if a.project is not None:
+        args["project"] = a.project
+    r = call("recur.add" if a.rcmd == "add" else "recur.edit", args, a.as_)
+    if a.json:
+        return out(r)
+    print(({"created": "足した", "updated": "直した"}.get(r["action"], r["action"])) + ": " + rule_line(r["rule"]))
+
+
 def main():
     p = argparse.ArgumentParser(prog="plasmod-task", description="Plasmod のタスクを登録・参照する")
     p.add_argument("--json", action="store_true")
@@ -121,6 +210,37 @@ def main():
     s.add_argument("--parent", help="親のタスク（TASK-123 か #の数字）")
     s.add_argument("--status", default="inbox", choices=["inbox", "todo", "doing"], help="新しく作るときの状態。BackLog（既定）はオーナーに決めてほしい問いだけ。計画の子は todo（オーナー）か doing（エージェント）")
     s.add_argument("body", nargs="?")
+
+    s = sub.add_parser("recur", help="繰り返しのルール（週ごと・月ごと・数日ごとに、タスクが自動で出る）")
+    rs = s.add_subparsers(dest="rcmd", required=True)
+    rs.add_parser("list", help="ルールの一覧")
+    r = rs.add_parser("add", help="足す（同じ題は1件にまとまる）")
+    r.add_argument("--title", required=True)
+    r.add_argument("--cadence", required=True, help="daily / weekdays / weekly:mon,thu / monthly:25 / every:3")
+    r.add_argument("--agent", help="担当のエージェント。あれば浮上と同時にカンバンで任せる（AI-Driven）。無ければオーナーの Todo")
+    r.add_argument("--lead", type=int, help="期日の何日前に出すか（既定 0）")
+    r.add_argument("--start", help="数え始める日 YYYY-MM-DD（every は起点）")
+    r.add_argument("--project")
+    r.add_argument("body", nargs="?")
+    r = rs.add_parser("edit", help="直す（渡した項目だけ変わる）")
+    r.add_argument("id", type=int)
+    r.add_argument("--title")
+    r.add_argument("--cadence")
+    r.add_argument("--agent")
+    r.add_argument("--no-agent", action="store_true", help="担当を外してオーナーの Todo に戻す")
+    r.add_argument("--lead", type=int)
+    r.add_argument("--start")
+    r.add_argument("--project")
+    r.add_argument("--body")
+    g = r.add_mutually_exclusive_group()
+    g.add_argument("--on", action="store_true")
+    g.add_argument("--off", action="store_true")
+    r = rs.add_parser("rm", help="消す（作ったタスクは残る）")
+    r.add_argument("id", type=int)
+    r = rs.add_parser("skip", help="その回だけやめる")
+    r.add_argument("id", type=int)
+    r.add_argument("day", help="YYYY-MM-DD")
+    r.add_argument("--undo", action="store_true", help="やめたのを戻す")
 
     s = sub.add_parser("status", help="タスクの状態を動かす（誰が登録したものでも）")
     s.add_argument("id", help="TASK-123 か #の数字")
@@ -176,6 +296,8 @@ def main():
         if not r["habits"]:
             print("（ルーティーンは無い）")
         return
+    if a.cmd == "recur":
+        return recur(a, out)
     if a.cmd == "add":
         body = a.body if a.body is not None else ("" if sys.stdin.isatty() else sys.stdin.read())
         r = call(

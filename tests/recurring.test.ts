@@ -159,3 +159,61 @@ describe("期日の範囲で読む（カレンダー）", () => {
     expect(titles({})).toHaveLength(5);
   });
 });
+
+describe("担当のエージェント", () => {
+  test("担当があるルールの回は、浮上と同時にカンバンに渡す。渡せなければ Todo のまま理由を残す", async () => {
+    const { tasks, rec } = setup();
+    rec.agentOk = (id) => (["acct", "dev"].includes(id) ? id : null);
+    const handed: string[] = [];
+    rec.delegate = async (t, rule) => void handed.push(`${rule.agent}:${t.title}`);
+    expect(() => rec.create({ title: "x", cadence: { type: "daily" }, agent: "nobody" })).toThrow("使えない");
+    const r = rec.create({ title: "請求書の確認", cadence: { type: "daily" }, anchor: "2026-11-01", leadDays: 0, agent: "acct" }, at("2026-11-01"));
+    expect(r.agent).toBe("acct");
+    const made = rec.tick(at("2026-11-09"));
+    expect(made[0]).toMatchObject({ agent: "acct", status: "todo" });
+    await Promise.resolve();
+    expect(handed).toEqual(["acct:請求書の確認"]);
+    // 担当を外すとオーナーの Todo。空文字・null で外れる
+    expect(rec.update(r.id, { agent: "" }).agent).toBeNull();
+
+    // 渡せなかった回
+    const { tasks: t2, rec: r2 } = setup();
+    r2.delegate = async () => {
+      throw new Error("カンバンが応答しない");
+    };
+    r2.create({ title: "週報", cadence: { type: "daily" }, anchor: "2026-11-01", leadDays: 0, agent: "dev" }, at("2026-11-01"));
+    const [t] = r2.tick(at("2026-11-09"));
+    await new Promise((r) => setTimeout(r, 0));
+    const after = t2.get(t.id)!;
+    expect(after.status).toBe("todo");
+    expect(t2.events(t.id).some((e) => e.text.includes("カンバンが応答しない"))).toBe(true);
+    void tasks;
+  });
+});
+
+describe("エージェントからの登録（plasmod-task recur）", () => {
+  test("add は同じ題を1件にまとめ、edit・skip・remove ができる", async () => {
+    const { MemoSpool } = await import("../src/server/memo-spool");
+    const { MemoStore } = await import("../src/server/memos");
+    const db = new Database(":memory:");
+    const tasks = new TaskStore(db, "TASK");
+    const rec = new RecurringStore(db, tasks);
+    let changed = 0;
+    const sp = new MemoSpool(new MemoStore(db), "/nonexistent", new Map(), tasks, () => changed++, null, null, rec);
+    const run = (op: string, a: Record<string, unknown>) => sp.run(op, a, "hermes/mica") as { action: string; rule: { id: number; title: string; cadence: unknown; agent: string | null; enabled: boolean; skips: string[] } };
+    const a = run("recur.add", { title: "月次の請求", cadence: { type: "monthly", day: 25 }, anchor: "2026-01-01", leadDays: 3, agent: "" });
+    expect(a.action).toBe("created");
+    const b = run("recur.add", { title: " 月次の請求 ", leadDays: 5 });
+    expect(b.action).toBe("updated");
+    expect(b.rule.id).toBe(a.rule.id);
+    expect(b.rule.cadence).toEqual({ type: "monthly", day: 25 }); // 渡さなかった項目は変わらない
+    expect(rec.list()).toHaveLength(1);
+    expect(run("recur.edit", { id: a.rule.id, enabled: false }).rule.enabled).toBe(false);
+    expect(run("recur.skip", { id: a.rule.id, day: "2027-01-25" }).rule.skips).toEqual(["2027-01-25"]);
+    expect((sp.run("recur.list", {}, "x") as { rules: unknown[] }).rules).toHaveLength(1);
+    expect(() => run("recur.add", { title: "x", cadence: { type: "weekly", days: [] } })).toThrow(RecurError);
+    expect(() => sp.run("recur.nope", {}, "x")).toThrow(RecurError);
+    run("recur.remove", { id: a.rule.id });
+    expect(rec.list()).toHaveLength(0);
+  });
+});
