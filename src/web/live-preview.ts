@@ -539,10 +539,10 @@ const humanHighlight = StateField.define<{ attr: Attribution | null; deco: Decor
 
 const theme = EditorView.theme({
   ".cm-lp-human": { backgroundColor: "var(--color-yellow-soft)", boxShadow: "inset 0 -2px 0 color-mix(in srgb, var(--color-orange) 45%, transparent)", borderRadius: "2px" },
-  "&": { fontSize: "15px", color: "var(--color-ink)", backgroundColor: "transparent" },
+  "&": { fontSize: "15px", minWidth: "0", maxWidth: "100%", color: "var(--color-ink)", backgroundColor: "transparent" },
   "&.cm-focused": { outline: "none" },
-  ".cm-scroller": { fontFamily: "var(--font-sans)", lineHeight: "1.75", overflow: "visible" },
-  ".cm-content": { padding: "4px 0 40vh", caretColor: "var(--color-ink)" },
+  ".cm-scroller": { minWidth: "0", fontFamily: "var(--font-sans)", lineHeight: "1.75", overflow: "visible" },
+  ".cm-content": { minWidth: "0", flexShrink: "1", padding: "4px 0 40vh", caretColor: "var(--color-ink)" },
   ".cm-line": { padding: "0" },
   ".cm-cursor": { borderLeftColor: "var(--color-ink)", borderLeftWidth: "2px" },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": { backgroundColor: "color-mix(in srgb, var(--color-blue) 22%, transparent) !important" },
@@ -589,7 +589,7 @@ const theme = EditorView.theme({
   ".cm-lp-fence": { color: "var(--color-mute)" },
   ".cm-lp-fence-quiet": { fontSize: "0.7em", lineHeight: "1.6" },
   ".cm-lp-table-raw": { fontFamily: "var(--font-mono)", fontSize: "0.84em", color: "var(--color-ink-2)" },
-  ".cm-lp-table": { margin: "0.4em 0", overflowX: "auto", cursor: "text" },
+  ".cm-lp-table": { margin: "0.4em 0", maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain", WebkitOverflowScrolling: "touch", cursor: "text" },
   ".cm-lp-table table": { borderCollapse: "collapse", fontSize: "0.88em", width: "max-content", minWidth: "50%" },
   ".cm-lp-table th, .cm-lp-table td": { border: "1px solid var(--color-line)", padding: "0.3em 0.7em", textAlign: "left", verticalAlign: "top", maxWidth: "26rem" },
   ".cm-lp-taskref": {
