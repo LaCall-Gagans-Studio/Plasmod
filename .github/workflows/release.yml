@@ -1,0 +1,57 @@
+# サーバーの配布パッケージ（#32 段階1）。タグ v3.0.0 のような形で動く。
+# テスト・型・ビルドを通したうえで plasmod-<版>.tar.gz と manifest.json を作り、GitHub の出所証明（attestation）をつけて Release に置く。
+# 手動実行（workflow_dispatch）は作るだけで Release にしない（成果物は Actions に置く）。
+# secrets は使わない（GITHUB_TOKEN だけ）。署名は GitHub の OIDC による attestation。
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "試しにパッケージを作る版（例 3.0.0）。Release にはしない"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write      # Release に置く
+      id-token: write      # attestation の署名（OIDC）
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: 版
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="$INPUT_VERSION"; fi
+          echo "$VERSION" | grep -Eq '^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$' || { echo "版の形が違う: $VERSION"; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bunx tsc --noEmit
+      - run: bun run build
+      - name: パッケージを作る
+        run: bun scripts/build-release.ts "$VERSION" out
+      - name: 出所の証明
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: out/plasmod-${{ env.VERSION }}.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plasmod-${{ env.VERSION }}
+          path: out/
+      - name: Release に置く
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/plasmod-*.tar.gz out/manifest.json out/SHA256SUMS --title "Plasmod $VERSION" --notes "サーバーパッケージ。manifest.json の指紋と、\`gh attestation verify\` で確かめられる。"
