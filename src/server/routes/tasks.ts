@@ -49,11 +49,12 @@ export function tasksRoutes({ app, cfg, hub, memos, tasks, taskSync }: RouteCont
   // 古い端末は dismissed を送ってくる（Done・理由は不要として受ける）
   const statusOf = (v: unknown): TaskStatus | undefined => (v === LEGACY_DISMISSED ? "done" : typeof v === "string" && (TASK_STATUSES as string[]).includes(v) ? (v as TaskStatus) : undefined);
   const doneReasonOf = (b: Record<string, unknown>): TaskDoneReason | null | undefined => (b.status === LEGACY_DISMISSED || b.doneReason === "unneeded" ? "unneeded" : b.doneReason === null ? null : undefined);
+  const dayParam = (v: string | undefined) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
   app.get("/api/apptasks", (c) => {
     if (!tasks) return c.json({ ok: false, error: "タスクは使えない" }, 404);
     const status = (c.req.query("status") ?? "").split(",").map(statusOf).filter((s): s is TaskStatus => !!s);
     const project = c.req.query("project");
-    return c.json(tasks.view({ status: status.length ? status : undefined, q: (c.req.query("q") ?? "").slice(0, 200), project: project === undefined ? null : project, tag: c.req.query("tag") || null, hideDoneApprovals: c.req.query("approvals") !== "1" }));
+    return c.json(tasks.view({ status: status.length ? status : undefined, q: (c.req.query("q") ?? "").slice(0, 200), project: project === undefined ? null : project, tag: c.req.query("tag") || null, hideDoneApprovals: c.req.query("approvals") !== "1", dueFrom: dayParam(c.req.query("dueFrom")), dueTo: dayParam(c.req.query("dueTo")) }));
   });
   app.get("/api/apptasks-by-kanban/:id", (c) => {
     const t = tasks?.byKanban(c.req.param("id"));

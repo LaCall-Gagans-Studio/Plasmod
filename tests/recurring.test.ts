@@ -147,3 +147,15 @@ describe("その回だけやめる", () => {
     expect((await send(`/api/recurring/999/skip`, { day: "2030-02-28" })).status).toBe(404);
   });
 });
+
+describe("期日の範囲で読む（カレンダー）", () => {
+  test("範囲の中の期日だけ返る。範囲を指定しないときは全部", () => {
+    const { tasks } = setup();
+    for (const [i, due] of ["2026-10-31", "2026-11-01", "2026-11-30", "2026-12-01"].entries()) tasks.create({ title: `t${i}`, due });
+    tasks.create({ title: "期日なし" });
+    const titles = (o: { dueFrom?: string; dueTo?: string }) => tasks.view({ status: ["todo"], ...o }).tasks.map((t) => t.title).sort();
+    expect(titles({ dueFrom: "2026-11-01", dueTo: "2026-11-30" })).toEqual(["t1", "t2"]);
+    expect(titles({ dueFrom: "2026-12-01" })).toEqual(["t3"]);
+    expect(titles({})).toHaveLength(5);
+  });
+});

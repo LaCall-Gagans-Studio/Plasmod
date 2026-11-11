@@ -173,21 +173,23 @@ export function Calendar() {
   const [sel, setSel] = useState(today);
   const [edit, setEdit] = useState<Draft | null>(null);
 
+  // 見えている範囲（月なら前後の週まで）
+  const first = mode === "month" ? weekStart(monthStart(sel)) : weekStart(sel);
+  const last = mode === "month" ? shiftDay(weekStart(shiftDay(addMonths(sel, 1), -1)), 6) : shiftDay(first, 6);
+
   const load = useCallback(async () => {
     try {
-      const [r, l] = await Promise.all([call<{ rules: RecurringRule[] }>("/api/recurring"), fetchTaskList(new URLSearchParams("status=inbox,todo,doing,done"))]);
+      // 期日がこの範囲のタスクだけ読む（動かすたびに読み直す）
+      const [r, l] = await Promise.all([call<{ rules: RecurringRule[] }>("/api/recurring"), fetchTaskList(new URLSearchParams({ status: "inbox,todo,doing,done", dueFrom: first, dueTo: last }))]);
       setRules(r.rules);
       setTasks(l.tasks);
       setError(null);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     }
-  }, []);
+  }, [first, last]);
   useEffect(() => void load(), [load]);
 
-  // 見えている範囲
-  const first = mode === "month" ? weekStart(monthStart(sel)) : weekStart(sel);
-  const last = mode === "month" ? shiftDay(weekStart(shiftDay(addMonths(sel, 1), -1)), 6) : shiftDay(first, 6);
   const days = useMemo(() => {
     const out: string[] = [];
     for (let d = first; d <= last; d = shiftDay(d, 1)) out.push(d);
