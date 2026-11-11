@@ -20,7 +20,7 @@ describe("カードの生き物", () => {
       expect(c.y).toBeLessThan(H + 20);
     }
     expect(Math.hypot(c.x - start[0], c.y - start[1])).toBeGreaterThan(0);
-    for (let i = 1; i < c.segs.length; i++) expect(Math.hypot(c.segs[i][0] - c.segs[i - 1][0], c.segs[i][1] - c.segs[i - 1][1])).toBeCloseTo(18, 1);
+    for (let i = 1; i < c.segs.length; i++) expect(Math.hypot(c.segs[i][0] - c.segs[i - 1][0], c.segs[i][1] - c.segs[i - 1][1])).toBeCloseTo(c.gap, 1);
     expect(wirePoints(c, c.wires[0], t).length).toBeGreaterThan(2);
   });
 
@@ -38,6 +38,8 @@ describe("カードの生き物", () => {
     expect(mid.segs.length).toBeGreaterThan(small.segs.length);
     expect(big.segs.length).toBeGreaterThan(mid.segs.length);
     expect(big.segs.length).toBeLessThanOrEqual(26);
+    expect(big.gap).toBeLessThan(small.gap); // 節が増えたら間を詰める
+    expect(big.gap * big.segs.length).toBeLessThanOrEqual(300);
     const reach = (c: ReturnType<typeof makeCreature>) => c.wires.reduce((a, w) => a + w.lens.reduce((x, y) => x + y, 0), 0);
     expect(reach(big)).toBeGreaterThan(reach(mid));
     expect(reach(mid)).toBeGreaterThan(reach(small));
@@ -66,7 +68,7 @@ describe("カードの生き物", () => {
       expect(c.x).toBeGreaterThan(-20);
       expect(c.x).toBeLessThan(W + 20);
     }
-    for (let i = 1; i < c.segs.length; i++) expect(Math.hypot(c.segs[i][0] - c.segs[i - 1][0], c.segs[i][1] - c.segs[i - 1][1])).toBeCloseTo(18, 1);
+    for (let i = 1; i < c.segs.length; i++) expect(Math.hypot(c.segs[i][0] - c.segs[i - 1][0], c.segs[i][1] - c.segs[i - 1][1])).toBeCloseTo(c.gap, 1);
   });
 
   test("育ち具合は単調で、トークンの表示は短くなる", () => {

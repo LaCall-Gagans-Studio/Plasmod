@@ -5,6 +5,8 @@
 export const W = 300;
 export const H = 290;
 const GAP = 18;
+/** 体の長さの上限。節が増えたら節の間を詰めて、枠からはみ出さないようにする */
+const BODY_MAX = 300;
 const MAX_SEGS = 26;
 const MAX_JOINTS = 7;
 
@@ -73,6 +75,8 @@ export interface Creature {
   /** 向きのうねり */
   ph: number;
   segs: Pt[];
+  /** 節の間隔 */
+  gap: number;
   wires: Wire[];
   radii: number[];
   /** 育ち具合 */
@@ -107,6 +111,7 @@ export function makeCreature(seed: string, tokens = 0): Creature {
   const headScale = 1 + Math.min(g, 14) * 0.025;
   const count = Math.min(MAX_SEGS, 6 + Math.floor(g * 1.5));
 
+  const gap = Math.min(GAP, BODY_MAX / count);
   const segs: Pt[] = [];
   const info: SegInfo[] = [];
   const wires: Wire[] = [];
@@ -115,8 +120,8 @@ export function makeCreature(seed: string, tokens = 0): Creature {
   let py = y;
   let a = dir + Math.PI;
   for (let i = 0; i < count; i++) {
-    px += (i === 0 ? 32 : GAP) * Math.cos(a);
-    py += (i === 0 ? 32 : GAP) * Math.sin(a);
+    px += (i === 0 ? 32 : gap) * Math.cos(a);
+    py += (i === 0 ? 32 : gap) * Math.sin(a);
     segs.push([px, py]);
     a += 0.2;
 
@@ -178,6 +183,7 @@ export function makeCreature(seed: string, tokens = 0): Creature {
     dir,
     ph,
     segs,
+    gap,
     wires,
     radii: radii.map((v) => v * headScale),
     g,
@@ -210,7 +216,7 @@ export function step(c: Creature, dt: number, t: number) {
   // 節は前の節を追う
   let prev: Pt = [c.x, c.y];
   c.segs.forEach((s, i) => {
-    const gap = i === 0 ? 32 : GAP;
+    const gap = i === 0 ? 32 : c.gap;
     const dx = s[0] - prev[0];
     const dy = s[1] - prev[1];
     const d = Math.hypot(dx, dy) || 1;
