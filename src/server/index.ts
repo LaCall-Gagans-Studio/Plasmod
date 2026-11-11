@@ -24,6 +24,7 @@ import { ProjectStore } from "./projects";
 import { TeamStore } from "./teams";
 import { WebPush } from "./webpush";
 import { HabitStore } from "./habits";
+import { RecurringStore } from "./recurring";
 import { TaskSync } from "./task-sync";
 import { agentUids, MemoSpool } from "./memo-spool";
 import { chmodSync, existsSync, readFileSync, rmSync } from "node:fs";
@@ -111,6 +112,8 @@ const memos = new MemoStore(store.db);
 const tasks = new TaskStore(store.db, config.taskRefPrefix);
 const projects = new ProjectStore(store.db, memos, tasks);
 const habits = new HabitStore(store.db);
+const recurring = new RecurringStore(store.db, tasks);
+recurring.start(() => hub.changed());
 hub.setTasks(tasks);
 dev.onPrs = (prs, complete) => {
   if (tasks.syncPrs(prs, complete)) hub.changed();
@@ -142,7 +145,7 @@ new TokenTotal(new AppSettings(store.db)).start(() => system.usage());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
 const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
 connections.start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
+const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, recurring, teams, webPush, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,
