@@ -1,6 +1,7 @@
 // プロジェクト: 各プロジェクトのタスク（期日順の先頭）と最近のメモを、上に詰めたカードで見る画面。
 // 期限順の一覧はタスクの画面にある（#/todos?sort=due）。
 // プロジェクトを開くと、説明（Markdown）・状態・絵文字・名前と、そのプロジェクトのタスクとメモ。
+import { Glyph } from "./sheet";
 import { ing } from "./dots";
 import type { EditorView } from "@codemirror/view";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
@@ -402,7 +403,7 @@ export function ProjectPage({ snap, id }: { snap: Snapshot | null; id: number })
                 {/* メモ */}
                 <section aria-label="メモ" className="min-w-0">
                   <div className="flex items-baseline pb-1 text-[12px] font-semibold text-mute">
-                    メモ<a href={`#/memo/new?project=${encodeURIComponent(p.name)}`} className="ml-auto font-normal text-ink-2">＋ 書く</a>
+                    メモ<a href={`#/memo/new?project=${encodeURIComponent(p.name)}`} className="ml-auto font-normal text-ink-2" aria-label="メモを書く" title="メモを書く"><Glyph name="plus" size={16} /></a>
                   </div>
                   <div className="rounded-xl border border-line bg-panel py-1">
                     {d.memos.length === 0 && <div className="px-4 py-3 text-[13px] text-mute">まだありません</div>}

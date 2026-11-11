@@ -1,5 +1,6 @@
 // タスク（TASK-173 段階2）: 一覧（状態・プロジェクト・語で絞る、すぐ追加、チェックで完了）と、1件の中身。
 // 広い画面では一覧と中身を左右に並べる。見回りが登録したもの（メール・Beeper・ops）も、画面で足したものも同じ一覧。
+import { IconButton } from "./sheet";
 import { ing } from "./dots";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppTask, AppTaskList, AppTaskStatus, Snapshot } from "../shared/types";
@@ -169,7 +170,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
           </label>
           {scope === "done" && <ChipToggle on={showApprovals} onClick={() => go("approvals", showApprovals ? null : "1", false)}>承認も表示</ChipToggle>}
           <ChipToggle on={byDue} onClick={() => go("sort", byDue ? null : "due", false)}>期限順</ChipToggle>
-          <a href="#/calendar" className="flex-none rounded-full border border-line-2 px-3 py-1 text-[12.5px] text-ink-2 no-underline">カレンダー</a>
+          <IconButton name="calendar" label="カレンダー" href="#/calendar" tone="chip" size={16} className="!size-8" />
         </div>
       </div>
       {/* 必ず1行。横にスクロールさせない。幅が足りないときは件数を落とす */}

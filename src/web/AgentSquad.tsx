@@ -1,4 +1,5 @@
 // 設定のエージェント: サッカーの選手紹介のようなカード。開くと名前・顔・役割・色を変えられて、モデルと中身も見られる。
+import { IconButton, useConfirm } from "./sheet";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { type AgentInfo, type AgentProfile, DEFAULT_TEAM, type NameSync, type Team, teamOfProfile } from "../shared/types";
 import { fetchRetry } from "./api";
@@ -210,6 +211,7 @@ function Toggle({ on, label, note, onChange }: { on: boolean; label: string; not
 
 /** チームの1行。普段は色・名前・メンバーの顔だけで、押すと設定が開く */
 function TeamRow({ t, members, patch, remove }: { t: Team; members: ManagedAgent[]; patch: (b: Partial<Team>) => void; remove: () => void }) {
+  const { ask, node: confirmNode } = useConfirm();
   const [open, setOpen] = useState(false);
   return (
     <div className="overflow-hidden rounded-2xl border bg-panel" style={{ borderColor: `color-mix(in srgb, ${t.color} 45%, var(--color-line))` }}>
@@ -237,10 +239,11 @@ function TeamRow({ t, members, patch, remove }: { t: Team; members: ManagedAgent
           </div>
           <Toggle on={t.delegable} label="仕事を任せられる" note="カードの「〇〇に任せる」に出す" onChange={(v) => patch({ delegable: v })} />
           {t.id !== DEFAULT_TEAM && (
-            <button onClick={remove} className="mt-1 self-start text-[12.5px] text-red-ink">このチームを消す</button>
+            <IconButton name="trash" label="このチームを消す" onClick={() => ask(`「${t.name}」を消します。メンバーは最初のチームに移ります。`, remove)} tone="danger" className="mt-1 self-start" />
           )}
         </div>
       )}
+      {confirmNode}
     </div>
   );
 }
@@ -281,7 +284,7 @@ export function TeamsEditor({ teams, agents, onChange }: { teams: Team[]; agents
           t={t}
           members={agents.filter((a) => teamOfProfile(a, teams).id === t.id)}
           patch={(b) => void call(`/api/teams/${t.id}`, "PATCH", b)}
-          remove={() => confirm(`「${t.name}」を消しますか？（メンバーは最初のチームに移ります）`) && void call(`/api/teams/${t.id}`, "DELETE")}
+          remove={() => void call(`/api/teams/${t.id}`, "DELETE")}
         />
       ))}
     </section>

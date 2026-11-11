@@ -5,7 +5,7 @@ import type { AppTask } from "../shared/types";
 import { type Cadence, type RecurringRule, cadenceLabel, occurrences, shiftDay } from "../shared/recurrence";
 import { localDay } from "../shared/time";
 import { json } from "./memo-light";
-import { Sheet, SheetCard } from "./sheet";
+import { IconButton, Sheet, SheetCard, useConfirm } from "./sheet";
 import { fetchTaskList } from "./task-db";
 import { STATUS_LABEL, taskDot } from "./TaskRow";
 import { Page } from "./ui";
@@ -61,7 +61,7 @@ function DayItems({ items, agents, onSkip }: { items: Item[]; agents: Agents; on
               <span className={`block truncate text-[13.5px] text-ink-2 ${it.skipped ? "line-through" : ""}`}>{it.rule!.title}</span>
               <span className="block truncate text-[11px] text-mute">予定 ・ {cadenceLabel(it.rule!.cadence)} ・ {nameOf(agents, it.rule!.agent) ? `${nameOf(agents, it.rule!.agent)}が担当` : "自分"}</span>
             </span>
-            <button onClick={() => onSkip(it.rule!, it.day, !it.skipped)} className="flex-none rounded-full border border-line-2 px-2.5 py-1 text-[11px] text-ink-2 hover:bg-chip">{it.skipped ? "戻す" : "この回をやめる"}</button>
+            <IconButton name={it.skipped ? "undo" : "skip"} label={it.skipped ? "やめた回を戻す" : "この回をやめる"} onClick={() => onSkip(it.rule!, it.day, !it.skipped)} tone="chip" size={16} className="!size-8" />
           </li>
         ),
       )}
@@ -257,9 +257,8 @@ export function Calendar() {
   };
   const skip = (rule: RecurringRule, day: string, v: boolean) => act(() => call(`/api/recurring/${rule.id}/skip`, "POST", { day, skip: v }));
   const toggle = (r: RecurringRule) => act(() => call(`/api/recurring/${r.id}`, "PATCH", { enabled: !r.enabled }));
-  const remove = (r: RecurringRule) => {
-    if (confirm(`「${r.title}」のルールを消しますか？（作ったタスクは残ります）`)) void act(() => call(`/api/recurring/${r.id}`, "DELETE"));
-  };
+  const { ask, node: confirmNode } = useConfirm();
+  const remove = (r: RecurringRule) => ask(`「${r.title}」のルールを消します。作ったタスクは残ります。`, () => void act(() => call(`/api/recurring/${r.id}`, "DELETE")));
 
   const title = mode === "month" ? `${sel.slice(0, 4)}年${Number(sel.slice(5, 7))}月` : `${md(first)} 〜 ${md(last)}`;
   const seg = (on: boolean) => `min-h-8 rounded-full px-3.5 text-[12.5px] transition-colors ${on ? "bg-panel font-semibold text-ink shadow-sm" : "text-ink-2"}`;
@@ -267,7 +266,7 @@ export function Calendar() {
   const selItems = byDay.get(sel) ?? [];
 
   return (
-    <Page title="カレンダー" current="#/pj" right={<a href="#/todos" className="text-[13px] text-mute no-underline">タスク一覧 ›</a>}>
+    <Page title="カレンダー" current="#/pj" right={<IconButton name="list" label="タスク一覧" href="#/todos" />}>
       <div className="mx-auto grid w-full max-w-[1280px] grid-cols-1 gap-x-6 gap-y-4 px-4 pb-10 pt-2 md:px-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         {error && <div className="rounded-lg bg-orange-soft px-3 py-2 text-xs text-orange-ink lg:col-span-2" role="alert">{error}</div>}
 
@@ -344,7 +343,7 @@ export function Calendar() {
           <section aria-label="繰り返しのルール">
             <div className="mb-2 flex items-center px-1">
               <h2 className="m-0 text-[13px] font-semibold">繰り返しのルール</h2>
-              <button onClick={() => setEdit(draftOf(null, today))} className="ml-auto min-h-8 rounded-full bg-ink px-3.5 text-[12.5px] font-semibold text-paper">＋ 足す</button>
+              <IconButton name="plus" label="ルールを足す" onClick={() => setEdit(draftOf(null, today))} tone="solid" className="ml-auto !size-8" />
             </div>
             {rules.length === 0 && <div className="rounded-2xl border border-dashed border-line-2 px-3 py-4 text-center text-[12.5px] text-mute">まだありません。「週報を毎週月曜」のように足せます</div>}
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
@@ -354,15 +353,16 @@ export function Calendar() {
                     <div className="truncate text-[13.5px] text-ink">{r.title}</div>
                     <div className="truncate text-[11px] text-mute">{cadenceLabel(r.cadence)} ・ {r.leadDays}日前から ・ {r.agent ? `${nameOf(agents, r.agent)}が担当` : "自分"}{r.project ? ` ・ ${r.project}` : ""}{r.enabled ? "" : " ・ 停止中"}</div>
                   </div>
-                  <button onClick={() => void toggle(r)} className="flex-none rounded-full border border-line-2 px-2.5 py-1 text-[11px] text-ink-2 hover:bg-chip">{r.enabled ? "止める" : "再開"}</button>
-                  <button onClick={() => setEdit(draftOf(r, today))} className="flex-none rounded-full border border-line-2 px-2.5 py-1 text-[11px] text-ink-2 hover:bg-chip">直す</button>
-                  <button onClick={() => remove(r)} aria-label={`${r.title}を消す`} className="flex-none px-1 text-[16px] text-mute hover:text-ink">×</button>
+                  <IconButton name={r.enabled ? "pause" : "play"} label={r.enabled ? "止める" : "再開する"} onClick={() => void toggle(r)} size={16} className="!size-8" />
+                  <IconButton name="rename" label="直す" onClick={() => setEdit(draftOf(r, today))} size={16} className="!size-8" />
+                  <IconButton name="trash" label={`${r.title}を消す`} onClick={() => remove(r)} tone="danger" size={16} className="!size-8" />
                 </li>
               ))}
             </ul>
           </section>
         </aside>
       </div>
+      {confirmNode}
       {edit && <RuleSheet draft={edit} agents={agents} onClose={() => setEdit(null)} onSaved={() => void load()} />}
     </Page>
   );

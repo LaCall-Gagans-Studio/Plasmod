@@ -2,7 +2,7 @@
 // 題名の変更と削除はアプリの中だけ（Hermes の題名・記録はそのまま）。App に1つだけ置き、どの一覧からでも openSessionMenu で開く。
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { type AgentProfile, capsOfAgent, runtimeOf, type SessionInfo } from "../shared/types";
-import { ConfirmDelete, DangerButton, Sheet, SheetCard, TileButton, TileLink, Tiles } from "./sheet";
+import { ConfirmDelete, DangerButton, Sheet, SheetCard, TileButton, TileLink, Tiles, Glyph } from "./sheet";
 import { haptic, useLongPress, writeClipboard } from "./touch";
 import { Avatar, ago } from "./ui";
 
@@ -139,8 +139,8 @@ export function SessionMenu() {
               />
             </label>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setMode("menu")} className="h-11 flex-1 rounded-2xl bg-chip/70 text-[14px] font-medium text-ink">キャンセル</button>
-              <button type="submit" disabled={busy || !name.trim()} className="h-11 flex-1 rounded-2xl bg-ink text-[14px] font-semibold text-paper disabled:opacity-40">変える</button>
+              <button type="button" onClick={() => setMode("menu")} aria-label="やめる" title="やめる" className="flex h-11 flex-1 items-center justify-center rounded-2xl bg-chip/70 text-ink"><Glyph name="close" /></button>
+              <button type="submit" disabled={busy || !name.trim()} aria-label="名前を変える" title="名前を変える" className="flex h-11 flex-1 items-center justify-center rounded-2xl bg-ink text-paper disabled:opacity-40"><Glyph name="check" /></button>
             </div>
             {s.originalTitle && (
               <button type="button" onClick={() => void mark({ rename: null })} disabled={busy} className="self-start text-[12.5px] text-ink-2 underline-offset-2 hover:underline disabled:opacity-40">
