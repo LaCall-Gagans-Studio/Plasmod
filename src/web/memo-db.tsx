@@ -2,48 +2,13 @@
 import { ing } from "./dots";
 import { useSyncExternalStore } from "react";
 import type { Memo, MemoList } from "../shared/types";
+import { createIdb } from "./memo-idb";
 import { type LocalListOptions, type MemoApi, type MemoDb, type MemoFields, MemoSync, type PendingChange, type SyncStatus } from "./memo-sync";
 
-const DB_NAME = "plasmod-memos";
 const TIMEOUT_MS = 8000;
 const EVERY_MS = 30_000;
 
-function open(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB_NAME, 1);
-    r.onupgradeneeded = () => {
-      r.result.createObjectStore("memos", { keyPath: "id" });
-      r.result.createObjectStore("pending", { keyPath: "id" });
-      r.result.createObjectStore("meta");
-    };
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-}
-
-let opened: Promise<IDBDatabase> | null = null;
-async function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest): Promise<T> {
-  opened ??= open();
-  const db = await opened;
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(store, mode);
-    const req = fn(t.objectStore(store));
-    t.oncomplete = () => resolve(req.result as T);
-    t.onerror = t.onabort = () => reject(t.error);
-  });
-}
-
-const idb: MemoDb = {
-  allMemos: () => tx<Memo[]>("memos", "readonly", (s) => s.getAll()),
-  getMemo: (id) => tx<Memo | undefined>("memos", "readonly", (s) => s.get(id)),
-  putMemo: (m) => tx("memos", "readwrite", (s) => s.put(m)),
-  deleteMemo: (id) => tx("memos", "readwrite", (s) => s.delete(id)),
-  allPending: () => tx<PendingChange[]>("pending", "readonly", (s) => s.getAll()),
-  putPending: (p) => tx("pending", "readwrite", (s) => s.put(p)),
-  deletePending: (id) => tx("pending", "readwrite", (s) => s.delete(id)),
-  getLastSync: async () => (await tx<number | undefined>("meta", "readonly", (s) => s.get("lastSync"))) ?? 0,
-  setLastSync: (at) => tx("meta", "readwrite", (s) => s.put(at, "lastSync")),
-};
+const idb = createIdb(globalThis.indexedDB);
 
 async function call<T>(url: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS), headers: init.body ? { "Content-Type": "application/json" } : undefined });

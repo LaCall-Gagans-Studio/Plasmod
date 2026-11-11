@@ -2,6 +2,7 @@
 // 同じメモを両方で変えていたら、片方を消さずに「衝突したコピー」として両方残す。
 import type { Memo, MemoList, MemoSummary } from "../shared/types";
 import { memoIdOf } from "../shared/memo-ref";
+import { count, matchesFilter, summaryOf } from "./memo-idb";
 
 export interface MemoFields {
   title: string;
@@ -20,7 +21,10 @@ export interface PendingChange {
 }
 
 export interface MemoDb {
-  allMemos(): Promise<Memo[]>;
+  /** アーカイブ済みの写しの id（本文は読まない） */
+  archivedIds(): Promise<number[]>;
+  /** 端末の一覧。形は /api/memos と同じ。本文は語を探すときだけ読む */
+  listLocal(o: LocalListOptions): Promise<MemoList>;
   getMemo(id: number): Promise<Memo | undefined>;
   putMemo(m: Memo): Promise<void>;
   deleteMemo(id: number): Promise<void>;
@@ -135,11 +139,11 @@ export class MemoSync {
   /** 前の版で端末に入れたアーカイブを片付ける。送っていない変更があるものは残す */
   async purgeArchived() {
     const pending = new Set((await this.db.allPending()).map((p) => p.id));
-    for (const m of await this.db.allMemos()) if (m.archivedAt && !pending.has(m.id)) await this.db.deleteMemo(m.id);
+    for (const id of await this.db.archivedIds()) if (!pending.has(id)) await this.db.deleteMemo(id);
   }
 
   async list(opts: LocalListOptions = {}): Promise<MemoList> {
-    return localList(await this.db.allMemos(), opts);
+    return this.db.listLocal(opts);
   }
 
   /** 送って、取る。同時には1つだけ（走っている間に呼ばれたら、終わったあともう1回） */
@@ -239,23 +243,16 @@ export interface LocalListOptions {
   parent?: number | null;
 }
 
-/** サーバーに届かないときの一覧。形は /api/memos と同じ */
-export function localList(all: Memo[], o: LocalListOptions = {}): MemoList {
+/** 全件が手元にあるときの一覧（端末の保存と同じ結果になる基準。テストと測定で使う） */
+export function localList(all: Memo[], o: LocalListOptions = {}, limit = Infinity): MemoList {
   const live = all.filter((m) => !m.archivedAt);
-  const count = (names: string[]) => {
-    const c = new Map<string, number>();
-    for (const n of names) c.set(n, (c.get(n) ?? 0) + 1);
-    return [...c].map(([name, n]) => ({ name, count: n })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  };
   const word = o.q?.trim().toLowerCase();
   const exact = word ? memoIdOf(word) : null;
-  const memos: MemoSummary[] = all
-    .filter((m) => !!m.archivedAt === !!o.archived)
-    .filter((m) => (o.project === "" ? !m.project : o.project ? m.project === o.project : true))
-    .filter((m) => !o.tag || m.tags.includes(o.tag))
-    .filter((m) => !o.parent || m.parentId === o.parent)
+  const memos = all
+    .filter((m) => matchesFilter({ ...m, archived: !!m.archivedAt }, o))
     .filter((m) => !word || m.id === exact || `${m.title}\n${m.body}`.toLowerCase().includes(word))
     .sort((a, b) => Number(b.id === exact) - Number(a.id === exact) || b.updatedAt - a.updatedAt)
-    .map((m) => ({ id: m.id, title: m.title, excerpt: m.body.replace(/^\s*```html\s*$[\s\S]*?^\s*```\s*$/gm, "").replace(/\s+/g, " ").trim().slice(0, 120), project: m.project, tags: m.tags, parentId: m.parentId ?? null, updatedAt: m.updatedAt, archived: !!m.archivedAt }));
+    .slice(0, limit)
+    .map(summaryOf);
   return { memos, projects: count(live.flatMap((m) => (m.project ? [m.project] : []))), tags: count(live.flatMap((m) => m.tags)) };
 }
