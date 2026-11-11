@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { SnoozeKind, Snapshot } from "../shared/types";
-import { reportStartup } from "./perf";
+import { reportSnapshotSplit, reportStartup } from "./perf";
 import { type Progress, upload } from "./upload";
 
 /**
@@ -71,9 +71,14 @@ export function useSnapshot(): { snap: Snapshot | null; online: boolean } {
     let firstDone = false;
     let retries = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    const load = (): Promise<void> =>
-      fetch("/api/snapshot", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    const load = (): Promise<void> => {
+      const t0 = performance.now();
+      return fetch("/api/snapshot", { cache: "no-store" })
+        .then((r) => {
+          if (!r.ok) return Promise.reject(new Error(`HTTP ${r.status}`));
+          reportSnapshotSplit(performance.now() - t0, r.headers.get("Server-Timing"));
+          return r.json();
+        })
         .then((s) => {
           firstDone = true;
           setSnap(s);
@@ -87,6 +92,7 @@ export function useSnapshot(): { snap: Snapshot | null; online: boolean } {
             void load();
           }, Math.min(8000, 500 * 2 ** Math.min(retries, 5)));
         });
+    };
     refetchSnapshot = () => void load();
     // 最初の1枚はすぐ取りに行き、以降はストリームで受ける
     void load();

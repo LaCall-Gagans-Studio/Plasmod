@@ -6,7 +6,8 @@ import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } fr
 import type { AppTask, Project, ProjectDetail, ProjectOverview, ProjectStatus, Snapshot } from "../shared/types";
 import { TasksScreen } from "./AppTasks";
 import { TaskNode, topLevel } from "./TaskRow";
-import { BodyEditor, FolderIcon, json } from "./memo-fields";
+import { FolderIcon, json } from "./memo-light";
+import { BodyEditor } from "./memo-fields";
 import { MemoListPage } from "./Memos";
 import { PjTabs } from "./pjtabs";
 import { MemoLink, openProjectMenu } from "./pjmenus";

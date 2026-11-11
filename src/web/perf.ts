@@ -22,6 +22,18 @@ export function startupStages(t: { launch: number; origin: number; responseEnd: 
   ];
 }
 
+/** 最初の /api/snapshot の内訳: サーバーで作った時間（Server-Timing）と、残り（通信と待ち）。1回だけ送る */
+let split = false;
+export function reportSnapshotSplit(totalMs: number, serverTiming: string | null) {
+  if (split) return;
+  split = true;
+  const m = (serverTiming ?? "").match(/snap;dur=([0-9.]+)/);
+  if (!m) return;
+  const server = Number(m[1]);
+  send("startup_server", server);
+  send("startup_net", Math.max(0, totalMs - server));
+}
+
 let started = false;
 /** 最初のデータが届いて操作できるようになったとき。APK は入口の画面の時刻（?launch=）から数える */
 export function reportStartup(now = Date.now(), retries = 0) {

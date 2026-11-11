@@ -2,7 +2,8 @@
 import type { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppTask, AppTaskEvent, AppTaskLinks, AppTaskList, AppTaskStatus, MemoSummary, Snapshot } from "../shared/types";
-import { BodyEditor, FolderIcon, json, TagField } from "./memo-fields";
+import { FolderIcon, json } from "./memo-light";
+import { BodyEditor, TagField } from "./memo-fields";
 import { Icon, ago, profileOf } from "./ui";
 import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, OPEN, UNDONE_LABEL, taskDot, dueLabel, DUE_CLS, TaskRow } from "./TaskRow";
 import { AddField } from "./AddField";

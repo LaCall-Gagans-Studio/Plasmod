@@ -2,7 +2,7 @@
 // 広い画面では一覧と中身を左右に並べる。見回りが登録したもの（メール・Beeper・ops）も、画面で足したものも同じ一覧。
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppTask, AppTaskList, AppTaskStatus, Snapshot } from "../shared/types";
-import { FolderIcon, json } from "./memo-fields";
+import { FolderIcon, json } from "./memo-light";
 import { PjTabs } from "./pjtabs";
 import { AddField } from "./AddField";
 import { createTask, fetchTaskList, patchTask, taskSync, TaskSyncBadge } from "./task-db";

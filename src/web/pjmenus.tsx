@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react
 import type { Memo, MemoSummary, Project, ProjectStatus } from "../shared/types";
 import { memoRef } from "../shared/memo-ref";
 import { memoSync } from "./memo-db";
-import { json } from "./memo-fields";
+import { json } from "./memo-light";
 import { ConfirmDelete, DangerButton, Sheet, SheetCard, TileButton, TileLink, Tiles } from "./sheet";
 import { CopyRef, haptic, toast, useLongPress, writeClipboard } from "./touch";
 

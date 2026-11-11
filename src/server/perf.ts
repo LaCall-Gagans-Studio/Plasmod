@@ -2,7 +2,7 @@
 import type { Database } from "bun:sqlite";
 import type { PerfName, PerfRow } from "../shared/types";
 
-const NAMES: PerfName[] = ["startup", "startup_entry", "startup_doc", "startup_script", "startup_data", "startup_retry", "session_new", "session_reply"];
+const NAMES: PerfName[] = ["startup", "startup_entry", "startup_doc", "startup_script", "startup_data", "startup_retry", "startup_server", "startup_net", "session_new", "session_reply"];
 const VIAS = ["apk", "browser"] as const;
 const MAX_MS = 3600_000;
 const KEEP = 5000;
