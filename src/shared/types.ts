@@ -831,3 +831,15 @@ export interface PerfRow {
   p50: number;
   p90: number;
 }
+
+/** Plasmod の名前を Hermes の表示名に写した結果（#36） */
+export type NameSyncState = "synced" | "conflict" | "failed";
+export interface NameSync {
+  state: NameSyncState;
+  /** Plasmod が最後に Hermes へ書けた名前 */
+  synced?: string;
+  /** 競合のとき、Hermes 側にある名前 */
+  current?: string;
+  error?: string;
+  at: number;
+}

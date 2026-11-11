@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Context } from "hono";
 import { AppSettings, type ProfileRegistry } from "../profiles";
 import { TeamError } from "../teams";
-import { DEFAULT_TEAM } from "../../shared/types";
+import { DEFAULT_TEAM, runtimeOf } from "../../shared/types";
 import type { RouteContext } from "./context";
 
 const AVATAR_MAX = 2 * 1024 * 1024;
@@ -21,11 +21,13 @@ const AVATAR_TYPE = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" } 
 const AVATAR_FILE = /^[a-z0-9_-]{1,32}-[0-9]{1,16}\.(png|jpg|webp)$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
-export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, registry?: ProfileRegistry) {
+export function agentsRoutes({ app, cfg, hub, store, teams, names }: RouteContext, registry?: ProfileRegistry) {
+  /** 設定画面に返す一覧。Hermes のエージェントには、名前を Hermes に写した結果をつける */
+  const list = () => (registry?.all() ?? []).map((p) => (names && runtimeOf(p) === "hermes" ? { ...p, nameSync: names.get(p.id) } : p));
   // チーム
   const teamFail = (c: Context, e: unknown) => c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, e instanceof TeamError ? e.status : 500);
   const body = (c: Context) => c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
-  const teamsNow = () => ({ teams: cfg.teams, agents: registry?.all() ?? [] });
+  const teamsNow = () => ({ teams: cfg.teams, agents: list() });
   app.get("/api/teams", (c) => c.json(teamsNow()));
   app.post("/api/teams", async (c) => {
     try {
@@ -115,7 +117,7 @@ export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, regi
 
   app.get("/api/agents-settings", (c) => {
     if (!registry) return c.json({ ok: false, error: "使えない" }, 404);
-    return c.json({ agents: registry.all() });
+    return c.json({ agents: list() });
   });
 
   // Hermes で足したエージェントを、再起動なしで一覧に入れる。見つかったものは既定のチーム（既存の設定は変えない）
@@ -152,7 +154,25 @@ export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, regi
       return c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 404);
     }
     hub.changed();
-    return c.json({ agents: registry.all() });
+    // 名前を変えたら Hermes の表示名にも写す。失敗・競合でも Plasmod 側の保存は済んでいて、結果は一覧の nameSync で見える
+    const id = c.req.param("id");
+    const p = registry.all().find((x) => x.id === id);
+    if (patch.name && names && p && runtimeOf(p) === "hermes") {
+      await names.sync(id, p.name);
+      hub.changed();
+    }
+    return c.json({ agents: list() });
+  });
+
+  // Hermes への名前の反映をやり直す。force なら Hermes 側の今の値を確かめずに上書きする（競合の表示から選んだとき）
+  app.post("/api/agents-settings/:id/sync-name", async (c) => {
+    const id = c.req.param("id");
+    const p = registry?.all().find((x) => x.id === id);
+    if (!registry || !names || !p || runtimeOf(p) !== "hermes") return c.json({ ok: false, error: "このエージェントは Hermes に写せない" }, 404);
+    const b = await c.req.json<{ force?: unknown }>().catch(() => ({}) as { force?: unknown });
+    const r = await names.sync(id, p.name, b.force === true);
+    hub.changed();
+    return c.json({ ok: r.state === "synced", sync: r, agents: list() });
   });
 
   app.post("/api/agents-settings/:id/avatar", async (c) => {
@@ -170,7 +190,7 @@ export function agentsRoutes({ app, cfg, hub, store, teams }: RouteContext, regi
     await Bun.write(join(dir(), name), data);
     registry.setOverride(id, { avatar: `/api/avatars/${name}` });
     hub.changed();
-    return c.json({ agents: registry.all() });
+    return c.json({ agents: list() });
   });
 
   app.get("/api/avatars/:file", async (c) => {

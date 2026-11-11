@@ -470,6 +470,79 @@ class BrokerCreditsTest(unittest.TestCase):
                 run("credits")
 
 
+FAKE_PROFILES = '''
+import json, os
+from pathlib import Path
+def read_profile_meta(d):
+    f = Path(d) / "meta.json"
+    return {"display_name": json.loads(f.read_text())["display_name"] if f.exists() else ""}
+def set_profile_display_name(name, display):
+    home = Path(os.environ["PLASMOD_PROFILE_HOME"])
+    (home / "meta.json").write_text(json.dumps({"display_name": display}))
+    with open(os.environ["FAKE_LOG"], "a") as f:
+        f.write(json.dumps([name, display]) + "\\n")
+'''
+
+
+class DisplayNameTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.dir, "hermes_cli"))
+        open(os.path.join(self.dir, "hermes_cli", "__init__.py"), "w").close()
+        open(os.path.join(self.dir, "hermes_cli", "profiles.py"), "w").write(FAKE_PROFILES)
+        open(os.path.join(self.dir, "hermes_cli", "main.py"), "w").write("raise SystemExit('main は動かさない')\n")
+        self.home = os.path.join(self.dir, ".hermes")
+        for n in ("a", "b"):
+            os.makedirs(os.path.join(self.home, "profiles", n))
+        self.log = os.path.join(self.dir, "log")
+        cmd = ["python3", "-I", "-c", f"import sys, runpy; sys.path.insert(0, {self.dir!r}); "
+               "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)"]
+        self.hermes = os.path.join(self.dir, "hermes")
+        open(self.hermes, "w").write("#!/bin/sh\n[ \"$1\" = --print-runtime-command ] || exit 9\ncat <<'EOF'\n%s\nEOF\n" % json.dumps(cmd))
+        os.chmod(self.hermes, 0o755)
+        self.orig = broker.HERMES, broker.ENV, broker.HERMES_HOME, broker.WORK_TMP
+        broker.HERMES, broker.HERMES_HOME, broker.WORK_TMP = self.hermes, self.home, os.path.join(self.dir, "tmp")
+        broker.ENV = {**broker.ENV, "HOME": self.dir, "FAKE_LOG": self.log}
+
+    def tearDown(self):
+        broker.HERMES, broker.ENV, broker.HERMES_HOME, broker.WORK_TMP = self.orig
+
+    def written(self):
+        return [json.loads(l) for l in open(self.log)] if os.path.exists(self.log) else []
+
+    def test_reads_all_profiles(self):
+        self.assertEqual(json.loads(run("display-names")), {"default": "", "a": "", "b": ""})
+
+    def test_writes_only_the_display_name(self):
+        out = json.loads(run("set-display-name", "a", json.dumps({"name": " 経理 ", "expect": ""})))
+        self.assertEqual(out, {"ok": True, "current": "経理"})
+        self.assertEqual(self.written(), [["a", "経理"]])
+        self.assertEqual(json.loads(run("display-names"))["a"], "経理")
+
+    def test_conflict_when_hermes_changed_it(self):
+        run("set-display-name", "a", json.dumps({"name": "Hermes で変えた"}))
+        out = json.loads(run("set-display-name", "a", json.dumps({"name": "新しい", "expect": "前に書いた"})))
+        self.assertEqual(out, {"ok": False, "conflict": True, "current": "Hermes で変えた"})
+        self.assertEqual(self.written(), [["a", "Hermes で変えた"]])
+        # 確認なし（上書き）なら書ける
+        self.assertTrue(json.loads(run("set-display-name", "a", json.dumps({"name": "新しい"})))["ok"])
+
+    def test_same_value_is_not_rewritten(self):
+        run("set-display-name", "a", json.dumps({"name": "x"}))
+        out = json.loads(run("set-display-name", "a", json.dumps({"name": "x", "expect": "古い"})))
+        self.assertTrue(out["ok"])
+        self.assertEqual(len(self.written()), 1)
+
+    def test_rejects_bad_input(self):
+        for prof, arg in (("zzz", {"name": "x"}), ("../a", {"name": "x"}), ("a", {"name": ""}), ("a", {"name": "x" * 65}),
+                          ("a", {"name": "a\nb"}), ("a", {"name": 1}), ("a", {"name": "x", "expect": 1})):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                run("set-display-name", prof, json.dumps(arg))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            run("set-display-name", "a", "not json")
+        self.assertEqual(self.written(), [])
+
+
 FAKE_KANBAN_DB = '''
 import json, os
 def specify_triage_task(conn, task_id, *, title=None, body=None, assignee=None, author=None):
