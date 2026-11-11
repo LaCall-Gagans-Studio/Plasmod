@@ -70,26 +70,26 @@ const registry = new ProfileRegistry(store.db, config.profiles, () => existsSync
 let hermesProfiles: string[] = [];
 const discover = () => registry.setDiscovered([...new Set([...hermes.keys(), ...hermesProfiles])]);
 discover();
+// PLASMOD_HERMES_API を書いていなければ、Hermes のプロファイルと API キーを仲介から読む。
+// 起動時と、設定画面の「再検出」で同じ処理を使う（#35）。読めなかったときは今の一覧をそのまま残す
 if (source instanceof BrokerSource) {
-  void source
-    .call("models")
-    .then((out) => {
-      hermesProfiles = Object.keys(JSON.parse(out) as Record<string, unknown>);
-      discover();
-      hub.changed();
-    })
-    .catch((e) => console.warn("Hermes のプロファイルの一覧を読めない", e instanceof Error ? e.message : e));
-}
-// PLASMOD_HERMES_API を書いていなければ、Hermes のプロファイルと API キーを仲介から読む
-if (!config.hermesApi && source instanceof BrokerSource) {
-  void source
-    .call("endpoints")
-    .then((out) => {
-      for (const [id, ep] of parseHermesApi(out)) hermes.set(id, new HermesApi(id, ep));
-      discover();
-      hub.changed();
-    })
-    .catch((e) => console.warn("Hermes のプロファイルを読めない", e instanceof Error ? e.message : e));
+  const broker = source;
+  const load = async () => {
+    const found = Object.keys(JSON.parse(await broker.call("models")) as Record<string, unknown>);
+    const eps = config.hermesApi ? null : parseHermesApi(await broker.call("endpoints"));
+    hermesProfiles = found;
+    if (eps) for (const [id, ep] of eps) if (!hermes.has(id)) hermes.set(id, new HermesApi(id, ep));
+    discover();
+    hub.changed();
+  };
+  registry.setRefresher(load);
+  // 起動直後に仲介がまだ起きていないことがあるので、失敗したら少し待って数回やり直す
+  const boot = (n: number) =>
+    load().catch((e) => {
+      console.warn("Hermes のプロファイルの一覧を読めない", e instanceof Error ? e.message : e);
+      if (n < 3) setTimeout(() => boot(n + 1), 15_000 * 2 ** n).unref?.();
+    });
+  void boot(0);
 }
 new SessionIndexer(sessions, hub.search, (agent) => store.sessionMarks(agent)).start();
 const dev = new DevService(config.githubToken ? new GitHub(config.githubToken, fetch, config.githubApi) : null, config.githubOwner);

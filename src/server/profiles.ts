@@ -45,6 +45,11 @@ export function mergeProfiles(base: AgentProfile[], discovered: string[], overri
     });
 }
 
+export interface RefreshResult {
+  /** 今回あらたに見つかったエージェントの id */
+  added: string[];
+}
+
 export class ProfileRegistry {
   private discovered: string[] = [];
   private base: AgentProfile[];
@@ -72,6 +77,27 @@ export class ProfileRegistry {
 
   apply() {
     this.target.splice(0, this.target.length, ...this.all().filter((p) => !p.hidden));
+  }
+
+  private refresher: (() => Promise<void>) | null = null;
+  private inflight: Promise<RefreshResult> | null = null;
+
+  setRefresher(fn: () => Promise<void>) {
+    this.refresher = fn;
+  }
+
+  /** Hermes のプロファイルを読み直す。同時に走るのは1回だけ（重なった呼び出しは同じ結果を待つ）。失敗したら例外で、一覧は変わらない */
+  refresh(): Promise<RefreshResult> {
+    if (!this.refresher) return Promise.reject(new Error("Hermes の仲介につながっていない"));
+    const fn = this.refresher;
+    this.inflight ??= (async () => {
+      const before = new Set(this.all().map((p) => p.id));
+      await fn();
+      return { added: this.all().filter((p) => !before.has(p.id)).map((p) => p.id) };
+    })().finally(() => {
+      this.inflight = null;
+    });
+    return this.inflight;
   }
 
   setDiscovered(ids: string[]) {

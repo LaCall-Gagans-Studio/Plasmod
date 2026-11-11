@@ -1,6 +1,10 @@
 // チャットに出す写真・ファイル。画像はその場に表示してタップで拡大、PDF・その他は開く／保存。
 import { useEffect, useState } from "react";
 import type { MediaItem } from "../shared/types";
+import { RichText } from "./markdown";
+
+const isMarkdown = (m: MediaItem) => m.kind === "file" && /\.(md|markdown)$/i.test(m.name);
+const PREVIEW_MAX = 512 * 1024;
 
 const dl = (url: string) => url + (url.includes("?") ? "&" : "?") + "dl=1";
 const size = (n?: number) => (n == null ? "" : n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
@@ -41,7 +45,45 @@ function Lightbox({ m, onClose }: { m: MediaItem; onClose: () => void }) {
   );
 }
 
-function FileCard({ m }: { m: MediaItem }) {
+/** Markdown の下見。PC では右側のパネル（チャットはそのまま操作できる）、スマホでは全画面。見た目は返事と同じ RichText（HTML は解釈しない） */
+function MarkdownPreview({ m, onClose }: { m: MediaItem; onClose: () => void }) {
+  const [state, setState] = useState<{ text: string; cut: boolean } | "loading" | "error">("loading");
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    addEventListener("keydown", on);
+    return () => removeEventListener("keydown", on);
+  }, [onClose]);
+  useEffect(() => {
+    const ac = new AbortController();
+    setState("loading");
+    fetch(m.url, { signal: ac.signal })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((t) => setState({ text: t.slice(0, PREVIEW_MAX), cut: t.length > PREVIEW_MAX }))
+      .catch((e) => e?.name !== "AbortError" && setState("error"));
+    return () => ac.abort();
+  }, [m.url]);
+  return (
+    <div role="dialog" aria-label={`${m.name} のプレビュー`} className="fixed inset-0 z-50 flex flex-col bg-paper md:inset-y-0 md:left-auto md:right-0 md:w-[min(560px,45vw)] md:border-l md:border-line md:shadow-xl">
+      <div className="flex items-center gap-3 border-b border-line px-4 pb-2 pt-[max(env(safe-area-inset-top),12px)] text-[12px] text-ink-2">
+        <span className="min-w-0 flex-1 truncate font-semibold text-ink">{m.name}</span>
+        <a href={dl(m.url)} className="rounded-md border border-line-2 px-2.5 py-1.5">保存</a>
+        <button type="button" onClick={onClose} aria-label="閉じる" className="flex size-9 items-center justify-center text-[18px]">×</button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[13px] leading-6 text-ink">
+        {state === "loading" && <span className="text-mute">読み込み中…</span>}
+        {state === "error" && <span className="text-orange-ink" role="alert">読み込めなかった。「保存」から取り出せる</span>}
+        {typeof state === "object" && (
+          <>
+            <RichText text={state.text} />
+            {state.cut && <div className="mt-3 text-[11px] text-mute">長いので先頭だけ表示している。全文は「保存」から</div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FileCard({ m, onPreview }: { m: MediaItem; onPreview?: () => void }) {
   return (
     <span className="flex max-w-full items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2 text-[12px] text-ink-2">
       <span aria-hidden="true" className="text-[18px]">{m.kind === "pdf" ? "📕" : "📄"}</span>
@@ -49,6 +91,7 @@ function FileCard({ m }: { m: MediaItem }) {
         <span className="block truncate font-semibold text-ink">{m.name}</span>
         {m.size != null && <span className="text-[10.5px] text-mute">{size(m.size)}</span>}
       </span>
+      {onPreview && <button type="button" onClick={onPreview} className="flex-none rounded-md border border-line-2 px-2 py-1">プレビュー</button>}
       {m.kind === "pdf" && <a href={m.url} target="_blank" rel="noopener noreferrer" className="flex-none rounded-md border border-line-2 px-2 py-1">開く</a>}
       <a href={dl(m.url)} className="flex-none rounded-md border border-line-2 px-2 py-1">保存</a>
     </span>
@@ -60,8 +103,9 @@ export function MediaList({ items }: { items: MediaItem[] }) {
   if (!items.length) return null;
   return (
     <div className="mt-1.5 flex flex-col items-start gap-1.5">
-      {items.map((m) => (m.kind === "image" ? <Image key={m.url} m={m} onOpen={() => setOpen(m)} /> : <FileCard key={m.url} m={m} />))}
-      {open && <Lightbox m={open} onClose={() => setOpen(null)} />}
+      {items.map((m) => (m.kind === "image" ? <Image key={m.url} m={m} onOpen={() => setOpen(m)} /> : <FileCard key={m.url} m={m} onPreview={isMarkdown(m) ? () => setOpen(m) : undefined} />))}
+      {open && isMarkdown(open) && <MarkdownPreview m={open} onClose={() => setOpen(null)} />}
+      {open && !isMarkdown(open) && <Lightbox m={open} onClose={() => setOpen(null)} />}
     </div>
   );
 }

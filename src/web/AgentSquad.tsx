@@ -52,7 +52,27 @@ export function useAgentSettings() {
     const at = ++edits.current;
     void fetch(`/api/agents-settings/${encodeURIComponent(id)}/avatar`, { method: "POST", body: fd }).then((r) => take(r, at)).catch(fail);
   };
-  return { agents, error, patch, upload, teams, loadTeams };
+  // Hermes で足したエージェントを再起動なしで探し直す（#35）。失敗しても今の一覧はそのまま
+  const [scan, setScan] = useState<{ state: "idle" | "busy" | "done" | "error"; text?: string }>({ state: "idle" });
+  const rediscover = async (): Promise<boolean> => {
+    if (scan.state === "busy") return false;
+    setScan({ state: "busy" });
+    const at = ++edits.current;
+    try {
+      const r = await fetch("/api/agents-settings/rediscover", { method: "POST" });
+      const b = (await r.json().catch(() => ({}))) as { agents?: ManagedAgent[]; added?: string[]; error?: string };
+      if (!r.ok) throw new Error(b.error ?? `HTTP ${r.status}`);
+      if (b.agents && at === edits.current) setAgents(b.agents);
+      const n = b.added?.length ?? 0;
+      setScan({ state: "done", text: n ? `${n} 人見つかった（${b.added!.join("、")}）。既定の「実働」チームに入れた` : "新しいエージェントは見つからなかった（変更なし）" });
+      void loadTeams();
+      return true;
+    } catch (e) {
+      setScan({ state: "error", text: `探せなかった: ${e instanceof Error ? e.message : e}。今の一覧はそのまま。もう一度押せる` });
+      return false;
+    }
+  };
+  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover };
 }
 
 /** 選手カードの表の面 */

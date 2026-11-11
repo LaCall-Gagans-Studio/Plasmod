@@ -37,6 +37,32 @@ describe("エージェントの一覧", () => {
     expect(mergeProfiles([P("default", "元")], [], [{ id: "default", name: "  " }], false)[0].name).toBe("元");
   });
 
+  test("再検出: 新しく見つかった id だけ返し、既存の設定は変えない。失敗したら一覧はそのまま・同時に走るのは1回だけ", async () => {
+    const r = new ProfileRegistry(new Database(":memory:"), [P("default")], () => false);
+    await expect(r.refresh()).rejects.toThrow("つながっていない");
+    r.setDiscovered(["default", "acct"]);
+    r.setOverride("acct", { name: "経理", team: "ops" });
+    let ids = ["default", "acct", "new1"];
+    let calls = 0;
+    r.setRefresher(async () => {
+      calls++;
+      await Promise.resolve();
+      r.setDiscovered(ids);
+    });
+    const [a, b] = await Promise.all([r.refresh(), r.refresh()]);
+    expect(a).toEqual({ added: ["new1"] });
+    expect(b).toBe(a);
+    expect(calls).toBe(1);
+    expect(r.all().find((p) => p.id === "acct")).toMatchObject({ name: "経理", team: "ops" });
+    expect(await r.refresh()).toEqual({ added: [] });
+    r.setRefresher(async () => {
+      throw new Error("仲介が落ちている");
+    });
+    await expect(r.refresh()).rejects.toThrow("落ちている");
+    expect(r.all().map((p) => p.id)).toEqual(["default", "acct", "new1"]);
+    ids = [];
+  });
+
   test("保存して、同じ配列の中身を入れ替える。隠したものは画面から消え、設定には残る", () => {
     const target = [P("default", "元")];
     const r = new ProfileRegistry(new Database(":memory:"), target, () => false);
