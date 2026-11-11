@@ -58,6 +58,11 @@ sudo ./setup.sh
 
 It prints your address when it finishes. A first-run guide opens in the app.
 
+## Authors
+
+- Developer: Touma ([LaCall-Gagans-Studio](https://github.com/LaCall-Gagans-Studio))
+- Co-developer: [Mickey0321](https://github.com/Mickey0321)
+
 ## License
 
 [MIT](LICENSE)

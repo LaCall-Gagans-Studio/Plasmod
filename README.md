@@ -108,6 +108,11 @@ bun run dev:web                                                                 
 | `apk/` | Android アプリ（Capacitor） |
 | `deploy/` | 設置の手順と設定 |
 
+## 開発
+
+- 開発者: とうま（[LaCall-Gagans-Studio](https://github.com/LaCall-Gagans-Studio)）
+- 共同開発者: [Mickey0321](https://github.com/Mickey0321)
+
 ## ライセンス
 
 [MIT](LICENSE)
