@@ -190,7 +190,7 @@ function RuleSheet({ draft, agents, onClose, onSaved }: { draft: Draft; agents: 
           {d.agent && <p className="m-0 px-1 text-[11.5px] leading-snug text-mute">期日が近づくと、自動でカンバンにカードを作って {nameOf(agents, d.agent)} に任せます。</p>}
           <label className="flex items-center gap-3 text-[12.5px] text-mute">
             <span className="w-14 flex-none">PJ</span>
-            <input value={d.project} onChange={(e) => set({ project: e.target.value })} maxLength={60} placeholder="（なし）" className={field} />
+            <input value={d.project} onChange={(e) => set({ project: e.target.value })} maxLength={60} placeholder="未仕訳" className={field} />
           </label>
           {error && <div className="rounded-xl bg-orange-soft px-3 py-2 text-xs text-orange-ink" role="alert">{error}</div>}
           <button onClick={() => void save()} disabled={busy || !d.title.trim()} className="min-h-11 rounded-full bg-ink text-[14px] font-semibold text-paper disabled:opacity-40">{d.id ? "保存" : "ルールを足す"}</button>

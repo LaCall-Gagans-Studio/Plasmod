@@ -36,7 +36,7 @@ export function TagField({ tags, onChange, suggestions }: { tags: string[]; onCh
           } else if (e.key === "Backspace" && !text && tags.length) onChange(tags.slice(0, -1));
         }}
         onBlur={() => text.trim() && add(text)}
-        placeholder={tags.length ? "" : "なし"}
+        placeholder={tags.length ? "" : "未仕訳"}
         aria-label="タグ"
         className="min-w-20 flex-1 bg-transparent py-1 text-[13.5px] text-ink outline-none placeholder:text-mute"
       />

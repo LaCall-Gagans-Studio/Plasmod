@@ -146,16 +146,16 @@ function NoneCard({ none, snap, reload }: { none: ProjectOverview["none"]; snap:
   const [open, toggle] = useOpen("none");
   const onToggle = (x: AppTask) => void toggleDone(x).then(reload);
   return (
-    <section className="flex min-w-0 flex-col rounded-2xl border border-dashed border-line-2 pb-1" aria-label="プロジェクトなし">
+    <section className="flex min-w-0 flex-col rounded-2xl border border-dashed border-line-2 pb-1" aria-label="未仕訳">
       <div className="flex min-w-0 items-center gap-1 py-1 pl-3.5 pr-1.5">
         <a href="#/todos?project=" className="flex min-w-0 flex-1 flex-col text-ink no-underline">
           <span className="flex min-w-0 items-center gap-2">
             <span className="text-[15px] leading-none">📂</span>
-            <span className="min-w-0 truncate text-[14px] font-bold text-ink-2">プロジェクトなし</span>
+            <span className="min-w-0 truncate text-[14px] font-bold text-ink-2">未仕訳</span>
           </span>
           <span className="text-[11px] text-mute">タスク {none.openTasks}・メモ {none.memos}</span>
         </a>
-        <Fold open={open} onClick={toggle} label="プロジェクトなし" />
+        <Fold open={open} onClick={toggle} label="未仕訳" />
       </div>
       {open ? (
         <>

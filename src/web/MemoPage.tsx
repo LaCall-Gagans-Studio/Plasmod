@@ -494,7 +494,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                     list="memo-projects"
                     onChange={(e) => change({ project: e.target.value })}
                     readOnly={archived}
-                    placeholder="なし"
+                    placeholder="未仕訳"
                     aria-label="プロジェクト"
                     className="min-h-8 min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
                   />
