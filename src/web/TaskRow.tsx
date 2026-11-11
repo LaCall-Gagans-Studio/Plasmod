@@ -1,4 +1,5 @@
 // タスクの行（一覧・ツリーで共通）
+import { ing, Dots } from "./dots";
 import { useEffect, useState } from "react";
 import type { AppTask, AppTaskLinks, AppTaskStatus, Snapshot } from "../shared/types";
 import { FolderIcon, json } from "./memo-fields";
@@ -146,7 +147,7 @@ export function TaskNode({ t, snap, onToggle, onChanged, href = (x) => `#/todo/$
       <TaskRow t={row} selected={t.id === selectedId} href={href(t)} onToggle={() => onToggle(t)} onChanged={onChanged} snap={snap} expand={has || open ? { open, onToggle: () => setOpen((x) => !x) } : undefined} />
       {open && (
         <ul className="m-0 ml-6 list-none border-l border-line p-0">
-          {children === null && <li className="px-5 py-1.5 text-[12px] text-mute">読み込み中…</li>}
+          {children === null && <li className="px-5 py-1.5 text-[12px] text-mute">読み込み中<Dots /></li>}
           {children?.map((c) => (
             <TaskNode key={c.id} t={{ ...c, project: c.project === t.project ? null : c.project }} snap={snap} href={href} selectedId={selectedId} onToggle={(x) => Promise.resolve(onToggle(x)).then(() => setBump((b) => b + 1))} onChanged={() => { onChanged?.(); setBump((b) => b + 1); }} />
           ))}

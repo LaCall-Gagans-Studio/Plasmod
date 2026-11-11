@@ -1,4 +1,5 @@
 // タスクの詳細（本文・つながり・記録）
+import { ing } from "./dots";
 import type { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppTask, AppTaskEvent, AppTaskLinks, AppTaskList, AppTaskStatus, MemoSummary, Snapshot } from "../shared/types";
@@ -345,7 +346,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
         </button>
         <span className="min-w-0 flex-1 truncate px-2 text-[12.5px] text-mute"><span className="font-mono">{task?.ref ? <CopyRef text={task.ref} /> : `#${id}`}</span>{src ? ` · ${src}` : ""}{task ? ` · 登録 ${ago(task.createdAt)}（${who(task.createdBy)}）` : ""}</span>
         <span className={`flex-none px-2 text-[11.5px] ${saving === "error" ? "text-orange-ink" : "text-mute"}`} role="status" aria-live="polite">
-          {saving === "saving" ? "保存中…" : saving === "saved" ? "保存済み" : saving === "dirty" ? "編集中" : ""}
+          {saving === "saving" ? ing("保存中…") : saving === "saved" ? "保存済み" : saving === "dirty" ? "編集中" : ""}
         </span>
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-10 [overflow-wrap:anywhere] md:px-10">

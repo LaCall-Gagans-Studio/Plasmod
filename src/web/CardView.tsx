@@ -1,4 +1,5 @@
 import { type MouseEvent, useEffect, useRef, useState } from "react";
+import { ing } from "./dots";
 import type { Card, CardOption, Snapshot, SnoozeKind } from "../shared/types";
 import { act, ActFailed, hideCard, markSeen, refreshSnapshot } from "./api";
 import { submit } from "./outbox";
@@ -140,7 +141,7 @@ function TalkOption({ snap, card, note, disabled }: { snap: Snapshot; card: Card
         disabled={disabled || busy}
         className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-full border border-line-2 py-1.5 text-[15px] font-bold text-ink disabled:opacity-50"
       >
-        {busy ? "始めています…" : `${p.name}と話す`}
+        {busy ? ing("始めています…") : `${p.name}と話す`}
         <span className="text-[11px] font-normal opacity-70">この件をチャットで相談する（カードは残る）</span>
       </button>
     </div>

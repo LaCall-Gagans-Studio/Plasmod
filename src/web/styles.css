@@ -276,3 +276,41 @@ button:not(:disabled):active {
     animation-duration: 2.5s;
   }
 }
+
+/* 待っている言葉の点: 一点ずつ現れて、そろったら一緒に消える */
+.pl-dots { display: inline-block; width: 1.3em; text-align: left; white-space: nowrap; }
+.pl-dots i { font-style: normal; opacity: 0; animation: pl-dot1 1.5s infinite; }
+.pl-dots i:nth-child(2) { animation-name: pl-dot2; }
+.pl-dots i:nth-child(3) { animation-name: pl-dot3; }
+@keyframes pl-dot1 { 0% { opacity: 0; } 12%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes pl-dot2 { 0%, 22% { opacity: 0; } 34%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes pl-dot3 { 0%, 44% { opacity: 0; } 56%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pl-dots i { animation: none; opacity: 1; } }
+
+/* 考え中の小さなアメーバ: 体がゆっくり形を変え、短い触手がゆれて、目がきょろきょろする */
+.pl-mini { position: relative; display: inline-block; width: 1.05em; height: 1em; vertical-align: -0.12em; margin-right: 0.35em; }
+.pl-mini-body {
+  position: absolute; inset: 0.08em 0.12em 0.08em 0.02em; background: #a3c93a;
+  border-radius: 58% 42% 50% 50% / 50% 56% 44% 50%;
+  animation: pl-mini-morph 2.4s ease-in-out infinite;
+}
+.pl-mini-arm {
+  position: absolute; right: -0.12em; top: 0.38em; width: 0.42em; height: 0.2em; border-radius: 999px; background: #a3c93a;
+  transform-origin: 0 50%; animation: pl-mini-arm 1.6s ease-in-out infinite;
+}
+.pl-mini-eye {
+  position: absolute; left: 0.3em; top: 0.3em; width: 0.4em; height: 0.4em; border-radius: 50%;
+  background: radial-gradient(circle at 60% 50%, #0d0d0f 0 38%, #f3f1ec 40%);
+  animation: pl-mini-look 3.2s ease-in-out infinite;
+}
+@keyframes pl-mini-morph {
+  0%, 100% { border-radius: 58% 42% 50% 50% / 50% 56% 44% 50%; transform: scale(1, 1); }
+  33% { border-radius: 44% 56% 58% 42% / 58% 44% 56% 42%; transform: scale(1.06, 0.95); }
+  66% { border-radius: 52% 48% 40% 60% / 44% 52% 48% 56%; transform: scale(0.96, 1.05); }
+}
+@keyframes pl-mini-arm { 0%, 100% { transform: rotate(-18deg) scaleX(0.7); } 50% { transform: rotate(16deg) scaleX(1.15); } }
+@keyframes pl-mini-look {
+  0%, 40%, 100% { background: radial-gradient(circle at 62% 50%, #0d0d0f 0 38%, #f3f1ec 40%); }
+  55%, 85% { background: radial-gradient(circle at 38% 58%, #0d0d0f 0 38%, #f3f1ec 40%); }
+}
+@media (prefers-reduced-motion: reduce) { .pl-mini-body, .pl-mini-arm, .pl-mini-eye { animation: none; } }

@@ -1,6 +1,6 @@
 // 読み込み中の見せ方。最初は目玉のあるアメーバ、一覧はスケルトン。文字の「読み込み中…」を出さない。
 // 読み込みが終わると、アメーバから新しい触手が次々に伸びて枝分かれし、画面を埋めて次の画面へ切り替わる（burst）。
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 /** 体と触手の色（起動画面 index.html と同じ） */
 const BODY = "#a3c93a";
@@ -323,3 +323,68 @@ export function Seeking({ since, label = "窓口を探しています" }: { sinc
 }
 
 const easeInOut = (x: number) => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);
+
+/**
+ * 新しいセッションの空の欄。生き物が下の入力欄へ触手を垂らして、ゆらゆら招く。ときどきまばたき。
+ * children は下に出す言葉
+ */
+export function Beckon({ children }: { children: ReactNode }) {
+  const W = 120;
+  const H = 104;
+  const cx = W / 2;
+  const cy = 34;
+  const arm = useRef<SVGPathElement>(null);
+  const tip = useRef<SVGCircleElement>(null);
+  const pupil = useRef<SVGCircleElement>(null);
+  const lid = useRef<SVGEllipseElement>(null);
+  const body = useRef<SVGEllipseElement>(null);
+  useEffect(() => {
+    if (reduced()) return;
+    let raf = 0;
+    const t0 = performance.now();
+    const frame = (ms: number) => {
+      const t = (ms - t0) / 1000;
+      // 触手は下へ。先がゆっくり左右にゆれて、ときどき「こっち」と小さく跳ねる
+      const sway = Math.sin(t * 1.6) * 9;
+      const hop = Math.max(0, Math.sin(t * 1.6 * 0.5 + 0.6)) ** 8 * 6;
+      const len = 46 + Math.sin(t * 0.9) * 4 + hop;
+      const x1 = cx + sway;
+      const y1 = cy + 12 + len;
+      arm.current?.setAttribute("d", `M${cx} ${cy + 10} C${cx - sway * 0.6} ${cy + 10 + len * 0.45} ${x1 + sway * 0.4} ${y1 - len * 0.4} ${x1.toFixed(1)} ${y1.toFixed(1)}`);
+      tip.current?.setAttribute("cx", x1.toFixed(1));
+      tip.current?.setAttribute("cy", y1.toFixed(1));
+      // 体はゆっくり息をする
+      body.current?.setAttribute("rx", (19 + Math.sin(t * 1.3) * 1.2).toFixed(1));
+      body.current?.setAttribute("ry", (17 - Math.sin(t * 1.3) * 1.0).toFixed(1));
+      // 目は触手の先を見る
+      pupil.current?.setAttribute("cx", (cx + sway * 0.18).toFixed(1));
+      // 4 秒に一度まばたき
+      const b = (t % 4.2) / 4.2;
+      lid.current?.setAttribute("ry", (b > 0.96 ? 9 * Math.sin(((b - 0.96) / 0.04) * Math.PI) : 0).toFixed(1));
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return (
+    <div className="flex flex-1 flex-col items-center justify-end gap-1 px-4 pb-2 pt-6 text-center">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+        <defs>
+          <filter id="gh-beckon-goo" x="0" y="0" width={W} height={H} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.6" result="b" />
+            <feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" />
+          </filter>
+        </defs>
+        <g filter="url(#gh-beckon-goo)">
+          <path ref={arm} d={`M${cx} ${cy + 10} L${cx} ${cy + 58}`} fill="none" stroke={BODY} strokeWidth={6} strokeLinecap="round" />
+          <circle ref={tip} cx={cx} cy={cy + 58} r={4.5} fill={BODY} />
+          <ellipse ref={body} cx={cx} cy={cy} rx={19} ry={17} fill={BODY} />
+        </g>
+        <circle cx={cx} cy={cy - 1} r={9} fill={SCLERA} />
+        <circle ref={pupil} cx={cx} cy={cy + 3} r={4.8} fill={PUPIL} />
+        <ellipse ref={lid} cx={cx} cy={cy - 1} rx={9.6} ry={0} fill={BODY} />
+      </svg>
+      <div className="max-w-[18rem] text-[12.5px] leading-relaxed text-mute">{children}</div>
+    </div>
+  );
+}

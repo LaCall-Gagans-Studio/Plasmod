@@ -1,4 +1,5 @@
 // memo-sync.ts の端末側（IndexedDB）とサーバー側（API）。アプリに1つの memoSync を置く。
+import { ing } from "./dots";
 import { useSyncExternalStore } from "react";
 import type { Memo, MemoList } from "../shared/types";
 import { type LocalListOptions, type MemoApi, type MemoDb, type MemoFields, MemoSync, type PendingChange, type SyncStatus } from "./memo-sync";
@@ -97,7 +98,7 @@ export function SyncBadge() {
   if (!text) return null;
   return (
     <button onClick={() => void memoSync.run()} aria-label={`${text}。押して同期する`} className={`min-h-7 rounded-full px-2.5 text-[11.5px] font-semibold ${s.error ? "bg-orange-soft text-orange-ink" : "bg-chip text-ink-2"}`}>
-      {s.syncing ? "同期中…" : text}
+      {s.syncing ? ing("同期中…") : text}
     </button>
   );
 }

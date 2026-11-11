@@ -1,4 +1,5 @@
 // メモの編集画面
+import { ing } from "./dots";
 import { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { memoLinkText, memoRef } from "../shared/memo-ref";
@@ -424,7 +425,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
             )}
           </div>
           <span className={`flex-none px-1 text-[11.5px] ${save === "error" || save === "conflict" ? "text-orange-ink" : "text-mute"}`} role="status" aria-live="polite">
-            {SAVE_LABEL[save]}
+            {ing(SAVE_LABEL[save])}
           </span>
           <div className="relative flex-none">
             <button onClick={() => setMenu((x) => !x)} disabled={id === null} aria-label="メニュー" aria-expanded={menu} className="flex size-11 items-center justify-center text-ink-2 disabled:opacity-30">

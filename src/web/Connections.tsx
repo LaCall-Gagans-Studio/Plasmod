@@ -1,5 +1,6 @@
 // 設定の「接続」: Nous・MCP・Claude の状況と、状態が変わった記録。
 // Nous はここからログインし直す（毎回 root のパスワード）。MCP のログインと追加は Hermes のダッシュボードで行う
+import { ing } from "./dots";
 import { useCallback, useEffect, useState } from "react";
 import type { Connection, ConnectionState, ConnectionsView } from "../shared/types";
 import { fetchRetry } from "./api";
@@ -146,7 +147,7 @@ function Manage({ c, onChanged }: { c: Connection; onChanged: () => void }) {
         className="min-h-9 min-w-0 flex-1 rounded-full bg-chip/70 px-3.5 text-[14px] outline-none focus:bg-chip"
       />
       <button type="submit" disabled={busy || !secret} className={button}>
-        {busy ? "実行中…" : mode === "reconnect" ? "つなぎ直す" : off ? "有効にする" : "無効にする"}
+        {busy ? ing("実行中…") : mode === "reconnect" ? "つなぎ直す" : off ? "有効にする" : "無効にする"}
       </button>
       <button type="button" disabled={busy} className={button} onClick={() => setMode(null)}>
         キャンセル
@@ -250,7 +251,7 @@ export function Connections() {
           <span className="font-mono text-[11px] opacity-60">{total} 接続 · 確認 {ago(view.at)}</span>
         </div>
         <button type="button" disabled={busy} onClick={() => void load(true)} aria-label="今すぐ確認" className="min-h-9 flex-none rounded-full border border-white/25 px-3 text-[12px] disabled:opacity-50">
-          {busy ? "確認中…" : "今すぐ確認"}
+          {busy ? ing("確認中…") : "今すぐ確認"}
         </button>
       </div>
       {error ? <div className="rounded-xl bg-orange-soft px-3.5 py-2 text-[12px] text-red-ink">{error}</div> : null}

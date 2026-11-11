@@ -1,5 +1,6 @@
 // タスク（TASK-173 段階2）: 一覧（状態・プロジェクト・語で絞る、すぐ追加、チェックで完了）と、1件の中身。
 // 広い画面では一覧と中身を左右に並べる。見回りが登録したもの（メール・Beeper・ops）も、画面で足したものも同じ一覧。
+import { ing } from "./dots";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppTask, AppTaskList, AppTaskStatus, Snapshot } from "../shared/types";
 import { FolderIcon, json } from "./memo-fields";
@@ -45,7 +46,7 @@ function SyncLine({ onSynced }: { onSynced: () => void }) {
       <span className="min-w-0 flex-1 truncate">
         <span className="text-orange-ink">PR の確認に失敗</span>
       </span>
-      <button onClick={() => void run()} disabled={busy} className="flex-none rounded-full border border-line-2 px-2 py-0.5 text-[11px] text-ink-2 disabled:opacity-40">{busy ? "取り込み中…" : "今すぐ"}</button>
+      <button onClick={() => void run()} disabled={busy} className="flex-none rounded-full border border-line-2 px-2 py-0.5 text-[11px] text-ink-2 disabled:opacity-40">{busy ? ing("取り込み中…") : "今すぐ"}</button>
     </div>
   );
 }

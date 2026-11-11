@@ -1,4 +1,5 @@
 // カンバンのカードの詳細（#/task/<ID>）。Hermes のダッシュボードのカードと同じ中身を見て、コメント・ファイルを付けられる。
+import { ing } from "./dots";
 import { useEffect, useState } from "react";
 import type { MediaItem, Snapshot, TaskDetail, TaskRef } from "../shared/types";
 import { MediaList } from "./Media";
@@ -84,7 +85,7 @@ function Triage({ id, snap, current, onDone }: { id: string; snap: Snapshot; cur
               className={`flex min-h-11 items-center gap-2 rounded-full border px-3 text-[13px] disabled:opacity-50 ${a.id === current ? "border-ink" : "border-line-2"}`}
             >
               <Avatar p={a} size={22} />
-              {busy === a.id ? "任せています…" : `${a.name}に任せる`}
+              {busy === a.id ? ing("任せています…") : `${a.name}に任せる`}
             </button>
           ))}
         </div>
@@ -93,7 +94,7 @@ function Triage({ id, snap, current, onDone }: { id: string; snap: Snapshot; cur
           onClick={() => void post("archive", "archive")}
           className="min-h-11 self-start rounded-full border border-line-2 px-4 text-[13px] text-mute disabled:opacity-50"
         >
-          {busy === "archive" ? "片付けています…" : "不要"}
+          {busy === "archive" ? ing("片付けています…") : "不要"}
         </button>
         {error && <div className="rounded-lg bg-orange/10 px-3 py-2 text-xs text-orange-ink" role="alert">{error}</div>}
       </div>
