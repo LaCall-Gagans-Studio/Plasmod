@@ -113,3 +113,37 @@ describe("ルールの API", () => {
     expect(((await (await send("GET", "/api/recurring")).json()) as { rules: unknown[] }).rules).toHaveLength(0);
   });
 });
+
+describe("その回だけやめる", () => {
+  test("やめた回は作らず、戻せる。ルールに無い日・もうタスクになった回は受けない", () => {
+    const { tasks, rec } = setup();
+    const r = rec.create({ title: "週報", cadence: { type: "weekly", days: [1] }, anchor: "2026-11-01", leadDays: 1 }, at("2026-11-01"));
+    expect(() => rec.skip(r.id, "2026-11-10")).toThrow("ルールの回ではない"); // 火曜
+    expect(() => rec.skip(r.id, "11/9")).toThrow(RecurError);
+    expect(rec.skip(r.id, "2026-11-09").skips).toEqual(["2026-11-09"]);
+    expect(rec.tick(at("2026-11-08"))).toHaveLength(0); // やめた回は出ない
+    expect(rec.tick(at("2026-11-15"))[0].due).toBe("2026-11-16"); // 次の回は出る
+    expect(() => rec.skip(r.id, "2026-11-16")).toThrow("もうタスクになっている");
+    expect(rec.skip(r.id, "2026-11-09", false).skips).toEqual([]);
+    expect(tasks.list({ source: "recur" })).toHaveLength(1);
+    rec.skip(r.id, "2026-11-23");
+    rec.remove(r.id);
+    expect(rec.list()).toHaveLength(0);
+  });
+
+  test("API", async () => {
+    const { createApp } = await import("../src/server/app");
+    const { config } = await import("../src/server/config");
+    const { Store } = await import("../src/server/store");
+    const store = new Store(":memory:");
+    const tasks = new TaskStore(store.db, "TASK");
+    const recurring = new RecurringStore(store.db, tasks);
+    const app = createApp({ ...config, devNoAuth: true }, { changed: () => {} } as never, store, ".", { tasks, recurring });
+    const send = (path: string, body: unknown) => app.request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const rule = (await (await send("/api/recurring", { title: "x", cadence: { type: "monthly", day: 28 }, anchor: "2030-01-01", leadDays: 0 })).json()) as { id: number };
+    expect((await send(`/api/recurring/${rule.id}/skip`, { day: "2030-02-28" })).status).toBe(200);
+    expect(((await (await app.request("/api/recurring")).json()) as { rules: { skips: string[] }[] }).rules[0].skips).toEqual(["2030-02-28"]);
+    expect((await send(`/api/recurring/${rule.id}/skip`, { day: "2030-02-27" })).status).toBe(400);
+    expect((await send(`/api/recurring/999/skip`, { day: "2030-02-28" })).status).toBe(404);
+  });
+});

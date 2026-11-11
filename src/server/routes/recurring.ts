@@ -36,6 +36,17 @@ export function recurringRoutes({ app, recurring, hub }: RouteContext) {
       return fail(c, e);
     }
   });
+  /** その回だけやめる（skip: false で戻す） */
+  app.post("/api/recurring/:id/skip", async (c) => {
+    try {
+      const b = await body(c);
+      const r = recurring.skip(idOf(c), b.day, b.skip !== false);
+      surface();
+      return c.json(r);
+    } catch (e) {
+      return fail(c, e);
+    }
+  });
   app.delete("/api/recurring/:id", (c) => {
     try {
       recurring.remove(idOf(c));

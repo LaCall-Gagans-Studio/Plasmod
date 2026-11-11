@@ -169,6 +169,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
           </label>
           {scope === "done" && <ChipToggle on={showApprovals} onClick={() => go("approvals", showApprovals ? null : "1", false)}>承認も表示</ChipToggle>}
           <ChipToggle on={byDue} onClick={() => go("sort", byDue ? null : "due", false)}>期限順</ChipToggle>
+          <a href="#/calendar" className="flex-none rounded-full border border-line-2 px-3 py-1 text-[12.5px] text-ink-2 no-underline">カレンダー</a>
         </div>
       </div>
       {/* 必ず1行。横にスクロールさせない。幅が足りないときは件数を落とす */}
