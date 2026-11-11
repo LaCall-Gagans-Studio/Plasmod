@@ -5,8 +5,9 @@ import { capsOfAgent } from "../shared/types";
 import { submit, useOutgoing } from "./outbox";
 import { PinMark, SessionRow } from "./sessionmenu";
 import { Avatar, Icon, ago, profileOf } from "./ui";
+import type { AgentProfile, SessionInfo } from "../shared/types";
 import { DEFAULT_TEAM, DEFAULT_TEAMS, teamOfProfile } from "../shared/types";
-import { useAgents, useAgentList, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
+import { ALL, CHAT_PICK, sessionKey, useAllSessions, useAgents, useAgentList, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
 import { CreditsLine, ViewBody } from "./SessionBody";
 import { Composer } from "./Composer";
 import { Beckon, Seeking, Skeleton } from "./loading";
@@ -24,6 +25,41 @@ function CronToggle({ className = "" }: { className?: string }) {
   );
 }
 
+/** 「全員」の画面で、誰と新しいセッションを始めるかを、プロフィール画像で選ぶ */
+function NewWho({ agents, snap, value, active, onPick, size = 24, className = "" }: { agents: { id: string }[]; snap: Snapshot | null; value: string | null; active: boolean; onPick: (id: string) => void; size?: number; className?: string }) {
+  if (!snap) return null;
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 ${className}`} role="group" aria-label="新しいセッションの相手">
+      {agents.map((a) => {
+        const on = value === a.id;
+        return (
+          <button
+            key={a.id}
+            onClick={() => onPick(a.id)}
+            aria-pressed={on}
+            aria-label={`${NAME(snap, a.id)}と新しいセッションを始める`}
+            title={NAME(snap, a.id)}
+            className={`flex-none rounded-full p-0.5 ${on ? (active ? "ring-2 ring-ink" : "ring-1 ring-line-2") : "opacity-60 hover:opacity-100"}`}
+          >
+            <Avatar p={profileOf(snap.agents, a.id)} size={size} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 一覧の行の「誰のセッションか」（全員の一覧で使う） */
+function Who({ p, size = 14 }: { p?: AgentProfile; size?: number }) {
+  if (!p) return null;
+  return (
+    <span className="flex min-w-0 flex-none items-center gap-1 font-semibold text-ink-2">
+      <Avatar p={p} size={size} />
+      <span className="max-w-[72px] truncate">{p.name}</span>
+    </span>
+  );
+}
+
 export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const list = useAgentList();
   const all = list.agents;
@@ -37,10 +73,20 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const [agent, setAgentState] = useState<string | null>(null);
   const agentRef = useRef(agent);
   agentRef.current = agent;
+  /** agent は個別のエージェントの id、または ALL（全員） */
   const setAgent = (a: string) => {
     setAgentState(a);
-    remember(LAST_AGENT, a);
+    remember(CHAT_PICK, a);
+    if (a !== ALL) remember(LAST_AGENT, a);
   };
+  const isAll = agent === ALL;
+  const available = all.filter((a) => a.available);
+  /** 全員の画面で、新しいセッションを始める相手 */
+  const [newWith, setNewWith] = useState<string | null>(null);
+  const lastAgent = recall(LAST_AGENT);
+  const newTarget = available.some((a) => a.id === newWith) ? newWith : available.some((a) => a.id === lastAgent) ? lastAgent : (available[0]?.id ?? null);
+  /** 「最後に開いていたセッション」を覚えるキー。全員は全員で別に覚える */
+  const memoKey = lastSessionKey(isAll ? ALL : (agent ?? ""));
   const [bump, setBump] = useState(0);
   /** 「＋」を押したあと: 次の送信で新しいセッションを始める */
   const [fresh, setFresh] = useState(false);
@@ -59,34 +105,43 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
     return () => document.removeEventListener("pointerdown", on);
   }, [picking]);
   const [, setPicked] = useState(0);
-  const pick = (id: string) => {
-    if (agent) remember(lastSessionKey(agent), id);
+  const pick = (s: SessionInfo) => {
+    remember(lastSessionKey(s.agent), s.id);
+    if (isAll) remember(memoKey, sessionKey(s));
     setFresh(false);
     setPicking(false);
     setPicked((x) => x + 1);
   };
   const agentIds = agents.map((a) => a.id).join(",");
   useEffect(() => {
-    if (agent && agentIds.split(",").includes(agent)) return;
     if (!agentIds) return void (agent && setAgentState(null));
-    const last = recall(LAST_AGENT);
-    setAgentState(agentIds.split(",").includes(last ?? "") ? last : agentIds.split(",")[0]);
+    if (agent === ALL || (agent && agentIds.split(",").includes(agent))) return;
+    // 既定は「全員」。前回、個別のエージェントを選んでいたらそちら
+    const last = recall(CHAT_PICK);
+    setAgentState(last && agentIds.split(",").includes(last) ? last : ALL);
   }, [agentIds, agent]);
   const setTeam = (t: string) => {
     setTeamState(t);
     remember(CHAT_TEAM, t);
+    // 別のチームに替えたら、前のチームのエージェントは並ばないので「全員」に戻る
+    if (agent !== ALL) setAgent(ALL);
     setFresh(false);
     setPicking(false);
   };
-  const { sessions, error } = useSessions(agent, bump);
+  const own = useSessions(isAll ? null : agent, bump);
+  const mixed = useAllSessions(isAll ? all : [], bump);
+  const { sessions, error } = isAll ? mixed : own;
   // 最後に開いていたセッションがまだあればそれ、無ければ一番新しいもの
-  const lastId = agent ? recall(lastSessionKey(agent)) : null;
+  const lastId = agent ? recall(memoKey) : null;
   // 一覧はピン留めが先頭なので、先頭ではなく最後に動いたものを選ぶ
   const newest = sessions?.reduce<(typeof sessions)[number] | null>((a, s) => (!a || s.last > a.last ? s : a), null) ?? null;
-  const latest = fresh ? null : (sessions?.find((s) => s.id === lastId) ?? newest);
-  const { view } = useView(agent, latest?.id ?? null, 3000);
-  const outgoing = useOutgoing(agent ?? "", latest?.id ?? null);
-  const unread = useChatUnread(all, agent);
+  const latest = fresh ? null : (sessions?.find((s) => (isAll ? sessionKey(s) : s.id) === lastId) ?? newest);
+  /** いま話している相手（全員では、開いているセッションの持ち主か、新しく始める相手） */
+  const target = isAll ? (latest?.agent ?? newTarget) : agent;
+  const who = snap && target ? profileOf(snap.agents, target) : undefined;
+  const { view } = useView(target, latest?.id ?? null, 3000);
+  const outgoing = useOutgoing(target ?? "", latest?.id ?? null);
+  const unread = useChatUnread(all, target);
   /** 次のチーム（チームが3つ以上なら順に回る） */
   const other = liveTeams.length > 1 ? liveTeams[(liveTeams.findIndex((t) => t.id === team) + 1) % liveTeams.length] : null;
   const otherUnread = all.some((a) => teamOf(a.id) !== team && unread.has(a.id));
@@ -94,6 +149,22 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   return (
     <section className="mx-3.5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-panel font-mono" aria-label="セッション">
       <div className="flex gap-1 overflow-x-auto border-b border-line px-2 py-2 text-xs [scrollbar-width:none]" role="tablist" aria-label="エージェント">
+        <button
+          role="tab"
+          aria-selected={isAll}
+          onClick={() => {
+            setAgent(ALL);
+            setFresh(false);
+            setPicking(false);
+          }}
+          className={`flex min-h-8 flex-none items-center gap-1.5 whitespace-nowrap rounded-md pl-1 pr-3 font-semibold ${isAll ? "bg-ink text-paper" : "text-mute"}`}
+        >
+          <span className="relative flex size-[22px] flex-none items-center justify-center rounded-full border border-current">
+            <Icon name="team" size={14} />
+            {!isAll && unread.size > 0 && <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-panel bg-orange" aria-label="未読あり" />}
+          </span>
+          全員
+        </button>
         {agents.map((a) => (
           <button
             key={a.id}
@@ -143,6 +214,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
             >
               ＋ 新しいセッション
             </button>
+            {isAll && <NewWho agents={available} snap={snap} value={target} active={fresh} size={24} className="mx-2.5 mt-2" onPick={(id) => (setNewWith(id), setFresh(true), setPicking(false))} />}
             <CronToggle className="mx-2.5 mt-2" />
             <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
               {sessions?.map((s) => (
@@ -150,13 +222,14 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
                   key={s.id}
                   s={s}
                   who={snap ? profileOf(snap.agents, s.agent) : undefined}
-                  onPick={() => pick(s.id)}
+                  onPick={() => pick(s)}
                   onChanged={() => setBump((x) => x + 1)}
-                  aria-current={s.id === latest?.id ? "true" : undefined}
-                  className={`mb-0.5 flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left ${s.id === latest?.id ? "bg-chip text-ink" : "text-ink-2 hover:bg-chip"}`}
+                  aria-current={sessionKey(s) === (latest && sessionKey(latest)) ? "true" : undefined}
+                  className={`mb-0.5 flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left ${sessionKey(s) === (latest && sessionKey(latest)) ? "bg-chip text-ink" : "text-ink-2 hover:bg-chip"}`}
                 >
                   <span className="line-clamp-2 text-[12px] leading-snug">{s.pinnedAt && <PinMark />}{s.title}</span>
                   <span className="flex items-center gap-1.5 text-[10.5px] text-mute">
+                    {isAll && <Who p={snap ? profileOf(snap.agents, s.agent) : undefined} />}
                     <span className={`size-1.5 rounded-full ${s.working ? "bg-lime" : s.alive ? "bg-mute" : "bg-line-2"}`} />
                     {s.working ? "作業中" : s.alive ? "待機" : "停止"} · {ago(s.last)}
                   </span>
@@ -168,13 +241,15 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
         <div className="flex min-w-0 flex-1 flex-col">
           {agent && (
             <div className="flex items-center gap-1 px-3.5 pt-2 text-[11px] text-mute">
+              {who && <Who p={who} size={18} />}
               {latest ? (
-                <a href={`#/session/${agent}/${encodeURIComponent(latest.id)}`} className="min-w-0 truncate hover:text-ink-2">
+                <a href={`#/session/${latest.agent}/${encodeURIComponent(latest.id)}`} className="min-w-0 truncate hover:text-ink-2">
                   {latest.title}
                 </a>
               ) : (
                 <span className="truncate">新しいセッション</span>
               )}
+              {isAll && !latest && <NewWho agents={available} snap={snap} value={target} active size={20} className="md:hidden" onPick={(id) => (setNewWith(id), setFresh(true), setPicking(false))} />}
               <button
                 onClick={() => (setFresh(true), setPicking(false))}
                 aria-label="新しいセッションを始める"
@@ -205,11 +280,12 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
                   s={s}
                   who={snap ? profileOf(snap.agents, s.agent) : undefined}
                   role="option"
-                  aria-selected={s.id === latest?.id}
-                  onPick={() => pick(s.id)}
+                  aria-selected={sessionKey(s) === (latest && sessionKey(latest))}
+                  onPick={() => pick(s)}
                   onChanged={() => setBump((x) => x + 1)}
-                  className={`flex min-h-10 w-full items-center gap-2 border-b border-line px-2.5 text-left text-[12px] last:border-b-0 ${s.id === latest?.id ? "font-semibold text-ink" : "text-ink-2"}`}
+                  className={`flex min-h-10 w-full items-center gap-2 border-b border-line px-2.5 text-left text-[12px] last:border-b-0 ${sessionKey(s) === (latest && sessionKey(latest)) ? "font-semibold text-ink" : "text-ink-2"}`}
                 >
+                  {isAll && snap && <Avatar p={profileOf(snap.agents, s.agent)} size={18} />}
                   {s.working && <span className="size-1.5 flex-none rounded-full bg-lime" aria-label="作業中" />}
                   {s.pinnedAt && <PinMark />}
                   <span className="min-w-0 flex-1 truncate">{s.title}</span>
@@ -233,26 +309,28 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
           )}
           {error && <div className="p-4 text-[12.5px] text-orange-ink">{error}</div>}
           {!fresh && sessions && sessions.length === 0 && outgoing.length === 0 && <Beckon>まだセッションがない。下から話しかけると始まる</Beckon>}
-          {fresh && outgoing.length === 0 && <Beckon>下から話しかけると、{agent ? NAME(snap, agent) : ""}との新しいセッションが始まる</Beckon>}
+          {fresh && outgoing.length === 0 && <Beckon>下から話しかけると、{target ? NAME(snap, target) : ""}との新しいセッションが始まる</Beckon>}
           {(latest || outgoing.length > 0) && <ViewBody
+              who={who}
               view={latest ? view : null}
               compact
               outgoing={outgoing}
-              scrollKey={`${agent}:${latest?.id ?? "new"}`}
-              onChoose={agent && latest ? (t) => void submit(agent, latest.id, t, []).then(() => setBump((x) => x + 1)) : undefined}
+              scrollKey={`${target}:${latest?.id ?? "new"}`}
+              onChoose={target && latest ? (t) => void submit(target, latest.id, t, []).then(() => setBump((x) => x + 1)) : undefined}
             />}
           {!latest && !fresh && outgoing.length === 0 && <div className="flex-1" />}
           <div className="p-2.5">
-            {agent && (
+            {target && (
               <Composer
-                placeholder={`${NAME(snap, agent)}に頼む…`}
-                draftKey={`${agent}:${latest?.id ?? "new"}`}
+                placeholder={`${NAME(snap, target)}に頼む…`}
+                draftKey={`${target}:${latest?.id ?? "new"}`}
                 onSend={(t, f) => {
                   const starting = !latest;
                   // 新しく始めるときは、番号が決まるまで「新しいセッション」のまま待つ（ほかのセッションを開かない）
-                  void submit(agent, latest?.id ?? null, t, f).then((sid) => {
+                  void submit(target, latest?.id ?? null, t, f).then((sid) => {
                     if (starting && sid) {
-                      remember(lastSessionKey(agent), sid);
+                      remember(lastSessionKey(target), sid);
+                      if (isAll) remember(memoKey, `${target}:${sid}`);
                       if (agentRef.current === agent) setFresh(false);
                     }
                     setBump((x) => x + 1);
@@ -303,6 +381,7 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
   const older = useOlder(agent, current, view);
   const credits = useCredits(caps.credits);
   const unread = useChatUnread(agents, agent);
+  const who = snap ? profileOf(snap.agents, agent) : undefined;
   useEffect(() => {
     remember(LAST_AGENT, agent);
     remember(lastSessionKey(agent), current);
@@ -385,7 +464,7 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
             <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
           <button onClick={() => setOpen(true)} className="flex min-w-0 flex-1 flex-col items-start px-1 text-left">
-            <span className="text-[11px] text-mute">{NAME(snap, agent)}</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-mute">{who && <Avatar p={who} size={16} />}{NAME(snap, agent)}</span>
             <span className="w-full truncate text-[13px] font-semibold">{current ? (info?.title ?? "…") : "新しいセッション"}</span>
           </button>
           {caps.stop && current && info?.alive && (
@@ -401,6 +480,7 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
 
         {current ? (
           error ? <div className="p-4 text-[12.5px] text-orange-ink">{error}</div> : <ViewBody
+              who={who}
               view={view}
               outgoing={outgoing}
               scrollKey={`${agent}:${current}`}
@@ -408,7 +488,7 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
               onChoose={(t) => void submit(agent, current, t, []).then(() => setBump((x) => x + 1))}
             />
         ) : outgoing.length > 0 ? (
-          <ViewBody view={null} outgoing={outgoing} />
+          <ViewBody who={who} view={null} outgoing={outgoing} />
         ) : (
           <Beckon>新しいセッション。{NAME(snap, agent)}に最初の一言を送ると始まる</Beckon>
         )}

@@ -1,7 +1,8 @@
 // セッションの本文（会話・ターミナルの表示）
 import { Dots, MiniAmoeba } from "./dots";
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ChatMessage, HermesMessage, NousCredits, SessionView } from "../shared/types";
+import { createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { AgentProfile, ChatMessage, HermesMessage, NousCredits, SessionView } from "../shared/types";
+import { Avatar } from "./ui";
 import { discard, imageUrl, isDelivered, type Outgoing, retry } from "./outbox";
 import { MediaList } from "./Media";
 import { ChoiceContext, Linkify, RichText } from "./markdown";
@@ -13,12 +14,23 @@ import { Skeleton } from "./loading";
 /** 自分の発言の吹き出し（右寄せ）。広い画面では横に伸びすぎないよう幅を絞る */
 const BUBBLE = "max-w-[88%] self-end whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-chip px-3 py-2 font-sans text-[13px] leading-relaxed text-ink md:max-w-[70%]";
 
-/** AI の返事（「⏺」の右に本文。本文に見出し・箇条書きなどの塊があっても揃う） */
-function Reply({ children }: { children: ReactNode }) {
+/** 話している相手（返事の左にプロフィール画像と名前を出す）。渡さなければ従来の「⏺」 */
+const WhoContext = createContext<AgentProfile | undefined>(undefined);
+
+/** AI の返事（左に相手の画像（無ければ「⏺」）、右に本文。本文に見出し・箇条書きなどの塊があっても揃う）。first なら名前も出す */
+function Reply({ children, first = true }: { children: ReactNode; first?: boolean }) {
+  const who = useContext(WhoContext);
   return (
     <div className="flex gap-1.5 break-words text-ink">
-      <span className="flex-none text-[#D97757]">⏺</span>
-      <div className="min-w-0 flex-1">{children}</div>
+      {who ? (
+        <span className="mt-0.5 flex-none"><Avatar p={who} size={22} /></span>
+      ) : (
+        <span className="flex-none text-[#D97757]">⏺</span>
+      )}
+      <div className="min-w-0 flex-1">
+        {who && first && <div className="mb-0.5 font-sans text-[11px] font-semibold text-mute">{who.name}</div>}
+        {children}
+      </div>
     </div>
   );
 }
@@ -37,7 +49,7 @@ function ChoiceScope({ children, ...v }: { children: ReactNode; onChoose?: (t: s
   return <ChoiceContext.Provider value={v}>{children}</ChoiceContext.Provider>;
 }
 
-function ChatMessageView({ m }: { m: ChatMessage }) {
+function ChatMessageView({ m, first }: { m: ChatMessage; first: boolean }) {
   // 取り出せるファイルがあれば画像・ファイルとして出す。無ければ（古い記録）名前だけ
   const files = m.media?.length ? <MediaList items={m.media} /> : m.attachments.length > 0 && <div className="mt-1 text-[11px] text-mute">📎 {m.attachments.join(", ")}</div>;
   // 見た目は Hermes の会話と同じ（自分の発言は右の吹き出し、返事は「⏺ 」）
@@ -51,7 +63,7 @@ function ChatMessageView({ m }: { m: ChatMessage }) {
   if (m.author === "system" || m.author === "other")
     return <div className="whitespace-pre-wrap break-words text-[11px] leading-snug text-mute">{m.content}</div>;
   return (
-    <Reply>
+    <Reply first={first}>
       <RichText text={m.content} />
       {files}
     </Reply>
@@ -236,14 +248,16 @@ function HistoryTop({ h }: { h: OlderState }) {
 }
 
 /** ターミナルの表示（開発エージェント）か、会話（Hermes）。一番下にいるときだけ追従する */
-export function ViewBody({ view, compact = false, outgoing = [], scrollKey = "", history, onChoose }: { view: SessionView | null; compact?: boolean; outgoing?: Outgoing[]; scrollKey?: string; history?: OlderState; onChoose?: (text: string) => void }) {
+export function ViewBody({ who, view, compact = false, outgoing = [], scrollKey = "", history, onChoose }: { who?: AgentProfile; view: SessionView | null; compact?: boolean; outgoing?: Outgoing[]; scrollKey?: string; history?: OlderState; onChoose?: (text: string) => void }) {
   const content = (view?.kind === "terminal" ? view.text + (view.messages?.length ?? 0) : JSON.stringify(view?.kind === "chat" ? view.messages : null)) + outgoing.map((o) => o.key + o.status).join();
   const resetKey = `${scrollKey}|${outgoing.length}`;
   const box = (cls: string, children: ReactNode) => (
-    <Scroller content={content} resetKey={resetKey} className={cls} onTop={history?.load} prepended={history?.items.length ?? 0}>
-      {history && <HistoryTop h={history} />}
-      {children}
-    </Scroller>
+    <WhoContext.Provider value={who}>
+      <Scroller content={content} resetKey={resetKey} className={cls} onTop={history?.load} prepended={history?.items.length ?? 0}>
+        {history && <HistoryTop h={history} />}
+        {children}
+      </Scroller>
+    </WhoContext.Provider>
   );
   // 履歴にまだ載っていない自分の発言は、送信中でも先に吹き出しで出す
   const sending = outgoing.filter((o) => !isDelivered(o, view)).map((o) => <OutgoingBubble key={o.key} o={o} />);
@@ -274,7 +288,7 @@ export function ViewBody({ view, compact = false, outgoing = [], scrollKey = "",
           {msgs.length === 0 && <div className="text-mute">まだ何も話していない</div>}
           {msgs.map((m, i) => (
             <ChoiceScope key={m.id} {...choiceState(msgs, i, (x) => x.author === "owner", (x) => x.content, choose)}>
-              <ChatMessageView m={m} />
+              <ChatMessageView m={m} first={i === 0 || msgs[i - 1].author === "owner"} />
             </ChoiceScope>
           ))}
           {sending.length > 0 && <div className="flex flex-col gap-2.5 font-sans">{sending}</div>}
@@ -304,7 +318,7 @@ export function ViewBody({ view, compact = false, outgoing = [], scrollKey = "",
         ) : m.role === "user" ? (
           <div key={i} className={BUBBLE}><Linkify text={m.text} />{m.media && <MediaList items={m.media} />}</div>
         ) : (
-          <ChoiceScope key={i} {...choiceState(msgs, i, (x) => x.role === "user", (x) => x.text, choose)}><Reply><RichText text={m.text} />{m.media && <MediaList items={m.media} />}</Reply></ChoiceScope>
+          <ChoiceScope key={i} {...choiceState(msgs, i, (x) => x.role === "user", (x) => x.text, choose)}><Reply first={i === 0 || msgs[i - 1].role === "user"}><RichText text={m.text} />{m.media && <MediaList items={m.media} />}</Reply></ChoiceScope>
         ),
       )}
       {sending.length > 0 && <div className="flex flex-col gap-2.5 font-sans">{sending}</div>}

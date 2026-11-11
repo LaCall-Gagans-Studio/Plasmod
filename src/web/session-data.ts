@@ -1,5 +1,5 @@
 // セッションのデータ: 一覧・会話・未読・クレジット・覚えておく値
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ChatMessage, HermesMessage, HistoryCursor, NousCredits, OlderPage, RuntimeKind, SessionInfo, SessionView, Snapshot } from "../shared/types";
 import { checkReply } from "./perf";
 import { profileOf } from "./ui";
@@ -115,6 +115,46 @@ export function useSessions(agent: string | null, refreshKey = 0) {
   }, [agent, refreshKey]);
   const [hideCron] = useHideCron();
   return { sessions: sessions && visible(sessions, hideCron), error };
+}
+
+/** 「全員」: 話せるエージェントすべてのセッションを、新しい順（ピン留めが先）に1本の一覧にする */
+export function useAllSessions(agents: AgentEntry[], refreshKey = 0) {
+  const ids = agents.filter((a) => a.available).map((a) => a.id).join(",");
+  const [raw, setRaw] = useState<SessionInfo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ids) return void setRaw(null);
+    const list = ids.split(",");
+    let alive = true;
+    const cached = list.map((id) => sessionsCache.get(id));
+    setRaw(cached.every((c) => c) ? cached.flatMap((c) => c ?? []) : null);
+    const load = async () => {
+      const got = await Promise.all(
+        list.map((id) =>
+          getJson<{ sessions: SessionInfo[] }>(`/api/sessions/${id}`)
+            .then((b) => (sessionsCache.set(id, b.sessions), b.sessions))
+            .catch(() => sessionsCache.get(id) ?? null),
+        ),
+      );
+      if (!alive) return;
+      // 1つも読めなければエラー。一部だけ読めなかったときは、読めた分を出す
+      if (got.every((g) => g === null)) return void setError("セッションの一覧を読めなかった");
+      setRaw(got.flatMap((g) => g ?? []));
+      setError(null);
+    };
+    void load();
+    const t = setInterval(load, 10_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [ids, refreshKey]);
+  const [hideCron] = useHideCron();
+  const sessions = useMemo(
+    () => (raw ? visible(raw, hideCron).sort((a, b) => (b.pinnedAt ? 1 : 0) - (a.pinnedAt ? 1 : 0) || b.last - a.last) : null),
+    [raw, hideCron],
+  );
+  return { sessions, error };
 }
 
 export function useView(agent: string | null, id: string | null, ms = 2000) {
@@ -299,4 +339,13 @@ export function useChatUnread(agents: AgentEntry[], active: string | null): Set<
 }
 
 export const CHAT_TEAM = "gh-chat-team";
+
+/** チャットの「全員」（どのエージェントでもなく、時系列で全部を並べる）。既定 */
+export const ALL = "*";
+
+/** 「全員」か個別のエージェントか、最後に選んだもの（LAST_AGENT は個別のエージェントだけ） */
+export const CHAT_PICK = "gh-chat-pick";
+
+/** 「全員」で選ぶセッションは、エージェントが違っても id が被らないよう agent 付きで覚える */
+export const sessionKey = (s: { agent: string; id: string }) => `${s.agent}:${s.id}`;
 
