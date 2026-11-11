@@ -72,7 +72,12 @@ export function useAgentSettings() {
       return false;
     }
   };
-  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover };
+  // Hermes の表示名への反映をやり直す（失敗の再試行・競合から上書きを選んだとき）
+  const syncName = (id: string, force = false) => {
+    const at = ++edits.current;
+    return fetch(`/api/agents-settings/${encodeURIComponent(id)}/sync-name`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) }).then((r) => take(r, at)).catch(fail);
+  };
+  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName };
 }
 
 /** 選手カードの表の面 */
