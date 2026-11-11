@@ -170,7 +170,7 @@ export function TasksScreen({ snap, id }: { snap: Snapshot | null; id: number | 
           </label>
           {scope === "done" && <ChipToggle on={showApprovals} onClick={() => go("approvals", showApprovals ? null : "1", false)}>承認も表示</ChipToggle>}
           <ChipToggle on={byDue} onClick={() => go("sort", byDue ? null : "due", false)}>期限順</ChipToggle>
-          <IconButton name="calendar" label="カレンダー" href="#/calendar" tone="chip" size={16} className="!size-8" />
+          <IconButton name="calendar" label="タスクカレンダー" href="#/calendar" tone="chip" size={16} className="!size-8" />
         </div>
       </div>
       {/* 必ず1行。横にスクロールさせない。幅が足りないときは件数を落とす */}

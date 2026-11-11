@@ -233,7 +233,7 @@ const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges
     match: ["#/session", "#/watching", "#/task/", "#/search"],
     sub: [{ href: "#/session", label: "セッション", match: "#/session/" }, { href: "#/watching", label: "カンバン", match: "#/task/", badge: "watching" }, { href: "#/search", label: "検索", match: "#/search" }],
   },
-  { href: "#/pj", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo", "#/calendar"], sub: [{ href: "#/memos", label: "メモ" }, { href: "#/todos", label: "タスク" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }, { href: "#/calendar", label: "カレンダー" }] },
+  { href: "#/pj", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo", "#/calendar"], sub: [{ href: "#/memos", label: "メモ" }, { href: "#/todos", label: "タスク" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }, { href: "#/calendar", label: "タスクカレンダー" }] },
   { href: "#/habits", label: "ルーティーン", icon: "habit" },
   { href: "#/report", label: "レポート", icon: "insights", match: ["#/watch"], sub: [{ href: "#/report", label: "今日のレポート" }, { href: "#/watch", label: "定期報告" }] },
   {
