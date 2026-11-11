@@ -590,8 +590,8 @@ const theme = EditorView.theme({
   ".cm-lp-fence-quiet": { fontSize: "0.7em", lineHeight: "1.6" },
   ".cm-lp-table-raw": { fontFamily: "var(--font-mono)", fontSize: "0.84em", color: "var(--color-ink-2)" },
   ".cm-lp-table": { margin: "0.4em 0", overflowX: "auto", cursor: "text" },
-  ".cm-lp-table table": { borderCollapse: "collapse", fontSize: "0.88em", minWidth: "50%" },
-  ".cm-lp-table th, .cm-lp-table td": { border: "1px solid var(--color-line)", padding: "0.3em 0.7em", textAlign: "left", verticalAlign: "top" },
+  ".cm-lp-table table": { borderCollapse: "collapse", fontSize: "0.88em", width: "max-content", minWidth: "50%" },
+  ".cm-lp-table th, .cm-lp-table td": { border: "1px solid var(--color-line)", padding: "0.3em 0.7em", textAlign: "left", verticalAlign: "top", maxWidth: "26rem" },
   ".cm-lp-taskref": {
     display: "inline-flex",
     alignItems: "baseline",

@@ -293,7 +293,7 @@ export function RichText({ text }: { text: string }): ReactNode {
         if (b.type === "choices") return <Choices key={i} multi={b.multi} options={b.options} />;
         return (
           <div key={i} className="my-2 max-w-full overflow-x-auto rounded-lg border border-line">
-            <table className="w-full border-collapse font-sans text-[12px] leading-snug">
+            <table className="w-max min-w-full border-collapse font-sans text-[12px] leading-snug">
               <thead>
                 <tr>
                   {b.head.map((h, k) => (
@@ -305,7 +305,7 @@ export function RichText({ text }: { text: string }): ReactNode {
                 {b.rows.map((r, ri) => (
                   <tr key={ri} className={ri % 2 ? "bg-panel-2" : ""}>
                     {r.map((c, k) => (
-                      <td key={k} className={`border-t border-line px-2.5 py-1.5 align-top ${ALIGN[b.align[k]]}`}><Inline text={c} /></td>
+                      <td key={k} className={`min-w-[4.5rem] max-w-[26rem] border-t border-line px-2.5 py-1.5 align-top ${ALIGN[b.align[k]]}`}><Inline text={c} /></td>
                     ))}
                   </tr>
                 ))}
