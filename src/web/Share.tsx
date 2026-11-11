@@ -1,4 +1,5 @@
 // 共有メニュー（#/share/<id>）から来たもの。宛先は選ばせず、チャットの入力欄に添付として載せて開く。
+import { ing, Dots } from "./dots";
 import { useEffect, useState } from "react";
 import type { ShareInfo } from "../shared/types";
 import { offerShared } from "./outbox";
@@ -39,7 +40,7 @@ export function Share({ id }: { id: string }) {
           <a href="#/" className="rounded-full border border-line-2 px-5 py-3 text-sm">チャットへ</a>
         </>
       ) : (
-        <p className="text-sm text-mute">チャットに取り込んでいます…</p>
+        <p className="text-sm text-mute">チャットに取り込んでいます<Dots /></p>
       )}
     </div>
   );

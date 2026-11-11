@@ -1,5 +1,6 @@
 // task-sync.ts の端末側（IndexedDB）とサーバー側（API）。画面はここを通してタスクを読み書きする。
 // つながっていれば今までどおりサーバーへ。通信で失敗したときだけ、端末に残して後で送る。
+import { ing } from "./dots";
 import { useSyncExternalStore } from "react";
 import type { AppTask, AppTaskEvent, AppTaskLinks, AppTaskList, AppTaskStatus, MemoSummary } from "../shared/types";
 import { emptyLinks, isNetworkError, OPEN_STATUSES, type TaskApi, type TaskDb, type TaskFields, type TaskNew, type TaskPending, TaskSync, type TaskSyncStatus } from "./task-sync";
@@ -169,7 +170,7 @@ export function TaskSyncBadge() {
   if (!text) return null;
   return (
     <button onClick={() => void taskSync.run()} aria-label={`${text}。押して同期する`} className={`min-h-7 rounded-full px-2.5 text-[11.5px] font-semibold ${s.error ? "bg-orange-soft text-orange-ink" : "bg-chip text-ink-2"}`}>
-      {s.syncing ? "同期中…" : text}
+      {s.syncing ? ing("同期中…") : text}
     </button>
   );
 }

@@ -1,5 +1,6 @@
 // root 作業の承認（plasmod-rootd）。依頼の中身を全文見て、パスワードを入れたときだけ root が実行する。
 // パスワードはこの端末のメモリに一瞬あるだけ（保存しない・URL にもログにも出さない）。照合は root 側。
+import { ing } from "./dots";
 import { useEffect, useRef, useState } from "react";
 import { Page, ago } from "./ui";
 import { Revealed, RevealNote } from "./reveal";
@@ -110,7 +111,7 @@ function RunBox() {
         <input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} aria-label="パスワード" placeholder="パスワード" className="min-h-10 rounded-lg border border-line-2 bg-transparent px-2.5 outline-none" />
         {error && <div className="text-orange-ink">{error}</div>}
         <button type="submit" disabled={busy || !command.trim() || !secret} className="min-h-10 rounded-full bg-ink font-semibold text-ground disabled:opacity-40">
-          {busy ? "実行しています…" : "root で実行する"}
+          {busy ? ing("実行しています…") : "root で実行する"}
         </button>
       </form>
     </details>

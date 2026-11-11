@@ -1,4 +1,5 @@
 // セッションの本文（会話・ターミナルの表示）
+import { Dots, MiniAmoeba } from "./dots";
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, HermesMessage, NousCredits, SessionView } from "../shared/types";
 import { discard, imageUrl, isDelivered, type Outgoing, retry } from "./outbox";
@@ -119,7 +120,7 @@ function OutgoingBubble({ o }: { o: Outgoing }) {
         (o.files.length > 0 ? (
           <div className="w-56 max-w-full"><UploadBar ratio={o.progress ?? 0} files={o.files} /></div>
         ) : (
-          <span className="text-[10.5px] text-mute">送っています…</span>
+          <span className="text-[10.5px] text-mute">送っています<Dots /></span>
         ))}
       {o.status === "failed" && (
         <span className="flex items-center gap-2 text-[11px] text-orange-ink" role="alert">
@@ -278,7 +279,7 @@ export function ViewBody({ view, compact = false, outgoing = [], scrollKey = "",
           ))}
           {sending.length > 0 && <div className="flex flex-col gap-2.5 font-sans">{sending}</div>}
           {activity.length > 0 && <div className="flex flex-col gap-1.5 font-sans">{activity.map((b, i) => <TermBlockView key={`a${i}`} b={b} compact />)}</div>}
-          {view.alive && view.working && activity.length === 0 && <div className="text-mute">✻ 作業中…</div>}
+          {view.alive && view.working && activity.length === 0 && <div className="text-mute"><MiniAmoeba />作業中<Dots /></div>}
           {!view.alive && <div className="text-[11.5px] text-mute">（このセッションは止まっている。送ると再開する）</div>}
         </>,
       );
@@ -309,7 +310,7 @@ export function ViewBody({ view, compact = false, outgoing = [], scrollKey = "",
       {sending.length > 0 && <div className="flex flex-col gap-2.5 font-sans">{sending}</div>}
       {view.approvalCard ? (
         <a className="font-sans text-[13px] text-orange-ink underline" href={`#/card/${encodeURIComponent(view.approvalCard)}`}>⏸ 承認を待っています（開いて判断する）</a>
-      ) : view.working && <div className="text-mute">✻ 考えています…</div>}
+      ) : view.working && <div className="text-mute"><MiniAmoeba />考えています<Dots /></div>}
       {view.error && <div className="text-orange-ink">⚠ {view.error}</div>}
     </>,
   );

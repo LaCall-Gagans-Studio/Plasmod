@@ -1,4 +1,5 @@
 // 添付を送るときの進み具合。fetch はアップロードの進み具合を取れないので、ファイルがあるときだけ XHR で送る。
+import { ing } from "./dots";
 import type { ReactNode } from "react";
 
 /** 送った割合（0〜1）。1 になったあとはサーバーの処理待ち */
@@ -45,7 +46,7 @@ export function UploadBar({ ratio, files, children }: { ratio: number; files?: F
         <span className="min-w-0 flex-1 truncate">
           {children ?? (files?.length ? `📎 ${files.length === 1 ? files[0].name : `${files.length} 件`}（${fmtSize(total)}）` : "")}
         </span>
-        <span className="flex-none font-mono">{waiting ? "受け取り中…" : `${pct}%`}</span>
+        <span className="flex-none font-mono">{waiting ? ing("受け取り中…") : `${pct}%`}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-line">
         {waiting ? (

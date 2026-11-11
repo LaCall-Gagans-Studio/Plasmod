@@ -9,7 +9,7 @@ import { DEFAULT_TEAM, DEFAULT_TEAMS, teamOfProfile } from "../shared/types";
 import { useAgents, useAgentList, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
 import { CreditsLine, ViewBody } from "./SessionBody";
 import { Composer } from "./Composer";
-import { Seeking, Skeleton } from "./loading";
+import { Beckon, Seeking, Skeleton } from "./loading";
 
 /** 一覧の「新しいセッション」の下に置く、cron の回を省くトグル */
 function CronToggle({ className = "" }: { className?: string }) {
@@ -232,8 +232,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
             </div>
           )}
           {error && <div className="p-4 text-[12.5px] text-orange-ink">{error}</div>}
-          {!fresh && sessions && sessions.length === 0 && <div className="p-4 text-[12.5px] text-mute">まだセッションがない。下から話しかけると始まる</div>}
-          {fresh && outgoing.length === 0 && <div className="flex-1 p-4 text-[12.5px] leading-relaxed text-mute">下から話しかけると、{agent ? NAME(snap, agent) : ""}との新しいセッションが始まる。</div>}
+          {!fresh && sessions && sessions.length === 0 && outgoing.length === 0 && <Beckon>まだセッションがない。下から話しかけると始まる</Beckon>}
+          {fresh && outgoing.length === 0 && <Beckon>下から話しかけると、{agent ? NAME(snap, agent) : ""}との新しいセッションが始まる</Beckon>}
           {(latest || outgoing.length > 0) && <ViewBody
               view={latest ? view : null}
               compact
@@ -410,7 +410,7 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
         ) : outgoing.length > 0 ? (
           <ViewBody view={null} outgoing={outgoing} />
         ) : (
-          <div className="flex-1 p-4 text-[12.5px] leading-relaxed text-mute">新しいセッション。{NAME(snap, agent)}に最初の一言を送ると始まる。</div>
+          <Beckon>新しいセッション。{NAME(snap, agent)}に最初の一言を送ると始まる</Beckon>
         )}
 
         <div className="border-t border-line p-3 pb-[max(env(safe-area-inset-bottom),18px)]">

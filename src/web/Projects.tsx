@@ -1,6 +1,7 @@
 // プロジェクト: 各プロジェクトのタスク（期日順の先頭）と最近のメモを、上に詰めたカードで見る画面。
 // 期限順の一覧はタスクの画面にある（#/todos?sort=due）。
 // プロジェクトを開くと、説明（Markdown）・状態・絵文字・名前と、そのプロジェクトのタスクとメモ。
+import { ing } from "./dots";
 import type { EditorView } from "@codemirror/view";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { AppTask, Project, ProjectDetail, ProjectOverview, ProjectStatus, Snapshot } from "../shared/types";
@@ -326,7 +327,7 @@ export function ProjectPage({ snap, id }: { snap: Snapshot | null; id: number })
           <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
         </a>
         <span className="flex-1 text-[12.5px] text-mute">プロジェクト</span>
-        <span className="px-2 text-[11.5px] text-mute" role="status">{save}</span>
+        <span className="px-2 text-[11.5px] text-mute" role="status">{ing(save)}</span>
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-10 md:px-10">
         <div className="mx-auto w-full min-w-0 max-w-[1280px]">

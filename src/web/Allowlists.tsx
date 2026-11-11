@@ -1,4 +1,5 @@
 // 許可リスト: アプリを開けるログインと、エージェントが切り替えられるモデル。書き換えは root の作業（毎回パスワード）
+import { ing, Dots } from "./dots";
 import { useEffect, useState } from "react";
 import type { AgentProfile } from "../shared/types";
 import { profileOf } from "./ui";
@@ -58,7 +59,7 @@ function SaveBar({ kind, payload, dirty, onReset }: { kind: "logins" | "models";
           戻す
         </button>
         <button type="submit" disabled={busy || !secret} className="min-h-10 rounded-full bg-ink px-4 text-[12.5px] font-semibold text-ground disabled:opacity-40">
-          {busy ? "保存しています…" : "保存"}
+          {busy ? ing("保存しています…") : "保存"}
         </button>
       </div>
       {error && <div className="text-[12px] text-orange-ink">{error}</div>}
@@ -173,7 +174,7 @@ export function Allowlists({ agents }: { agents: AgentProfile[] }) {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
   if (error) return <div className="mx-5 mt-2 text-[12px] text-mute">{error}</div>;
-  if (!d) return <div className="mx-5 mt-2 text-[12px] text-mute">読み込んでいます…</div>;
+  if (!d) return <div className="mx-5 mt-2 text-[12px] text-mute">読み込んでいます<Dots /></div>;
   return (
     <>
       {!d.rootd && <div className="mx-5 mt-2 text-[12px] text-orange-ink">plasmod-rootd が使えないので、見るだけ（変えるには setup.sh の root 作業の部品が要る）</div>}

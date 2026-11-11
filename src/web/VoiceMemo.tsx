@@ -1,5 +1,6 @@
 // 音声メモの専用画面（v2.0 C2）。真ん中の大きなマイクを押している間、止まらずに聞き続ける。
 // スマホを机に置いて話し続けられるように、画面は消さない。話した分は端末に残してからサーバーへ送る。
+import { ing } from "./dots";
 import { useEffect, useRef, useState } from "react";
 import type { Memo } from "../shared/types";
 import { createDictation, type Dictation, type DictationState, keepAwake } from "./dictation";
@@ -121,7 +122,7 @@ export function VoiceMemo() {
     <div className="mx-auto flex h-full max-w-[640px] flex-col px-4 pb-[max(env(safe-area-inset-bottom),18px)] pt-[max(env(safe-area-inset-top),12px)]">
       <header className="flex items-center justify-between text-[12.5px] text-mute">
         <a href="#/memos" className="min-h-9 py-2 text-mute no-underline">‹ メモ</a>
-        <span aria-live="polite">{saved === "saved" ? (d.state.memoId ? "保存済み" : "") : saved === "saving" ? "保存中…" : "端末に保存（送信待ち）"}</span>
+        <span aria-live="polite">{saved === "saved" ? (d.state.memoId ? "保存済み" : "") : saved === "saving" ? ing("保存中…") : "端末に保存（送信待ち）"}</span>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap py-3 text-[15px] leading-7 text-ink">
         {body}

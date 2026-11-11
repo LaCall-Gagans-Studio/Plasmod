@@ -1,6 +1,7 @@
 // PR から来たタスクの中身: チェックの結果、マージ、開発エージェントへの依頼（差し戻し）。
 // マージ用のトークンがあれば、ここで承認するとアプリがマージする（エージェントが頼んだ commit だけ）。
 // 無ければ従来どおり、開発エージェントに頼み、依頼された側が承認を通して行う。
+import { ing } from "./dots";
 import { useEffect, useState } from "react";
 import type { DevPr, DevSnapshot, MergeRequest } from "../shared/types";
 import { MicButton } from "./speech";
@@ -87,7 +88,7 @@ export function PrPanel({ url }: { url: string }) {
           </div>
           <div className="flex gap-2">
             <button disabled={busy} onClick={approve} className="min-h-11 flex-[2] rounded-full bg-lime text-sm font-bold text-on disabled:opacity-40">
-              {busy ? "マージしています…" : "マージする"}
+              {busy ? ing("マージしています…") : "マージする"}
             </button>
             <button onClick={() => setConfirm(false)} className="min-h-11 flex-1 rounded-full border border-line-2 text-sm">やめる</button>
           </div>
