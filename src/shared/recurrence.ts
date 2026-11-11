@@ -19,6 +19,8 @@ export interface RecurringRule {
   /** 期日の何日前に浮上させるか（0〜60） */
   leadDays: number;
   enabled: boolean;
+  /** 担当のエージェント（プロファイル ID）。無ければオーナー（Todo）、あれば浮上と同時にカンバンで任せる（AI-Driven） */
+  agent: string | null;
   /** その回だけやめた日（YYYY-MM-DD） */
   skips: string[];
   createdAt: number;
