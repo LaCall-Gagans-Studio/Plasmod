@@ -237,7 +237,8 @@ export class HermesApi {
       if (role !== "user" && role !== "assistant") continue; // tool（道具の結果）は出さない
       const x = extractMedia(textOf(m.content ?? m.text));
       const media = mediaOf([...new Set([...x.paths, ...attachedPaths(m)])]);
-      if (x.text || media.length) out.push({ role, text: x.text, ...(media.length ? { media } : {}) });
+      const notice = role === "user" && m.display_kind === "internal_notification";
+      if (x.text || media.length) out.push({ role, text: x.text, ...(notice ? { notice: true } : {}), ...(media.length ? { media } : {}) });
       if (role === "assistant" && Array.isArray(m.tool_calls)) pushSteps(out, callLabels(m.tool_calls), toMs(m.timestamp ?? m.created_at) || undefined);
     }
     return out;
@@ -523,7 +524,7 @@ export class HermesRuntime implements AgentRuntime {
     // ストリーム中のターンは、履歴にまだ載っていないので後ろに足す
     // Hermes は走り出した時点で発言を履歴に書くことがある。そのときは発言を二重に足さない（最後の発言が同じなら載っている）
     const u = live && extractMedia(live.input);
-    const lastUser = messages.findLastIndex((m) => m.role === "user");
+    const lastUser = messages.findLastIndex((m) => m.role === "user" && !m.notice);
     const inHistory = !!u && lastUser >= 0 && messages[lastUser].text.trim() === u.text.trim();
     if (live && u && (live.status === "running" || !inHistory)) {
       if (!inHistory) messages.push({ role: "user", text: u.text, ...(u.paths.length ? { media: mediaOf(u.paths) } : {}) });

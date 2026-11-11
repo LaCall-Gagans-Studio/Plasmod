@@ -59,7 +59,7 @@ export function replySeen(view: SessionView, text: string): boolean {
   const t = text.trim();
   if (view.kind === "chat") {
     const ms: HermesMessage[] = view.messages;
-    const i = ms.findLastIndex((m) => m.role === "user" && m.text.trim().startsWith(t));
+    const i = ms.findLastIndex((m) => m.role === "user" && !m.notice && m.text.trim().startsWith(t));
     return i >= 0 && ms.slice(i + 1).some((m) => m.role === "assistant" && m.text.trim() !== "");
   }
   const ms: ChatMessage[] = view.messages ?? [];

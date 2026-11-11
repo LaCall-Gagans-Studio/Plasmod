@@ -635,6 +635,8 @@ export interface HermesMessage {
   text: string;
   media?: MediaItem[];
   steps?: string[];
+  /** Hermes の内部通知（role は user だが、本人の発言ではない。非同期の担当処理の結果など） */
+  notice?: boolean;
   /** 記録の時刻（ms）。途中経過の最後の時刻で「作業中」を判断する */
   at?: number;
 }

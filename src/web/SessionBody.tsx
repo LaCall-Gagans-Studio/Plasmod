@@ -212,12 +212,28 @@ function StepsView({ steps, compact }: { steps: string[]; compact: boolean }) {
   );
 }
 
+/** Hermes の内部通知（担当の処理結果など）。本人の発言ではないので、吹き出しにせず薄い通知として出す。長いときは押すと開く */
+function NoticeView({ text, compact }: { text: string; compact: boolean }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 140 || text.includes("\n");
+  const shown = open || compact ? text : text.split("\n")[0].slice(0, 140);
+  return (
+    <div role="note" className="flex flex-col gap-0.5 border-l-2 border-line-2 pl-2.5 font-sans text-[11.5px] leading-snug text-mute">
+      <span className="text-[10.5px] font-bold tracking-wide">システム通知（あなたの発言ではない）</span>
+      <span className="whitespace-pre-wrap break-words">{shown}{long && !open && !compact ? "…" : ""}</span>
+      {long && !compact && <button onClick={() => setOpen(!open)} className="self-start underline-offset-2 hover:underline">{open ? "閉じる" : "全文を開く"}</button>}
+    </div>
+  );
+}
+
 export function CreditsLine({ c }: { c: NousCredits }) {
   const u = creditsUsed(c);
   if (c.paidAccess === false)
     return (
       <div role="status" className="border-b border-line bg-orange/10 px-4 py-2 font-sans text-[12px] text-orange-ink">
-        ✕ Nous のクレジット切れ。有料モデルは止まっている{u ? `（${usd(u.used)} / ${usd(u.cap)}）` : ""}。portal で追加するか、無料のモデルに切り替える
+        ⚠ Nous の有料モデルが使えない状態と報告されています{c.reason ? `（${c.reason}）` : ""}{u ? `［${usd(u.used)} / ${usd(u.cap)}］` : ""}。ChatGPT のプラン共有など Nous の残高を使わないモデルは、この表示と関係なく使える場合があります。使えるなら、そのまま送れます（表示は1分ごとに確認し直します）
+        {c.error && <span className="block text-mute">※ {c.error}。この表示は古い可能性があります</span>}
+        <span className="block text-mute">失敗した直後に同じ依頼を送り直すと、実行済みの操作が二重になることがあります。先に会話の記録を確かめてください</span>
       </div>
     );
   if (!u) return null;
@@ -318,6 +334,8 @@ export function ViewBody({ who, view, compact = false, outgoing = [], scrollKey 
       {msgs.map((m, i) =>
         m.role === "steps" ? (
           <StepsView key={i} steps={m.steps ?? []} compact={compact} />
+        ) : m.notice ? (
+          <NoticeView key={i} text={m.text} compact={compact} />
         ) : m.role === "user" ? (
           <div key={i} className={BUBBLE}><Linkify text={m.text} />{m.media && <MediaList items={m.media} />}</div>
         ) : (
