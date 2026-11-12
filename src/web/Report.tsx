@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TaskSummaryItem, Report as ReportT, ReportSlide, Snapshot } from "../shared/types";
 import { MicButton } from "./speech";
 import { Avatar, Icon, ago, profileOf } from "./ui";
@@ -9,8 +9,8 @@ import { ownerName } from "./identity";
 import { useHoldSwipe } from "./touch";
 
 /** 1枚を見せる時間。上のバーがこの時間で 100% になったら次へ。中身が多いタスクの枚は長め */
-const slideMs = (s: ReportSlide) => (s.kind === "digest" || s.kind === "watch" || s.kind === "routine" ? 9000 : 5000);
-/** 中身を押して使う枚。自動で進めず、左右の押す場所も置かない（下の ‹ › で動く） */
+const slideMs = (s: ReportSlide) => (isHands(s) ? 12000 : s.kind === "digest" || s.kind === "watch" || s.kind === "routine" ? 9000 : 5000);
+/** 中身を押して使う枚。左右の押す場所は置かない（下の ‹ › でも動ける）。自動で進むのは、触っていない間だけ */
 const isHands = (s: ReportSlide | undefined) => s?.kind === "tasks" || s?.kind === "mine" || s?.kind === "memos" || s?.kind === "habits";
 const BG = ["#C8F25A", "#FF8A3D", "#8FB8FF", "#F3F1EC"];
 
@@ -243,6 +243,16 @@ export function Report({ snap }: { snap: Snapshot | null }) {
   const [error, setError] = useState<string | null>(null);
   const [i, setI] = useState(0);
   const [paused, setPaused] = useState(false);
+  // 中身を押して使う枚: 触るたびにバーを最初からにし、入力欄を開いている間は止める
+  const [touches, setTouches] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const lastTouch = useRef(0);
+  const touched = useCallback(() => {
+    const t = Date.now();
+    if (t - lastTouch.current < 400) return; // スクロール中に何度も組み直さない
+    lastTouch.current = t;
+    setTouches((x) => x + 1);
+  }, []);
   const [noting, setNoting] = useState(false);
   const [note, setNote] = useState("");
   const [saved, setSaved] = useState<string | null>(null);
@@ -287,9 +297,9 @@ export function Report({ snap }: { snap: Snapshot | null }) {
             {k === i && report && (
               // 見ている枚のバーは左から伸び、100% になったら次へ（押さえている間・注釈を書いている間は止まる）
               <div
-                key={`fill${i}`}
+                key={`fill${i}-${touches}`}
                 className="gh-fill h-full bg-on"
-                style={{ animationDuration: `${slideMs(report.slides[i])}ms`, animationPlayState: paused || hold.held || noting || isHands(report.slides[i]) ? "paused" : "running" }}
+                style={{ animationDuration: `${slideMs(report.slides[i])}ms`, animationPlayState: paused || hold.held || noting || editing ? "paused" : "running" }}
                 onAnimationEnd={() => i < n - 1 && go(1)}
               />
             )}
@@ -303,7 +313,14 @@ export function Report({ snap }: { snap: Snapshot | null }) {
         <a href="#/" aria-label="閉じる" className="ml-auto flex size-11 items-center justify-center"><Icon name="close" /></a>
       </div>
 
-      <div {...(noting ? {} : hold.bind)} data-noswipe="1" className={`gh-nocallout relative flex-1 select-none px-6 pt-2 ${isHands(report?.slides[i]) && !hold.held ? "overflow-y-auto" : "overflow-hidden"}`}>
+      <div
+        {...(noting ? {} : hold.bind)}
+        onPointerDownCapture={touched}
+        onScroll={touched}
+        onKeyDownCapture={touched}
+        onFocusCapture={(e) => setEditing(/^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement).tagName) || (e.target as HTMLElement).isContentEditable)}
+        onBlurCapture={() => setEditing(false)}
+        data-noswipe="1" className={`gh-nocallout relative flex-1 select-none px-6 pt-2 ${isHands(report?.slides[i]) && !hold.held ? "overflow-y-auto" : "overflow-hidden"}`}>
         {error && <div className="rounded-xl bg-on/10 p-3 text-sm">{error}</div>}
         {!report && !error && <Skeleton />}
         {report && (
