@@ -70,6 +70,29 @@ function NewWhoDot({ agents, snap, value, active, onPick, onStart, size = 26, al
   );
 }
 
+/** 新しいセッションの画面いっぱいに出す「だれと始まるか」の表示。相手の色を背景に敷いて、取り違えを防ぐ */
+function NewWithHero({ p, name, compact = false }: { p?: AgentProfile; name: string; compact?: boolean }) {
+  const c = p?.color ?? "var(--color-line-2)";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden px-6 py-8 text-center"
+      style={{ background: `radial-gradient(ellipse 85% 70% at 50% 38%, color-mix(in srgb, ${c} 26%, transparent), color-mix(in srgb, ${c} 7%, transparent) 62%, transparent)` }}
+    >
+      <span className="rounded-full p-1" style={{ background: `color-mix(in srgb, ${c} 30%, transparent)`, boxShadow: `0 0 0 2px ${c}, 0 10px 30px -8px color-mix(in srgb, ${c} 70%, transparent)` }}>
+        {p ? <Avatar p={p} size={compact ? 64 : 84} /> : null}
+      </span>
+      <div className="flex flex-col items-center gap-1 font-sans">
+        <span className="text-[11px] font-semibold tracking-[0.18em] text-mute">NEW SESSION</span>
+        <span className={`${compact ? "text-[19px]" : "text-[24px]"} font-bold leading-tight text-ink`}>{name}と始める</span>
+        {p?.role && <span className="text-[12px] text-ink-2">{p.role}</span>}
+      </div>
+      <span className="font-sans text-[12px] text-mute">下から最初の一言を送ると始まる</span>
+    </div>
+  );
+}
+
 /** 一覧の行の「誰のセッションか」（全員の一覧で使う） */
 function Who({ p, size = 14 }: { p?: AgentProfile; size?: number }) {
   if (!p) return null;
@@ -270,7 +293,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
                   {latest.title}
                 </a>
               ) : (
-                <span className="truncate">新しいセッション</span>
+                <span className="truncate font-semibold text-ink">新しいセッション{fresh && who ? ` · ${who.name}` : ""}</span>
               )}
               <button
                 onClick={() => (setFresh(true), setPicking(false))}
@@ -332,7 +355,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
           )}
           {error && <div className="p-4 text-[12.5px] text-orange-ink">{error}</div>}
           {!fresh && sessions && sessions.length === 0 && outgoing.length === 0 && <Beckon>まだセッションがない。下から話しかけると始まる</Beckon>}
-          {fresh && outgoing.length === 0 && <Beckon>下から話しかけると、{target ? NAME(snap, target) : ""}との新しいセッションが始まる</Beckon>}
+          {fresh && outgoing.length === 0 && <NewWithHero p={who} name={target ? NAME(snap, target) : ""} compact />}
           {(latest || outgoing.length > 0) && <ViewBody
               who={who}
               view={latest ? view : null}
@@ -342,7 +365,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
               onChoose={target && latest ? (t) => void submit(target, latest.id, t, []).then(() => setBump((x) => x + 1)) : undefined}
             />}
           {!latest && !fresh && outgoing.length === 0 && <div className="flex-1" />}
-          <div className="p-2.5">
+          <div className="p-2.5" style={fresh && !latest && who ? { boxShadow: `inset 0 3px 0 0 ${who.color}` } : undefined}>
             {target && (
               <Composer
                 placeholder={`${NAME(snap, target)}に頼む…`}
@@ -513,10 +536,10 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
         ) : outgoing.length > 0 ? (
           <ViewBody who={who} view={null} outgoing={outgoing} />
         ) : (
-          <Beckon>新しいセッション。{NAME(snap, agent)}に最初の一言を送ると始まる</Beckon>
+          <NewWithHero p={who} name={NAME(snap, agent)} />
         )}
 
-        <div className="border-t border-line p-3 pb-[max(env(safe-area-inset-bottom),18px)]">
+        <div className="border-t border-line p-3 pb-[max(env(safe-area-inset-bottom),18px)]" style={!current && who ? { boxShadow: `inset 0 3px 0 0 ${who.color}` } : undefined}>
           <Composer
             placeholder={`${NAME(snap, agent)}に頼む…`}
             busy={view?.kind === "chat" && view.working}
