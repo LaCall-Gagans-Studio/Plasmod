@@ -8,10 +8,12 @@ import { startTaskSync } from "./task-db";
 import { startVersionWatch } from "./version";
 import { loadAbout } from "./identity";
 import { burst } from "./loading";
+import { startKeyboardWatch } from "./keyboard";
 
 applyTheme();
 void loadAbout();
 startVersionWatch();
+startKeyboardWatch();
 
 // 起動画面のアメーバから、画面いっぱいに広がって最初の画面へ
 if (document.querySelector(".gh-splash")) burst();
