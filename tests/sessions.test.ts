@@ -12,7 +12,7 @@ const sessions: { id: string; title: string; updated_at: number; source?: string
   { id: "cron_f430d6d69d61_20261022_080035", title: "見回り · Oct 22 08:06", updated_at: 1_699_999_000, source: "cron" },
   { id: "x9", title: "source だけで分かる回", updated_at: 1_699_998_000, source: "cron" },
 ];
-const messages: Record<string, { role: string; content: unknown; tool_calls?: unknown[]; timestamp?: number }[]> = {
+const messages: Record<string, { role: string; content: unknown; tool_calls?: unknown[]; timestamp?: number; display_kind?: string }[]> = {
   s1: [
     { role: "system", content: "隠す" },
     { role: "user", content: "おはよう" },
@@ -129,6 +129,17 @@ describe("Hermes の API サーバー", () => {
     expect(await api().messages("s1")).toEqual([
       { role: "user", text: "おはよう" },
       { role: "assistant", text: "おはようございます" },
+    ]);
+  });
+
+  test("内部通知（display_kind=internal_notification）は notice 付きで返す。本人の発言と区別できる", async () => {
+    messages.n1 = [
+      { role: "user", content: "調べて" },
+      { role: "user", content: "担当の処理が終わった: …", display_kind: "internal_notification" },
+    ];
+    expect(await api().messages("n1")).toEqual([
+      { role: "user", text: "調べて" },
+      { role: "user", text: "担当の処理が終わった: …", notice: true },
     ]);
   });
 

@@ -84,7 +84,7 @@ function CreditsMeter({ c }: { c: NousCredits }) {
       sub={`Hermes のクレジット${c.plan ? ` · ${c.plan}` : ""}`}
       value={u ? `$${u.used.toFixed(2)} / $${u.cap.toFixed(2)}` : c.totalRemaining !== null ? `残り $${c.totalRemaining.toFixed(2)}` : "?"}
       ratio={u ? u.ratio : null}
-      note={c.paidAccess === false ? `✕ クレジット切れ。有料モデルは止まっている${c.reason ? `（${c.reason}）` : ""}` : left || "月の枠に対して使った額"}
+      note={c.paidAccess === false ? `⚠ Nous の有料モデルが使えない状態と報告されている${c.reason ? `（${c.reason}）` : ""}` : left || "月の枠に対して使った額"}
       color={c.paidAccess === false || (u && u.ratio >= 0.75) ? "#FF8A3D" : "#8FB8FF"}
     />
   );

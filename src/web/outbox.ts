@@ -118,8 +118,8 @@ export function isDelivered(o: Outgoing, view: SessionView | null, now = Date.no
   const since = o.at - (o.status === "sent" ? 120_000 : 10_000);
   if (view.kind === "terminal") return !!view.messages?.some((m) => m.author === "owner" && m.content.trim() === t && m.at >= since);
   // Hermes の履歴には時刻が無いことがあるので、送信中は最後の自分の発言だけを見る
-  if (o.status === "sending") return view.messages.findLast((m) => m.role === "user")?.text.trim().startsWith(t) ?? false;
-  return view.messages.some((m) => m.role === "user" && m.text.trim().startsWith(t));
+  if (o.status === "sending") return view.messages.findLast((m) => m.role === "user" && !m.notice)?.text.trim().startsWith(t) ?? false;
+  return view.messages.some((m) => m.role === "user" && !m.notice && m.text.trim().startsWith(t));
 }
 
 // ---- 共有メニューから取り込んだ添付（チャットの入力欄が受け取る） ----

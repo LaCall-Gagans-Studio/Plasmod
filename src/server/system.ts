@@ -146,8 +146,8 @@ export class SystemService {
         value = { ...empty, error: e instanceof Error ? e.message : String(e) };
       }
     }
-    // 取れなかったときは長く覚えない（1分で取り直す）
-    this.creditsCache = { at: value.error ? Date.now() - 240_000 : Date.now(), value };
+    // 取れなかったとき、有料が止まっていると出たときは長く覚えない（1分で取り直す。回復後に古い「止まっている」が残らないように）
+    this.creditsCache = { at: value.error || value.paidAccess === false ? Date.now() - 240_000 : Date.now(), value };
     return value;
   }
 

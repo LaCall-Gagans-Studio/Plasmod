@@ -188,17 +188,26 @@ export function useView(agent: string | null, id: string | null, ms = 2000) {
 /** Nous のクレジット。Hermes の「You've used $X of your $Y cap」と同じもの */
 export function useCredits(enabled: boolean) {
   const [credits, setCredits] = useState<NousCredits | null>(null);
+  const stopped = credits?.paidAccess === false;
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
-    const load = () => getJson<NousCredits>("/api/system/credits").then((c) => alive && setCredits(c)).catch(() => {});
+    // 取れなかったときは前の値を黙って使い続けず、取れなかったと分かるようにする（止まっている表示が回復後も残らないように）
+    const load = () =>
+      getJson<NousCredits>("/api/system/credits")
+        .then((c) => alive && setCredits(c))
+        .catch(() => alive && setCredits((p) => (p ? { ...p, error: p.error ?? "最新の残高を取得できなかった" } : p)));
     void load();
-    const t = setInterval(load, 300_000);
+    // 止まっていると出ているあいだは1分ごと、そうでなければ5分ごと。画面に戻ったときも取り直す
+    const t = setInterval(load, stopped ? 60_000 : 300_000);
+    const vis = () => document.visibilityState === "visible" && void load();
+    document.addEventListener("visibilitychange", vis);
     return () => {
       alive = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", vis);
     };
-  }, [enabled]);
+  }, [enabled, stopped]);
   return enabled ? credits : null;
 }
 
