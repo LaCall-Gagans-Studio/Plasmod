@@ -164,7 +164,7 @@ export const RAIL = "lg:pl-[88px]";
 // 下のメニューは3つ（チャット・プロジェクト・ルーティーン）と「メニュー」。ほかの画面は左から出るメニューから開く
 const TABS = [
   { href: "#/", label: "チャット", icon: "chat" },
-  { href: "#/pj", label: "プロジェクト", icon: "pj" },
+  { href: "#/pj", to: "#/todos", label: "プロジェクト", icon: "pj" }, // 開くのはタスク（印・選択中の判定は #/pj のまま）
   { href: "#/habits", label: "ルーティーン", icon: "habit" },
 ] as const;
 
@@ -224,7 +224,7 @@ const useDrawerOpen = () =>
   );
 
 // 小項目は普段は畳んでいて、右の ˅ で開く（開いたものは覚えておく）
-const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges; match?: string[]; sub?: { href: string; label: string; match?: string; badge?: keyof NavBadges }[] }[] = [
+const MENU: { href: string; to?: string; label: string; icon: string; badge?: keyof NavBadges; match?: string[]; sub?: { href: string; label: string; match?: string; badge?: keyof NavBadges }[] }[] = [
   {
     href: "#/",
     label: "チャット",
@@ -233,7 +233,7 @@ const MENU: { href: string; label: string; icon: string; badge?: keyof NavBadges
     match: ["#/session", "#/watching", "#/task/", "#/search"],
     sub: [{ href: "#/session", label: "セッション", match: "#/session/" }, { href: "#/watching", label: "カンバン", match: "#/task/", badge: "watching" }, { href: "#/search", label: "検索", match: "#/search" }],
   },
-  { href: "#/pj", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo", "#/calendar"], sub: [{ href: "#/memos", label: "メモ" }, { href: "#/todos", label: "タスク" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }, { href: "#/calendar", label: "タスクカレンダー" }] },
+  { href: "#/pj", to: "#/todos", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo", "#/calendar"], sub: [{ href: "#/todos", label: "タスク" }, { href: "#/memos", label: "メモ" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }, { href: "#/calendar", label: "タスクカレンダー" }] },
   { href: "#/habits", label: "ルーティーン", icon: "habit" },
   { href: "#/report", label: "レポート", icon: "insights", match: ["#/watch"], sub: [{ href: "#/report", label: "今日のレポート" }, { href: "#/watch", label: "定期報告" }] },
   {
@@ -365,7 +365,7 @@ export function Drawer() {
             return (
               <div key={m.href} className="flex flex-col">
                 <div className={`flex items-center rounded-xl ${on ? "bg-chip" : "hover:bg-chip/60"}`}>
-                  <a href={m.href} tabIndex={open ? 0 : -1} aria-current={on ? "page" : undefined} className={`flex min-h-11 flex-1 items-center gap-3 px-3 text-[14.5px] no-underline ${on ? "font-semibold text-ink" : "text-ink-2"}`}>
+                  <a href={m.to ?? m.href} tabIndex={open ? 0 : -1} aria-current={on ? "page" : undefined} className={`flex min-h-11 flex-1 items-center gap-3 px-3 text-[14.5px] no-underline ${on ? "font-semibold text-ink" : "text-ink-2"}`}>
                     <span className={`${on ? HALO_ON : HALO} flex items-center gap-3`}>
                       <span className="relative flex"><Icon name={m.icon} size={20} /><Badge n={n} /></span>
                       {tr(m.label)}
@@ -409,7 +409,7 @@ export function Nav({ current }: { current: string }) {
         return (
           <a
             key={t.href}
-            href={t.href}
+            href={"to" in t ? t.to : t.href}
             className={`flex min-w-16 flex-col items-center gap-1 ${current === t.href ? "text-ink" : ""}`}
             aria-current={current === t.href ? "page" : undefined}
             aria-label={n ? `${tr(t.label)}（${n}）` : undefined}
