@@ -12,6 +12,7 @@ import { CreditsLine, ViewBody } from "./SessionBody";
 import { Composer } from "./Composer";
 import { useLongPress } from "./touch";
 import { Beckon, Seeking, Skeleton } from "./loading";
+import { blobPath } from "./amoeba";
 
 /** 一覧の「新しいセッション」の下に置く、cron の回を省くトグル */
 function CronToggle({ className = "" }: { className?: string }) {
@@ -70,6 +71,65 @@ function NewWhoDot({ agents, snap, value, active, onPick, onStart, size = 26, al
   );
 }
 
+/** 相手のアイコンを包むアメーバ。体がぷるぷる形を変え、偽足が下の入力欄へ伸びて「こっち」と招く（動きを減らす設定では止める） */
+function HeroAmoeba({ p, color, size }: { p?: AgentProfile; color: string; size: number }) {
+  const W = 180;
+  const H = 210;
+  const cx = W / 2;
+  const cy = 84;
+  const body = useRef<SVGPathElement>(null);
+  const arm = useRef<SVGPathElement>(null);
+  const tip = useRef<SVGCircleElement>(null);
+  const R = size / 2 + 20;
+  useEffect(() => {
+    const draw = (t: number) => {
+      const radii = Array.from({ length: 9 }, (_, i) => R + Math.sin(t * 1.1 + i * 1.7) * 4.5 + Math.sin(t * 0.7 + i * 2.9) * 3);
+      body.current?.setAttribute("d", blobPath(cx, cy, radii, t * 0.12));
+      const sway = Math.sin(t * 1.5) * 12;
+      const hop = Math.max(0, Math.sin(t * 0.75 + 0.6)) ** 8 * 8;
+      const y0 = cy + R - 8;
+      const len = 40 + Math.sin(t * 0.9) * 4 + hop;
+      const x1 = cx + sway;
+      const y1 = y0 + len;
+      arm.current?.setAttribute("d", `M${cx} ${y0} C${cx - sway * 0.6} ${y0 + len * 0.45} ${x1 + sway * 0.4} ${y1 - len * 0.4} ${x1.toFixed(1)} ${y1.toFixed(1)}`);
+      tip.current?.setAttribute("cx", x1.toFixed(1));
+      tip.current?.setAttribute("cy", y1.toFixed(1));
+    };
+    draw(0);
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    let raf = 0;
+    const t0 = performance.now();
+    const frame = (ms: number) => {
+      draw((ms - t0) / 1000);
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [R]);
+  const fill = `color-mix(in srgb, ${color} 34%, transparent)`;
+  return (
+    <div className="relative flex-none" style={{ width: W, height: H }} aria-hidden="true">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 overflow-visible">
+        <defs>
+          <filter id="gh-hero-goo" x="0" y="0" width={W} height={H} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3.2" result="b" />
+            <feColorMatrix in="b" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8" />
+          </filter>
+        </defs>
+        <g filter="url(#gh-hero-goo)" style={{ fill, stroke: fill }}>
+          <path ref={body} stroke="none" />
+          <path ref={arm} fill="none" strokeWidth={9} strokeLinecap="round" />
+          <circle ref={tip} r={6.5} stroke="none" />
+        </g>
+        <circle cx={cx} cy={cy} r={R} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="2 7" strokeLinecap="round" />
+      </svg>
+      <span className="absolute rounded-full" style={{ left: cx - size / 2, top: cy - size / 2, boxShadow: `0 0 0 3px ${color}, 0 10px 28px -8px color-mix(in srgb, ${color} 75%, transparent)` }}>
+        {p ? <Avatar p={p} size={size} /> : null}
+      </span>
+    </div>
+  );
+}
+
 /** 新しいセッションの画面いっぱいに出す「だれと始まるか」の表示。相手の色を背景に敷いて、取り違えを防ぐ */
 function NewWithHero({ p, name, compact = false }: { p?: AgentProfile; name: string; compact?: boolean }) {
   const c = p?.color ?? "var(--color-line-2)";
@@ -77,12 +137,10 @@ function NewWithHero({ p, name, compact = false }: { p?: AgentProfile; name: str
     <div
       role="status"
       aria-live="polite"
-      className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden px-6 py-8 text-center"
+      className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-hidden px-6 py-4 text-center"
       style={{ background: `radial-gradient(ellipse 85% 70% at 50% 38%, color-mix(in srgb, ${c} 26%, transparent), color-mix(in srgb, ${c} 7%, transparent) 62%, transparent)` }}
     >
-      <span className="rounded-full p-1" style={{ background: `color-mix(in srgb, ${c} 30%, transparent)`, boxShadow: `0 0 0 2px ${c}, 0 10px 30px -8px color-mix(in srgb, ${c} 70%, transparent)` }}>
-        {p ? <Avatar p={p} size={compact ? 64 : 84} /> : null}
-      </span>
+      <HeroAmoeba p={p} color={c} size={compact ? 60 : 76} />
       <div className="flex flex-col items-center gap-1 font-sans">
         <span className="text-[11px] font-semibold tracking-[0.18em] text-mute">NEW SESSION</span>
         <span className={`${compact ? "text-[19px]" : "text-[24px]"} font-bold leading-tight text-ink`}>{name}と始める</span>
