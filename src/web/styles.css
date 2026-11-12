@@ -314,3 +314,24 @@ button:not(:disabled):active {
   55%, 85% { background: radial-gradient(circle at 38% 58%, #0d0d0f 0 38%, #f3f1ec 40%); }
 }
 @media (prefers-reduced-motion: reduce) { .pl-mini-body, .pl-mini-arm, .pl-mini-eye { animation: none; } }
+
+/* スマホでキーボードが開いている間、チャット画面の上のカードと下のバーをにゅっと畳む（閉じたら戻る）。幅の広い画面では何もしない */
+@media (max-width: 1023px) {
+  .kbd-fold {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease;
+  }
+  .kbd-fold > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+  html[data-kbd] .kbd-fold {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kbd-fold { transition: none; }
+}

@@ -113,6 +113,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
   return (
     <div className={`h-full ${RAIL}`}>
       <div className={`${COL} flex h-full flex-col`}>
+        <div className="kbd-fold">
         {/* 一番上の列: 左にレポート・BackLog のカード、右端にアプリのアイコン・検索・接続状況の小さなマス */}
         <div className="flex items-start gap-3 pb-4 pl-5 pr-4 pt-[max(env(safe-area-inset-top),14px)]">
           {/* 右端は薄くして、カードが続いていることを見せる（右上の小さなマスで切れて見えないように） */}
@@ -178,6 +179,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
             )}
           </div>
         </div>
+        </div>
 
         <div className="flex min-h-0 flex-1 gap-4">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -196,7 +198,7 @@ export function Home({ snap, online }: { snap: Snapshot | null; online: boolean 
         {snap && <HomeAside snap={snap} />}
         </div>
 
-        <Nav current="#/" />
+        <div className="kbd-fold"><Nav current="#/" /></div>
       </div>
     </div>
   );
