@@ -1,4 +1,4 @@
-// プロジェクト・メモ・タスクの画面で共通の上の列: 「プロジェクト｜メモ｜タスク」の切り替えと、＋・歯車。
+// プロジェクト・メモ・タスクの画面で共通の上の列: 「タスク｜メモ｜プロジェクト」の切り替えと、＋・歯車。
 // 選んだときは白い背景が滑って動く（画面が切り替わっても、前の位置から動かす）。
 import { useEffect, useState } from "react";
 import { t as tr } from "./i18n";
@@ -6,9 +6,9 @@ import { t as tr } from "./i18n";
 export type PjTab = "pj" | "memos" | "tasks";
 
 const TABS: { id: PjTab; label: string; href: string }[] = [
-  { id: "pj", label: "プロジェクト", href: "#/pj" },
-  { id: "memos", label: "メモ", href: "#/memos" },
   { id: "tasks", label: "タスク", href: "#/todos" },
+  { id: "memos", label: "メモ", href: "#/memos" },
+  { id: "pj", label: "プロジェクト", href: "#/pj" },
 ];
 
 /** 前の画面で選ばれていた位置（画面が作り直されても、そこから動かす） */
