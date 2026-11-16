@@ -62,6 +62,13 @@ export function dashboardUrl(host: string, profile?: string | null): string | nu
   return `https://${host}/${profile && profile !== "default" ? `?profile=${encodeURIComponent(profile)}` : ""}`;
 }
 
+/** Android のアプリ（PWA）から開くと、ログイン開始の cookie がアプリ側に付き、戻りの Chrome で「Missing PKCE state cookie」になる。最初から Chrome で開く */
+export function openInChrome(url: string, ua: string): string {
+  if (!/Android/i.test(ua)) return url;
+  const u = new URL(url);
+  return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=${u.protocol.replace(":", "")};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`;
+}
+
 function Manage({ c, onChanged }: { c: Connection; onChanged: () => void }) {
   const [mode, setMode] = useState<"reconnect" | "toggle" | null>(null);
   const [secret, setSecret] = useState("");
@@ -117,7 +124,7 @@ function Manage({ c, onChanged }: { c: Connection; onChanged: () => void }) {
           </button>
         ) : null}
         {!off && c.canLogin && c.kind === "mcp" && dash ? (
-          <a href={dash} target="_blank" rel="noreferrer" className={`${button} inline-flex items-center gap-1 text-ink no-underline`}>
+          <a href={openInChrome(dash, navigator.userAgent)} target="_blank" rel="noreferrer" className={`${button} inline-flex items-center gap-1 text-ink no-underline`}>
             ダッシュボードでつなぎ直す <span aria-hidden="true">↗</span>
           </a>
         ) : null}
@@ -265,7 +272,7 @@ export function Connections() {
         <Group key={p} fold title={`MCP · ${p}`} items={view.connections.filter((c) => c.kind === "mcp" && c.profile === p)} onChanged={() => void load(true)} />
       ))}
       {addUrl ? (
-        <a href={addUrl} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-between gap-3 rounded-2xl border border-dashed border-line-2 px-3.5 py-2.5 text-[13px] text-ink no-underline">
+        <a href={openInChrome(addUrl, navigator.userAgent)} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-between gap-3 rounded-2xl border border-dashed border-line-2 px-3.5 py-2.5 text-[13px] text-ink no-underline">
           <span className="flex min-w-0 flex-col">
             <span>MCP を追加する</span>
             <span className="mt-0.5 text-[11.5px] text-mute">Hermes のダッシュボードで追加すると、ここに並びます</span>
