@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
 import android.widget.Toast;
@@ -21,6 +22,21 @@ public class MainActivity extends BridgeActivity {
         keepPath(getIntent(), false);
         speech = new SpeechBridge(this, getBridge().getWebView());
         getBridge().getWebView().addJavascriptInterface(speech, "HermesSpeechNative");
+        getBridge().getWebView().addJavascriptInterface(new Object() {
+            /** Hermes ダッシュボードなど、cookie をアプリと分けたいページを Chrome で開く */
+            @JavascriptInterface
+            public void openExternal(String url) {
+                if (url == null || !url.startsWith("https://")) return;
+                runOnUiThread(() -> {
+                    Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    try {
+                        startActivity(new Intent(i).setPackage("com.android.chrome"));
+                    } catch (Exception noChrome) {
+                        try { startActivity(i); } catch (Exception ignored) { }
+                    }
+                });
+            }
+        }, "PlasmodNative");
         // チャットの写真・ファイルの「保存」: WebView はダウンロードを自分では受け取らないので、Android の保存（ダウンロードフォルダ）に渡す。
         // 取りに行くのは Android 自身だが、通り道は同じ Tailscale なので、本人の確認もアプリと同じ
         getBridge().getWebView().setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
