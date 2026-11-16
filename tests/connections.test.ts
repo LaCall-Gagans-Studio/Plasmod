@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { connectionRows, ConnectionWatch, type RawConnections } from "../src/server/connections";
-import { dashboardUrl, loginResult } from "../src/web/Connections";
+import { dashboardUrl, openInChrome, loginResult } from "../src/web/Connections";
 
 const NOW = Date.parse("2026-11-20T00:00:00Z");
 const sec = (ms: number) => Math.floor(ms / 1000);
@@ -154,5 +154,15 @@ describe("ダッシュボードの住所", () => {
     expect(dashboardUrl("vps.example.ts.net", "default")).toBe("https://vps.example.ts.net/");
     expect(dashboardUrl("vps.example.ts.net", "acct")).toBe("https://vps.example.ts.net/?profile=acct");
     expect(dashboardUrl("localhost")).toBeNull();
+  });
+});
+
+describe("Chrome で開く", () => {
+  test("Android だけ intent:// にする。fallback を付ける", () => {
+    const u = "https://vps.example.ts.net/?profile=acct";
+    expect(openInChrome(u, "Mozilla/5.0 (Linux; Android 14)")).toBe(
+      `intent://vps.example.ts.net/?profile=acct#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(u)};end`,
+    );
+    expect(openInChrome(u, "Mozilla/5.0 (Macintosh)")).toBe(u);
   });
 });
