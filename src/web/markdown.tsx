@@ -128,10 +128,11 @@ export type LinkPart = { text: string; href?: string };
 /** [名前](https://…) と、むき出しの http(s) の URL を取り出す。URL の後ろに続く句読点・閉じ括弧はリンクに含めない */
 export function splitLinks(text: string): LinkPart[] {
   const out: LinkPart[] = [];
-  const re = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[\x21-\x7e]+/g;
+  // ラベルも URL も、途中で改行してよい（空行をまたぐものは除く）。URL の中の改行は取り除く
+  const re = /\[([^\]\n]+(?:\n[^\]\n]+)*)\]\(\s*(https?:\/\/[^\s)]+(?:\n[^\s)]+)*)\s*\)|https?:\/\/[\x21-\x7e]+/g;
   let last = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
-    let href = m[2] ?? m[0];
+    let href = m[2] ? m[2].replace(/\s+/g, "") : m[0];
     let label = m[1] ?? href;
     let end = m.index + m[0].length;
     if (!m[2]) {

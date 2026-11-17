@@ -52,6 +52,13 @@ describe("リンク", () => {
     ]);
   });
 
+  test("名前や URL の途中に改行があっても、1つのリンクのまま", () => {
+    expect(splitLinks("[長い\n名前](https://example.com/a)")).toEqual([{ text: "長い\n名前", href: "https://example.com/a" }]);
+    expect(splitLinks("[x](https://example.com/\nabc)")).toEqual([{ text: "x", href: "https://example.com/abc" }]);
+    // 空行をまたぐものはリンクにしない
+    expect(splitLinks("[a\n\nb](https://example.com/)").some((p) => p.text === "a\n\nb" && p.href)).toBe(false);
+  });
+
   test("http(s) 以外はリンクにしない", () => {
     expect(splitLinks("javascript:alert(1) と [x](javascript:alert(1))").every((p) => !p.href)).toBe(true);
   });
