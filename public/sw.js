@@ -2,11 +2,22 @@
 // API はキャッシュしない（メモの写しは IndexedDB、memo-sync.ts）。
 // - 名前にハッシュが付く /assets/ は、一度取ったらずっと使う
 // - それ以外の画面は、まずサーバーへ。届かなければキャッシュ
-const CACHE = "gh-shell-v1";
+const CACHE = "gh-shell-v2";
 const NETWORK_MS = 2500;
 const MAX_ENTRIES = 200;
 
-self.addEventListener("install", () => self.skipWaiting());
+// メモの html の箱を開くページは、最初のインストールで先に覚えておく（一度もオンラインで開いていなくても、オフラインで表示できるように）
+self.addEventListener("install", (e) =>
+  e.waitUntil(
+    (async () => {
+      try {
+        const c = await caches.open(CACHE);
+        if (!(await c.match("/memo-box"))) await c.add(new Request("/memo-box", { cache: "reload" }));
+      } catch {}
+      await self.skipWaiting();
+    })(),
+  ),
+);
 self.addEventListener("activate", (e) =>
   e.waitUntil(
     (async () => {
