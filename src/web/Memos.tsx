@@ -176,11 +176,11 @@ export function MemoListPage() {
     return s ? `#/memo/new?${s}` : "#/memo/new";
   })();
 
-  // 親が一覧にあるメモは親の下にたたむ。探しているときは全部そのまま並べる
+  // 親が一覧にあるメモは親の下にたたむ。ただしピン留めしたメモは子でもたたまず、一覧の一番上に出す。探しているときは全部そのまま並べる
   const kids = new Map<number, MemoSummary[]>();
   const shown = new Set(list?.memos.map((m) => m.id));
-  for (const m of list?.memos ?? []) if (!q.trim() && m.parentId && shown.has(m.parentId)) kids.set(m.parentId, [...(kids.get(m.parentId) ?? []), m]);
-  const tops = (list?.memos ?? []).filter((m) => q.trim() || !m.parentId || !shown.has(m.parentId));
+  for (const m of list?.memos ?? []) if (!q.trim() && !m.pinned && m.parentId && shown.has(m.parentId)) kids.set(m.parentId, [...(kids.get(m.parentId) ?? []), m]);
+  const tops = (list?.memos ?? []).filter((m) => q.trim() || m.pinned || !m.parentId || !shown.has(m.parentId));
 
   const heading = archived ? "アーカイブ" : project === "" ? "未仕訳" : project ?? (tag ? `#${tag}` : "すべてのメモ");
 
