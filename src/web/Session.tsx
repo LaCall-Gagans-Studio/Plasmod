@@ -174,6 +174,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const [teamPick, setTeamState] = useState<string>(() => recall(CHAT_TEAM) ?? DEFAULT_TEAM);
   const team = liveTeams.some((t) => t.id === teamPick) ? teamPick : (liveTeams[0]?.id ?? DEFAULT_TEAM);
   const agents = all.filter((a) => teamOf(a.id) === team);
+  /** チームにはいるが、チャットの接続先に無い人（Hermes のプロファイルに API_SERVER_KEY が無いなど） */
+  const offline = snap && list.state === "ok" ? snap.agents.filter((p) => teamOf(p.id) === team && !all.some((a) => a.id === p.id)) : [];
   const [agent, setAgentState] = useState<string | null>(null);
   const agentRef = useRef(agent);
   agentRef.current = agent;
@@ -325,6 +327,13 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
             {NAME(snap, a.id)}
           </button>
         ))}
+        {offline.map((p) => (
+          <span key={p.id} title="チャットにつながっていない（Hermes 側の API サーバーの設定が要る）" className="flex min-h-8 flex-none items-center gap-1.5 whitespace-nowrap rounded-md pl-1 pr-3 font-semibold text-mute opacity-40">
+            <Avatar p={p} size={22} />
+            {p.name}
+            <span className="text-[10px] font-normal">未接続</span>
+          </span>
+        ))}
         {other ? (
           <button
             {...teamPress}
@@ -444,7 +453,9 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
           )}
           {agents.length === 0 && list.state === "ok" && (
             <div className="p-4 text-[12.5px] text-mute">
-              {`${teams.find((t) => t.id === team)?.name ?? ""}チームのエージェントは、まだチャットにつながっていない。Hermes 側でプロファイルを作ると、ここに並ぶ`}
+              {offline.length
+                ? `${offline.map((p) => p.name).join("、")} は${teams.find((t) => t.id === team)?.name ?? ""}チームにいるが、チャットにつながっていない。Hermes のそのプロファイルに API_SERVER_KEY（API サーバー）を設定すると、ここに並ぶ`
+                : `${teams.find((t) => t.id === team)?.name ?? ""}チームのエージェントは、まだチャットにつながっていない。Hermes 側でプロファイルを作ると、ここに並ぶ`}
             </div>
           )}
           {error && <div className="p-4 text-[12.5px] text-orange-ink">{error}</div>}
