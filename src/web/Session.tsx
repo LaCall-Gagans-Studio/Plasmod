@@ -5,6 +5,7 @@ import { capsOfAgent } from "../shared/types";
 import { submit, useOutgoing } from "./outbox";
 import { PinMark, SessionRow } from "./sessionmenu";
 import { Avatar, Icon, ago, profileOf } from "./ui";
+import { Sheet, SheetCard } from "./sheet";
 import type { AgentProfile, SessionInfo } from "../shared/types";
 import { DEFAULT_TEAM, DEFAULT_TEAMS, teamOfProfile } from "../shared/types";
 import { ALL, CHAT_PICK, sessionKey, useAllSessions, useAgents, useAgentList, useHideCron, useSessions, useView, useCredits, useOlder, NAME, LAST_AGENT, lastSessionKey, recall, remember, useChatUnread, CHAT_TEAM } from "./session-data";
@@ -183,7 +184,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
     if (a !== ALL) remember(LAST_AGENT, a);
   };
   const isAll = agent === ALL;
-  const available = all.filter((a) => a.available);
+  // 「全員」と新しいセッションの相手は、いまのチームの中だけ（別のチームのエージェントを混ぜない）
+  const available = agents.filter((a) => a.available);
   /** 全員の画面で、新しいセッションを始める相手 */
   const [newWith, setNewWith] = useState<string | null>(null);
   const lastAgent = recall(LAST_AGENT);
@@ -232,7 +234,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
     setPicking(false);
   };
   const own = useSessions(isAll ? null : agent, bump);
-  const mixed = useAllSessions(isAll ? all : [], bump);
+  const mixed = useAllSessions(isAll ? agents : [], bump);
   const { sessions, error } = isAll ? mixed : own;
   // 最後に開いていたセッションがまだあればそれ、無ければ一番新しいもの
   const lastId = agent ? recall(memoKey) : null;
@@ -245,11 +247,43 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const { view } = useView(target, latest?.id ?? null, 3000);
   const outgoing = useOutgoing(target ?? "", latest?.id ?? null);
   const unread = useChatUnread(all, target);
+  /** 長押しで、チームを直接選ぶ */
+  const [teamMenu, setTeamMenu] = useState(false);
+  const teamPress = useLongPress(() => setTeamMenu(true));
   /** 次のチーム（チームが3つ以上なら順に回る） */
   const other = liveTeams.length > 1 ? liveTeams[(liveTeams.findIndex((t) => t.id === team) + 1) % liveTeams.length] : null;
   const otherUnread = all.some((a) => teamOf(a.id) !== team && unread.has(a.id));
 
   return (
+    <>
+      {teamMenu && (
+        <Sheet label="チームを選ぶ" onClose={() => setTeamMenu(false)}>
+          <SheetCard>
+            <div className="px-4 pb-1 pt-3 text-[11px] font-semibold text-mute">チームを選ぶ</div>
+            <div className="flex flex-col p-1.5">
+              {teams.map((t) => {
+                const on = t.id === team;
+                const n = all.filter((a) => teamOf(a.id) === t.id).length;
+                const un = !on && all.some((a) => teamOf(a.id) === t.id && unread.has(a.id));
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => (setTeamMenu(false), !on && setTeam(t.id))}
+                    aria-current={on}
+                    className={`flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-[14px] ${on ? "bg-chip font-bold text-ink" : "text-ink-2 active:bg-chip"}`}
+                  >
+                    <span className="size-3 flex-none rounded-full" style={{ background: t.color }} />
+                    <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                    {un && <span className="size-2 flex-none rounded-full bg-orange" aria-label="未読あり" />}
+                    <span className="flex-none text-[11.5px] text-mute">{n ? `${n}人` : "メンバーなし"}</span>
+                    {on && <span className="flex-none text-[13px]" aria-label="表示中">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </SheetCard>
+        </Sheet>
+      )}
     <section className="mx-3.5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-panel font-mono" aria-label="セッション">
       <div className="flex gap-1 overflow-x-auto border-b border-line px-2 py-2 text-xs [scrollbar-width:none]" role="tablist" aria-label="エージェント">
         <button
@@ -293,10 +327,11 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
         ))}
         {other ? (
           <button
+            {...teamPress}
             onClick={() => setTeam(other.id)}
-            aria-label={`${other.name}チームに切り替える`}
-            title={`${other.name}チーム`}
-            className="sticky right-0 ml-auto flex min-h-8 flex-none items-center gap-1 rounded-md border border-line-2 bg-panel px-2 text-[11px] font-semibold text-ink-2"
+            aria-label={`${other.name}チームに切り替える（長押しで一覧から選ぶ）`}
+            title={`${other.name}チーム（長押しで一覧）`}
+            className="select-none [-webkit-touch-callout:none] sticky right-0 ml-auto flex min-h-8 flex-none items-center gap-1 rounded-md border border-line-2 bg-panel px-2 text-[11px] font-semibold text-ink-2"
           >
             <span className="relative">
               <Icon name="team" size={16} />
@@ -447,6 +482,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
         </div>
       </div>
     </section>
+    </>
   );
 }
 
