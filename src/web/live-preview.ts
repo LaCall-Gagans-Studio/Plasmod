@@ -9,6 +9,7 @@ import { memoIdOf } from "../shared/memo-ref";
 import { lookupIssue } from "./badges";
 import { type Attribution, humanRanges, nextVersion } from "./memo-authorship";
 import { parseBlocks } from "./markdown";
+import { writeClipboard } from "./touch";
 
 /** チェックの行（- [ ] …）をタスクにする関数（メモの画面が渡す）。作ったタスクの番号を返す */
 const makeTaskFacet = Facet.define<((title: string) => Promise<string | null>) | null, ((title: string) => Promise<string | null>) | null>({
@@ -280,6 +281,36 @@ function openBoxLink(href: string) {
   a.click();
 }
 
+/** コードブロックの右上の「コピー」。囲みの中身（``` の行は除く）をクリップボードへ */
+class CopyCodeWidget extends WidgetType {
+  constructor(readonly text: string) {
+    super();
+  }
+  eq(o: CopyCodeWidget) {
+    return o.text === this.text;
+  }
+  toDOM() {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "cm-lp-copy";
+    b.textContent = "コピー";
+    b.setAttribute("aria-label", "コードをコピー");
+    // エディタにフォーカス・カーソル移動を奪わせない
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      void writeClipboard(this.text).then((ok) => {
+        b.textContent = ok ? "コピーした" : "できなかった";
+        setTimeout(() => (b.textContent = "コピー"), 1500);
+      });
+    });
+    return b;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
 /** ```html の箱: 隔離した枠の中で表示する。スクリプトは動くが、アプリの中身・API には届かない */
 class HtmlBoxWidget extends WidgetType {
   private off: (() => void) | null = null;
@@ -473,6 +504,13 @@ function build(state: EditorState): DecorationSet {
             const fence = k === first || k === last;
             deco.push(line(`cm-lp-codeblock${fence ? " cm-lp-fence" : ""}${fence && !inside ? " cm-lp-fence-quiet" : ""}`).range(l.from));
           }
+          {
+            const a = doc.line(first);
+            const b = doc.line(last);
+            const closed = last > first && /^\s*(`{3,}|~{3,})\s*$/.test(b.text);
+            const code = doc.sliceString(Math.min(a.to + 1, doc.length), closed ? Math.max(a.to + 1, b.from - 1) : b.to);
+            if (code) deco.push(Decoration.widget({ widget: new CopyCodeWidget(code), side: 1 }).range(a.to));
+          }
           return false;
         }
         case "Table": {
@@ -586,6 +624,7 @@ const theme = EditorView.theme({
   ".cm-lp-quote": { borderLeft: "3px solid var(--color-line-2)", paddingLeft: "0.9em !important", color: "var(--color-ink-2)" },
   ".cm-lp-hr": { display: "inline-block", width: "100%", height: "1px", verticalAlign: "middle", backgroundColor: "var(--color-line-2)" },
   ".cm-lp-codeblock": { fontFamily: "var(--font-mono)", fontSize: "0.84em", backgroundColor: "var(--color-chip)", padding: "0 0.8em !important" },
+  ".cm-lp-copy": { float: "right", marginLeft: "0.6em", border: "0", borderRadius: "6px", padding: "0 0.6em", fontFamily: "inherit", fontSize: "0.85em", lineHeight: "1.6", color: "var(--color-ink-2)", backgroundColor: "var(--color-panel)", cursor: "pointer" },
   ".cm-lp-fence": { color: "var(--color-mute)" },
   ".cm-lp-fence-quiet": { fontSize: "0.7em", lineHeight: "1.6" },
   ".cm-lp-table-raw": { fontFamily: "var(--font-mono)", fontSize: "0.84em", color: "var(--color-ink-2)" },
