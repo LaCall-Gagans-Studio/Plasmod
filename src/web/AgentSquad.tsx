@@ -42,9 +42,31 @@ export function useAgentSettings() {
     fetchRetry("/api/agents-settings").then((r) => take(r, at)).catch(fail);
     void loadTeams();
   }, []);
+  // 保存の状況。「保存中」「保存した」「失敗」を編集欄に出す（保存できたのかわからない、を無くす）
+  const [save, setSave] = useState<{ state: "idle" | "saving" | "saved" | "error"; text?: string }>({ state: "idle" });
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const done = (state: "saved" | "error", text?: string) => {
+    setSave({ state, text });
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    if (state === "saved") savedTimer.current = setTimeout(() => setSave({ state: "idle" }), 2500);
+  };
   const patch = (id: string, body: Record<string, unknown>) => {
     const at = ++edits.current;
-    return fetch(`/api/agents-settings/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => take(r, at)).catch(fail);
+    setSave({ state: "saving" });
+    // 返事を待たずに、画面にはすぐ反映する。失敗したらサーバーの値に戻す
+    setAgents((cur) => cur && cur.map((a) => (a.id === id ? { ...a, ...Object.fromEntries(Object.entries(body).filter(([k, v]) => ["name", "role", "color", "team", "hidden"].includes(k) && v !== undefined).map(([k, v]) => [k, typeof v === "string" && (k === "name" || k === "role") ? v.trim() : v])) } : a)));
+    return fetch(`/api/agents-settings/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(async (r) => {
+        await take(r, at);
+        done("saved");
+        // 名前は Hermes への反映をサーバーが裏でやる。少しあとに結果（nameSync）を取り直す
+        if (body.name !== undefined) setTimeout(() => void fetch("/api/agents-settings").then((x) => take(x, edits.current)).catch(() => {}), 2500);
+      })
+      .catch((e) => {
+        fail(e);
+        done("error", String(e instanceof Error ? e.message : e));
+        void fetch("/api/agents-settings").then((x) => take(x, edits.current)).catch(() => {});
+      });
   };
   const upload = (id: string, f: File | undefined) => {
     if (!f) return;
@@ -78,7 +100,7 @@ export function useAgentSettings() {
     const at = ++edits.current;
     return fetch(`/api/agents-settings/${encodeURIComponent(id)}/sync-name`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) }).then((r) => take(r, at)).catch(fail);
   };
-  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName };
+  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName, save };
 }
 
 /** 選手カードの表の面 */
@@ -130,7 +152,7 @@ function NameSyncNote({ a, syncName }: { a: ManagedAgent; syncName: (id: string,
   };
   const s = a.nameSync;
   const btn = "ml-1.5 rounded-md border border-line-2 px-2 py-0.5 text-[11px] font-semibold text-ink-2 disabled:opacity-50";
-  const base = "pl-[3.75rem] text-[11px] leading-relaxed";
+  const base = "text-[11px] leading-relaxed";
   if (!s)
     return <div className={`${base} text-mute`}>名前を変えると、Hermes の表示名にも反映される。内部の ID・人格（SOUL）・モデル・権限・役割は変わらない</div>;
   if (s.state === "synced")
@@ -150,47 +172,113 @@ function NameSyncNote({ a, syncName }: { a: ManagedAgent; syncName: (id: string,
   );
 }
 
-/** プロフィールの編集: 顔・名前・役割・色・隠す */
-export function ProfileEditor({ a, patch, upload, teams, syncName }: { teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void; syncName?: (id: string, force?: boolean) => Promise<unknown> }) {
-  const row = (label: string, control: ReactNode) => (
-    <label className="flex items-center gap-3">
-      <span className="w-12 flex-none text-[11.5px] text-mute">{label}</span>
-      {control}
-    </label>
-  );
-  const input = "min-h-9 min-w-0 flex-1 rounded-lg border border-line-2 bg-transparent px-2.5 text-[13px] outline-none";
+/** 色の見本。最後の「好きな色」は自由に選ぶ */
+export const SWATCHES = ["#8FB8FF", "#7FD8C6", "#9BD57F", "#F2C98A", "#E8A27C", "#F29CB7", "#C7A6F2", "#E86A5E", "#4A6CF7", "#2B2B30"];
+
+/** 編集欄の見出しとひとかたまり */
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2">
-      <div className="text-[11px] text-mute">プロフィール</div>
-      {row(
-        "顔",
-        <span className="flex min-h-9 flex-1 cursor-pointer items-center rounded-lg border border-line-2 px-2.5 text-[12.5px] text-ink-2">
-          画像を選ぶ（PNG・JPEG・WebP）
-          <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${a.name}の顔の画像`} className="sr-only" onChange={(e) => upload(a.id, e.target.files?.[0])} />
-        </span>,
-      )}
-      {row(
-        "名前",
-        <input key={`n:${a.name}`} defaultValue={a.name} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== a.name && void patch(a.id, { name: e.target.value })} aria-label={`${a.id} の名前`} className={input} />,
-      )}
-      {a.runtime !== "claude-code" && syncName && <NameSyncNote a={a} syncName={syncName} />}
-      {row(
-        "役割",
-        <input key={`r:${a.role ?? ""}`} defaultValue={a.role ?? ""} placeholder="例: WINGMAN" onBlur={(e) => e.target.value.trim() !== (a.role ?? "") && void patch(a.id, { role: e.target.value })} aria-label={`${a.name}の役割`} className={input} />,
-      )}
-      {teams.length > 1 && row(
-        "チーム",
-        <select value={teamOfProfile(a, teams).id} onChange={(e) => void patch(a.id, { team: e.target.value })} className={input}>
-          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>,
-      )}
-      <div className="flex items-center gap-3">
-        <label className="flex flex-1 items-center gap-3">
-          <span className="w-12 flex-none text-[11.5px] text-mute">色</span>
-          <input type="color" defaultValue={a.color.startsWith("#") ? a.color : "#888888"} onBlur={(e) => e.target.value !== a.color && void patch(a.id, { color: e.target.value })} aria-label={`${a.name}の色`} className="size-9 flex-none cursor-pointer rounded-lg border border-line-2 bg-transparent p-1" />
-        </label>
-        <button onClick={() => void patch(a.id, { hidden: !a.hidden })} className="min-h-9 flex-none rounded-lg border border-line-2 px-3 text-[12px] text-ink-2">{a.hidden ? "ベンチから出す" : "隠す"}</button>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[11px] font-semibold tracking-wide text-mute">{label}</span>
+        {hint && <span className="text-[10.5px] text-mute/80">{hint}</span>}
       </div>
+      {children}
+    </div>
+  );
+}
+
+/** プロフィールの編集: 顔・名前・役割・チーム・色・隠す */
+export function ProfileEditor({ a, patch, upload, teams, syncName, save }: { save?: { state: "idle" | "saving" | "saved" | "error"; text?: string }; teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void; syncName?: (id: string, force?: boolean) => Promise<unknown> }) {
+  const input = "min-h-11 w-full min-w-0 rounded-xl border border-line-2 bg-panel-2 px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-mute/60 focus:border-ink focus:bg-panel";
+  const color = /^#[0-9a-f]{6}$/i.test(a.color) ? a.color.toLowerCase() : "#2f6fdb";
+  const custom = !SWATCHES.some((c) => c.toLowerCase() === color);
+  const team = teamOfProfile(a, teams);
+  const commit = (el: HTMLInputElement, cur: string, key: "name" | "role") => {
+    const v = el.value.trim();
+    if (key === "name" && !v) el.value = cur;
+    else if (v !== cur) void patch(a.id, { [key]: v });
+  };
+  return (
+    <div className="flex flex-col gap-4 rounded-xl bg-panel-2 p-3.5">
+      <div className="flex items-center gap-3.5">
+        <label className="group relative flex-none cursor-pointer" title="顔の画像を変える">
+          <Avatar p={a} size={64} />
+          <span className="absolute -bottom-0.5 -right-0.5 flex size-6 items-center justify-center rounded-full border border-line-2 bg-panel text-[12px] text-ink-2 shadow-sm group-hover:bg-chip" aria-hidden="true">✎</span>
+          <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${a.name}の顔の画像`} className="sr-only" onChange={(e) => upload(a.id, e.target.files?.[0])} />
+        </label>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-[15px] font-bold text-ink">{a.name}</span>
+          <span className="text-[11px] text-mute">顔をタップで画像を変える（PNG・JPEG・WebP、2MBまで）</span>
+        </div>
+      </div>
+
+      <Field label="名前">
+        <input key={`n:${a.name}`} defaultValue={a.name} maxLength={40} onBlur={(e) => commit(e.target, a.name, "name")} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} aria-label={`${a.id} の名前`} className={input} />
+        {a.runtime !== "claude-code" && syncName && <NameSyncNote a={a} syncName={syncName} />}
+      </Field>
+
+      <Field label="役割" hint="カードの上に出る短い肩書き">
+        <input key={`r:${a.role ?? ""}`} defaultValue={a.role ?? ""} maxLength={40} placeholder="例: WINGMAN" onBlur={(e) => commit(e.target, a.role ?? "", "role")} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} aria-label={`${a.name}の役割`} className={input} />
+      </Field>
+
+      {teams.length > 1 && (
+        <Field label="チーム" hint={team.delegable ? "仕事を任せられる" : "仕事の任せ先には出ない"}>
+          <div role="radiogroup" aria-label={`${a.name}のチーム`} className="flex flex-wrap gap-1.5">
+            {teams.map((t) => {
+              const on = t.id === team.id;
+              return (
+                <button
+                  key={t.id}
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => !on && void patch(a.id, { team: t.id })}
+                  className={`flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-semibold transition-colors ${on ? "border-ink bg-ink text-paper" : "border-line-2 bg-panel text-ink-2 hover:bg-chip"}`}
+                >
+                  <span className="size-2.5 flex-none rounded-full" style={{ background: t.color }} />
+                  {t.name}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+      )}
+
+      <Field label="色" hint="カードとアイコンの色">
+        <div role="radiogroup" aria-label={`${a.name}の色`} className="flex flex-wrap items-center gap-2">
+          {SWATCHES.map((c) => {
+            const on = c.toLowerCase() === color;
+            return (
+              <button key={c} role="radio" aria-checked={on} aria-label={c} onClick={() => !on && void patch(a.id, { color: c })} className="flex size-8 flex-none items-center justify-center rounded-full transition-transform hover:scale-105" style={{ background: c, boxShadow: on ? `0 0 0 2px var(--color-panel-2), 0 0 0 4px ${c}` : "inset 0 0 0 1px rgba(0,0,0,0.12)" }}>
+                {on && <span className="text-[13px] font-black" style={{ color: inkOn(c) }}>✓</span>}
+              </button>
+            );
+          })}
+          <label
+            className="relative flex size-8 flex-none cursor-pointer items-center justify-center overflow-hidden rounded-full transition-transform hover:scale-105"
+            style={{ background: custom ? color : "conic-gradient(#f66, #fc6, #9d6, #6dc, #69f, #c6f, #f66)", boxShadow: custom ? `0 0 0 2px var(--color-panel-2), 0 0 0 4px ${color}` : "inset 0 0 0 1px rgba(0,0,0,0.12)" }}
+            title="好きな色"
+          >
+            {custom ? <span className="text-[13px] font-black" style={{ color: inkOn(color) }}>✓</span> : <span className="text-[15px] font-bold text-white drop-shadow">＋</span>}
+            <input type="color" value={color} onChange={(e) => e.target.value.toLowerCase() !== color && void patch(a.id, { color: e.target.value })} aria-label={`${a.name}の好きな色`} className="absolute inset-0 size-full cursor-pointer opacity-0" />
+          </label>
+        </div>
+      </Field>
+
+      <button role="switch" aria-checked={!!a.hidden} onClick={() => void patch(a.id, { hidden: !a.hidden })} className="flex min-h-11 items-center gap-3 border-t border-line pt-3 text-left">
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[13px] text-ink">ベンチに下げる</span>
+          <span className="text-[11px] text-mute">チャットやタブから隠す。あとで戻せる</span>
+        </span>
+        <span className={`relative h-6 w-10 flex-none rounded-full transition-colors ${a.hidden ? "bg-ink" : "bg-line-2"}`}>
+          <span className={`absolute top-0.5 size-5 rounded-full bg-paper shadow-sm transition-transform ${a.hidden ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+        </span>
+      </button>
+      {save && save.state !== "idle" && (
+        <span role="status" className={`pointer-events-none sticky bottom-3 z-10 self-center rounded-full px-3.5 py-1.5 text-[12px] font-semibold shadow-md ${save.state === "error" ? "bg-red-soft text-red-ink" : save.state === "saved" ? "bg-ink text-paper" : "bg-chip text-ink-2"}`}>
+          {save.state === "saving" ? "保存中…" : save.state === "saved" ? "✓ 保存した" : `保存できなかった: ${save.text ?? ""}`}
+        </span>
+      )}
     </div>
   );
 }

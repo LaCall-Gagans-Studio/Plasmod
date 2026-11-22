@@ -281,7 +281,7 @@ function Agents({ snap }: { snap: Snapshot | null }) {
             {a?.error && <div className="px-3 pt-2 text-[11px] text-orange-ink">{a.error}</div>}
             {isOpen && (
               <div className="flex flex-col gap-3 p-3">
-                {settings.agents && <ProfileEditor a={p} patch={settings.patch} upload={settings.upload} teams={settings.teams} syncName={settings.syncName} />}
+                {settings.agents && <ProfileEditor a={p} patch={settings.patch} upload={settings.upload} teams={settings.teams} syncName={settings.syncName} save={settings.save} />}
                 {a && <>
                 {/* モデル: 候補（許可リスト）から選ぶ。候補そのものの編集も、ここから（root のパスワードが要る） */}
                 <section aria-label="モデル" className="flex flex-col gap-2">

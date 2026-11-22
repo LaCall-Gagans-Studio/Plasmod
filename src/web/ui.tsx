@@ -403,7 +403,7 @@ export function Drawer() {
 export function Nav({ current }: { current: string }) {
   const b = useBadges();
   return (
-    <nav className="flex justify-around border-t border-line/60 pb-[max(env(safe-area-inset-bottom),14px)] pt-3 text-[11px] text-mute lg:fixed lg:inset-y-0 lg:left-0 lg:z-10 lg:w-[88px] lg:flex-col lg:justify-start lg:gap-7 lg:border-r lg:border-t-0 lg:bg-ground lg:pt-[max(env(safe-area-inset-top),28px)]">
+    <nav className="flex flex-none justify-around border-t border-line/60 bg-ground pb-[max(env(safe-area-inset-bottom),14px)] pt-3 text-[11px] text-mute lg:fixed lg:inset-y-0 lg:left-0 lg:z-10 lg:w-[88px] lg:flex-col lg:justify-start lg:gap-7 lg:border-r lg:border-t-0 lg:bg-ground lg:pt-[max(env(safe-area-inset-top),28px)]">
       {TABS.map((t) => {
         const n = badgeOf(b, t.href) + (t.href === "#/" ? b.system : 0); // スマホではメニューのボタンが無いので、設定の数もチャットに足す
         return (
@@ -436,13 +436,13 @@ export function Nav({ current }: { current: string }) {
 
 export function Page({ title, right, children, current }: { title: string; right?: ReactNode; children: ReactNode; current: string }) {
   return (
-    <div className={`h-full ${RAIL}`}>
+    <div className={`h-dvh overflow-hidden ${RAIL}`}>
       <div className={`${COL} flex h-full flex-col`}>
         <header className="flex items-center justify-between px-5 pb-1 pt-[max(env(safe-area-inset-top),18px)]">
           <h1 className="m-0 text-[22px] font-bold">{title}</h1>
           {right}
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</main>
         <Nav current={current} />
       </div>
     </div>

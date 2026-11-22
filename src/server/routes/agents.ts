@@ -158,8 +158,8 @@ export function agentsRoutes({ app, cfg, hub, store, teams, names }: RouteContex
     const id = c.req.param("id");
     const p = registry.all().find((x) => x.id === id);
     if (patch.name && names && p && runtimeOf(p) === "hermes") {
-      await names.sync(id, p.name);
-      hub.changed();
+      // Hermes が遅くても保存の返事は待たせない（結果はあとで一覧の nameSync に出る）
+      void names.sync(id, p.name).catch(() => {}).finally(() => hub.changed());
     }
     return c.json({ agents: list() });
   });
