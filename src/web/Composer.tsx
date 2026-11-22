@@ -7,7 +7,7 @@ import { recall, remember } from "./session-data";
 import { Thumb } from "./SessionBody";
 import { continueList } from "./list-continue";
 
-const PICK_ACCEPT = "image/*,application/pdf,text/*,application/zip,application/json,.md,.csv,.docx,.xlsx,.pptx";
+const PICK_ACCEPT = ""; // ファイルは種類を絞らない（mp3 など何でも送れる）
 
 /** ＋ のメニューに並べるもの。写真はスマホの写真選択、ファイルはファイル選択が開く */
 const pickers: { id: string; label: string; accept: string; icon: ReactNode }[] = [
@@ -122,7 +122,7 @@ export function Composer({ onSend, placeholder, busy, draftKey }: { onSend: (tex
           <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true" className={`transition-transform duration-200 ${menu ? "rotate-45" : ""}`}><path d="M12 5v14M5 12h14" /></svg>
         </button>
         {pickers.map((p) => (
-          <input key={p.id} ref={(el) => void (inputs.current[p.id] = el)} type="file" multiple={p.id !== "camera"} accept={p.accept} {...(p.id === "camera" ? { capture: "environment" as const } : {})} className="hidden" onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
+          <input key={p.id} ref={(el) => void (inputs.current[p.id] = el)} type="file" multiple={p.id !== "camera"} {...(p.accept ? { accept: p.accept } : {})} {...(p.id === "camera" ? { capture: "environment" as const } : {})} className="hidden" onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
         ))}
         <span className="flex h-8 items-center text-[#D97757]">&gt;</span>
         <label className="flex min-h-8 min-w-0 flex-1 items-center">
