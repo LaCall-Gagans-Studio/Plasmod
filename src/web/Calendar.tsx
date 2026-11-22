@@ -1,36 +1,49 @@
-// カレンダー: 月・週の表示。実際のタスク（期日つき）は濃く、繰り返しのルールから来る予定は薄く重ねる。
-// ルールの追加・直し・停止・その回だけやめる、もここからできる。
+// タスクカレンダー: 月・週の表示。期日つきのタスクと、Hermes の cron（定期実行）を重ねて見る。
+// どのエージェントのものかは、小さな顔アイコンで分かる。cron の追加・停止は、エージェントに頼む（ここでは読むだけ）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AppTask } from "../shared/types";
-import { type Cadence, type RecurringRule, cadenceLabel, occurrences, shiftDay } from "../shared/recurrence";
+import type { AppTask, CronJob, Schedules as SchedulesData, Snapshot } from "../shared/types";
+import { cronDays, shiftDay } from "../shared/cron";
 import { localDay } from "../shared/time";
 import { json } from "./memo-light";
-import { IconButton, Sheet, SheetCard, useConfirm } from "./sheet";
+import { IconButton } from "./sheet";
+import { cronText, when } from "./Schedules";
 import { fetchTaskList } from "./task-db";
 import { STATUS_LABEL, taskDot } from "./TaskRow";
-import { Page } from "./ui";
+import { Avatar, Page, profileOf } from "./ui";
 
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
-const call = <T,>(path: string, method = "GET", body?: unknown) =>
-  fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }).then((r) => json<T>(r));
+const call = <T,>(path: string) => fetch(path).then((r) => json<T>(r));
 
 /** 月曜始まりの週の頭 */
 const weekStart = (day: string) => shiftDay(day, -((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7));
 const md = (day: string) => `${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}（${WD[new Date(`${day}T00:00:00Z`).getUTCDay()]}）`;
+const dayOfMs = (ms: number) => localDay(ms);
 
+/** カレンダーの1件。task は期日つきのタスク、cron は Hermes の定期実行の1回 */
 interface Item {
-  kind: "task" | "plan";
+  kind: "task" | "cron";
   day: string;
   task?: AppTask;
-  rule?: RecurringRule;
-  skipped?: boolean;
+  job?: CronJob;
+  /** その日の実行時刻（HH:MM）。多いときは先頭から数件 */
+  times?: string[];
+  /** 過ぎた回（前回の実行） */
+  ran?: boolean;
 }
 
-type Agents = { id: string; name: string }[];
-const nameOf = (agents: Agents, id: string | null | undefined) => (id ? agents.find((a) => a.id === id)?.name ?? id : null);
+type Who = (id: string | null | undefined) => ReturnType<typeof profileOf> | null;
 
-/** 日の中身（右の列・スマホの下）。タスクは濃く、予定は薄く（やめた回は打ち消し線）。長い題は折り返さず省略する */
-function DayItems({ items, agents, onSkip }: { items: Item[]; agents: Agents; onSkip: (rule: RecurringRule, day: string, skip: boolean) => void }) {
+const itemAgent = (it: Item) => it.job?.profile ?? it.task?.agent ?? null;
+const itemTitle = (it: Item) => it.task?.title ?? it.job!.name;
+/** 時刻の見出し。1日に何度も動くものは回数にする */
+const timeLabel = (times: string[] | undefined) => (!times?.length ? "" : times.length > 3 ? `1日 ${times.length} 回` : times.join("・"));
+
+function Face({ p, size }: { p: ReturnType<typeof profileOf> | null; size: number }) {
+  return p ? <Avatar p={p} size={size} /> : null;
+}
+
+/** 日の中身（右の列・スマホの下）。タスクは濃く、cron は点線で */
+function DayItems({ items, who }: { items: Item[]; who: Who }) {
   if (!items.length) return <div className="rounded-2xl border border-dashed border-line-2 px-3 py-4 text-center text-[12.5px] text-mute">この日の予定はありません</div>;
   return (
     <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
@@ -41,21 +54,21 @@ function DayItems({ items, agents, onSkip }: { items: Item[]; agents: Agents; on
               <span className="size-2.5 flex-none rounded-full" style={{ background: taskDot(it.task) }} aria-hidden="true" />
               <span className="min-w-0 flex-1">
                 <span className={`block truncate text-[13.5px] ${it.task.status === "done" ? "text-mute line-through" : ""}`}>{it.task.title}</span>
-                <span className="block truncate text-[11px] text-mute">
-                  {[it.task.ref, STATUS_LABEL[it.task.status], nameOf(agents, it.task.agent), it.task.project].filter(Boolean).join(" ・ ")}
-                </span>
+                <span className="block truncate text-[11px] text-mute">{[it.task.ref, STATUS_LABEL[it.task.status], it.task.project].filter(Boolean).join(" ・ ")}</span>
               </span>
-              {it.task.source === "recur" && <span className="flex-none rounded-full bg-panel px-2 py-0.5 text-[10.5px] text-mute">繰り返し</span>}
+              <Face p={who(it.task.agent)} size={22} />
             </a>
           </li>
         ) : (
-          <li key={`p${it.rule!.id}-${i}`} className="flex min-h-11 min-w-0 items-center gap-2.5 rounded-2xl border border-dashed border-line-2 px-3 py-1.5">
+          <li key={`c${it.job!.profile}:${it.job!.id}-${i}`} className="flex min-h-11 min-w-0 items-center gap-2.5 rounded-2xl border border-dashed border-line-2 px-3 py-1.5">
             <span className="size-2.5 flex-none rounded-full border border-mute" aria-hidden="true" />
             <span className="min-w-0 flex-1">
-              <span className={`block truncate text-[13.5px] text-ink-2 ${it.skipped ? "line-through" : ""}`}>{it.rule!.title}</span>
-              <span className="block truncate text-[11px] text-mute">予定 ・ {cadenceLabel(it.rule!.cadence)} ・ {nameOf(agents, it.rule!.agent) ? `${nameOf(agents, it.rule!.agent)}が担当` : "自分"}</span>
+              <span className="block truncate text-[13.5px] text-ink-2">{it.job!.name}</span>
+              <span className="block truncate text-[11px] text-mute">
+                {[it.ran ? "実行済み" : "定期実行", timeLabel(it.times), it.job!.kind === "cron" ? cronText(it.job!.schedule) : null].filter(Boolean).join(" ・ ")}
+              </span>
             </span>
-            <IconButton name={it.skipped ? "undo" : "skip"} label={it.skipped ? "やめた回を戻す" : "この回をやめる"} onClick={() => onSkip(it.rule!, it.day, !it.skipped)} tone="chip" size={16} className="!size-8" />
+            <Face p={who(it.job!.profile)} size={22} />
           </li>
         ),
       )}
@@ -64,133 +77,18 @@ function DayItems({ items, agents, onSkip }: { items: Item[]; agents: Agents; on
 }
 
 /** カレンダーの升目の中の1行（題を省略して出す） */
-function Chip({ it, tall, wrap }: { it: Item; tall?: boolean; wrap?: boolean }) {
-  const title = it.task?.title ?? it.rule!.title;
-  const dot = it.task ? taskDot(it.task) : undefined;
+function Chip({ it, who, tall, wrap }: { it: Item; who: Who; tall?: boolean; wrap?: boolean }) {
+  const title = itemTitle(it);
   const done = it.task?.status === "done";
+  const face = who(itemAgent(it));
   return (
     <span
       title={title}
-      className={`flex min-w-0 items-center gap-1 rounded-md px-1.5 text-[11px] leading-[1.5] ${tall ? "py-0.5" : ""} ${it.task ? "bg-chip text-ink" : "border border-dashed border-line-2 text-mute"} ${done || it.skipped ? "opacity-50" : ""}`}
+      className={`flex min-w-0 items-center gap-1 rounded-md px-1.5 text-[11px] leading-[1.5] ${tall ? "py-0.5" : ""} ${it.task ? "bg-chip text-ink" : "border border-dashed border-line-2 text-mute"} ${done ? "opacity-50" : ""}`}
     >
-      <span className="size-1.5 flex-none rounded-full" style={it.task ? { background: dot } : { border: "1px solid var(--color-mute)" }} aria-hidden="true" />
-      <span className={`min-w-0 flex-1 ${wrap ? "line-clamp-2 break-words" : "truncate"} ${done || it.skipped ? "line-through" : ""}`}>{title}</span>
+      {face ? <Face p={face} size={13} /> : <span className="size-1.5 flex-none rounded-full" style={it.task ? { background: taskDot(it.task) } : { border: "1px solid var(--color-mute)" }} aria-hidden="true" />}
+      <span className={`min-w-0 flex-1 ${wrap ? "line-clamp-2 break-words" : "truncate"} ${done ? "line-through" : ""}`}>{title}</span>
     </span>
-  );
-}
-
-interface Draft {
-  id: number | null;
-  title: string;
-  type: Cadence["type"];
-  days: number[];
-  monthDay: number;
-  every: number;
-  anchor: string;
-  lead: number;
-  project: string;
-  agent: string;
-}
-
-const draftOf = (r: RecurringRule | null, today: string): Draft => ({
-  id: r?.id ?? null,
-  title: r?.title ?? "",
-  type: r?.cadence.type ?? "weekly",
-  days: r?.cadence.type === "weekly" ? r.cadence.days : [1],
-  monthDay: r?.cadence.type === "monthly" ? r.cadence.day : 1,
-  every: r?.cadence.type === "every" ? r.cadence.n : 3,
-  anchor: r?.anchor ?? today,
-  lead: r?.leadDays ?? 1,
-  project: r?.project ?? "",
-  agent: r?.agent ?? "",
-});
-
-const cadenceOf = (d: Draft): Cadence =>
-  d.type === "weekly" ? { type: "weekly", days: d.days } : d.type === "monthly" ? { type: "monthly", day: d.monthDay } : d.type === "every" ? { type: "every", n: d.every } : { type: d.type };
-
-function RuleSheet({ draft, agents, onClose, onSaved }: { draft: Draft; agents: Agents; onClose: () => void; onSaved: () => void }) {
-  const [d, setD] = useState(draft);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const body = { title: d.title, cadence: cadenceOf(d), anchor: d.anchor, leadDays: d.lead, project: d.project, agent: d.agent };
-      await call(d.id ? `/api/recurring/${d.id}` : "/api/recurring", d.id ? "PATCH" : "POST", body);
-      onSaved();
-      onClose();
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const field = "min-h-10 min-w-0 flex-1 rounded-xl bg-chip/70 px-3 text-[14px] text-ink outline-none focus:bg-chip";
-  const chip = (on: boolean) => `min-h-9 flex-1 rounded-full px-2 text-[12.5px] ${on ? "bg-ink text-paper" : "bg-chip/70 text-ink-2"}`;
-  return (
-    <Sheet label="繰り返しのルール" onClose={onClose}>
-      <SheetCard>
-        <div className="flex flex-col gap-2.5 p-3.5">
-          <label className="flex items-center gap-3 text-[12.5px] text-mute">
-            <span className="w-14 flex-none">題</span>
-            <input value={d.title} onChange={(e) => set({ title: e.target.value })} maxLength={200} placeholder="週報を書く" className={field} />
-          </label>
-          <div role="radiogroup" aria-label="周期" className="flex flex-wrap gap-1">
-            {(["daily", "weekdays", "weekly", "monthly", "every"] as const).map((t) => (
-              <button key={t} role="radio" aria-checked={d.type === t} onClick={() => set({ type: t })} className={chip(d.type === t)}>
-                {t === "daily" ? "毎日" : t === "weekdays" ? "平日" : t === "weekly" ? "毎週" : t === "monthly" ? "毎月" : "N日ごと"}
-              </button>
-            ))}
-          </div>
-          {d.type === "weekly" && (
-            <div className="flex gap-1" role="group" aria-label="曜日">
-              {[1, 2, 3, 4, 5, 6, 0].map((w) => (
-                <button key={w} aria-pressed={d.days.includes(w)} onClick={() => set({ days: d.days.includes(w) ? d.days.filter((x) => x !== w) : [...d.days, w] })} className={chip(d.days.includes(w))}>{WD[w]}</button>
-              ))}
-            </div>
-          )}
-          {d.type === "monthly" && (
-            <label className="flex items-center gap-3 text-[12.5px] text-mute">
-              <span className="w-14 flex-none">日</span>
-              <input type="number" min={1} max={31} value={d.monthDay} onChange={(e) => set({ monthDay: Number(e.target.value) })} className={field} />
-              <span className="text-[11px]">無い月は月末</span>
-            </label>
-          )}
-          {d.type === "every" && (
-            <label className="flex items-center gap-3 text-[12.5px] text-mute">
-              <span className="w-14 flex-none">間隔</span>
-              <input type="number" min={1} max={365} value={d.every} onChange={(e) => set({ every: Number(e.target.value) })} className={field} />
-              <span className="text-[11px]">日ごと</span>
-            </label>
-          )}
-          <label className="flex items-center gap-3 text-[12.5px] text-mute">
-            <span className="w-14 flex-none">{d.type === "every" ? "起点" : "開始"}</span>
-            <input type="date" value={d.anchor} onChange={(e) => set({ anchor: e.target.value })} className={field} />
-          </label>
-          <label className="flex items-center gap-3 text-[12.5px] text-mute">
-            <span className="w-14 flex-none">浮上</span>
-            <input type="number" min={0} max={60} value={d.lead} onChange={(e) => set({ lead: Number(e.target.value) })} className={field} />
-            <span className="text-[11px]">日前から</span>
-          </label>
-          <label className="flex items-center gap-3 text-[12.5px] text-mute">
-            <span className="w-14 flex-none">担当</span>
-            <select value={d.agent} onChange={(e) => set({ agent: e.target.value })} className={field} aria-label="担当">
-              <option value="">自分（Todo）</option>
-              {agents.map((a) => <option key={a.id} value={a.id}>{a.name}（AI-Driven）</option>)}
-            </select>
-          </label>
-          {d.agent && <p className="m-0 px-1 text-[11.5px] leading-snug text-mute">期日が近づくと、自動でカンバンにカードを作って {nameOf(agents, d.agent)} に任せます。</p>}
-          <label className="flex items-center gap-3 text-[12.5px] text-mute">
-            <span className="w-14 flex-none">PJ</span>
-            <input value={d.project} onChange={(e) => set({ project: e.target.value })} maxLength={60} placeholder="未仕訳" className={field} />
-          </label>
-          {error && <div className="rounded-xl bg-orange-soft px-3 py-2 text-xs text-orange-ink" role="alert">{error}</div>}
-          <button onClick={() => void save()} disabled={busy || !d.title.trim()} className="min-h-11 rounded-full bg-ink text-[14px] font-semibold text-paper disabled:opacity-40">{d.id ? "保存" : "ルールを足す"}</button>
-        </div>
-      </SheetCard>
-    </Sheet>
   );
 }
 
@@ -203,6 +101,7 @@ interface ScrollerProps {
   today: string;
   sel: string;
   byDay: Map<string, Item[]>;
+  who: Who;
   onSel: (d: string) => void;
   onRange: (first: string, last: string) => void;
   onTitle: (day: string) => void;
@@ -210,7 +109,7 @@ interface ScrollerProps {
 }
 
 /** 月: 縦に無限スクロール（週が1行）。上下の端に近づくと、その先の週を足す */
-export function MonthScroller({ anchor, today, sel, byDay, onSel, onRange, onTitle, api }: ScrollerProps) {
+export function MonthScroller({ anchor, today, sel, byDay, who, onSel, onRange, onTitle, api }: ScrollerProps) {
   const box = useRef<HTMLDivElement>(null);
   const [from, setFrom] = useState(() => shiftDay(weekStart(anchor), -7 * 10));
   const [weeks, setWeeks] = useState(28);
@@ -279,10 +178,10 @@ export function MonthScroller({ anchor, today, sel, byDay, onSel, onRange, onTit
                     {first ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : Number(d.slice(8, 10))}
                   </span>
                   <span className="flex flex-wrap justify-center gap-[3px] sm:hidden" aria-hidden="true">
-                    {items.slice(0, 5).map((it, i) => <span key={i} className="size-[7px] rounded-full" style={it.task ? { background: taskDot(it.task), opacity: it.task.status === "done" ? 0.35 : 1 } : { border: "1px solid var(--color-mute)", opacity: it.skipped ? 0.3 : 1 }} />)}
+                    {items.slice(0, 5).map((it, i) => <span key={i} className="size-[7px] rounded-full" style={it.task ? { background: taskDot(it.task), opacity: it.task.status === "done" ? 0.35 : 1 } : { border: "1px solid var(--color-mute)" }} />)}
                   </span>
                   <span className="hidden min-w-0 flex-col gap-[3px] sm:flex">
-                    {items.slice(0, 3).map((it, i) => <Chip key={i} it={it} />)}
+                    {items.slice(0, 3).map((it, i) => <Chip key={i} it={it} who={who} />)}
                     {items.length > 3 && <span className="px-1.5 text-[10.5px] text-mute">ほか {items.length - 3} 件</span>}
                   </span>
                 </button>
@@ -296,7 +195,7 @@ export function MonthScroller({ anchor, today, sel, byDay, onSel, onRange, onTit
 }
 
 /** 週: 横に無限スクロール（日が1列）。左右の端に近づくと、その先の日を足す */
-export function WeekScroller({ anchor, today, sel, byDay, onSel, onRange, onTitle, api }: ScrollerProps) {
+export function WeekScroller({ anchor, today, sel, byDay, who, onSel, onRange, onTitle, api }: ScrollerProps) {
   const box = useRef<HTMLDivElement>(null);
   const [from, setFrom] = useState(() => shiftDay(weekStart(anchor), -14));
   const [count, setCount] = useState(56);
@@ -349,7 +248,7 @@ export function WeekScroller({ anchor, today, sel, byDay, onSel, onRange, onTitl
               <span className={`text-[11px] ${dow === 0 ? "text-red-ink" : "text-mute"}`}>{first ? `${Number(d.slice(5, 7))}月` : ""} {WD[dow]}</span>
               <span className={`flex h-7 min-w-7 items-center justify-center rounded-full text-[15px] font-semibold tabular-nums ${d === today ? "bg-ink px-2 text-paper" : "text-ink"}`}>{Number(d.slice(8, 10))}</span>
             </button>
-            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1">{items.map((it, i) => <Chip key={i} it={it} tall wrap />)}</div>
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1">{items.map((it, i) => <Chip key={i} it={it} who={who} tall wrap />)}</div>
           </section>
         );
       })}
@@ -358,11 +257,42 @@ export function WeekScroller({ anchor, today, sel, byDay, onSel, onRange, onTitl
 }
 
 const SPAN = 56; // 1回に読む日数（一覧の上限に当たらないように区切る）
+/** 1日に何度も動く cron は、升目では回数にまとめる。これを超える数の時刻は並べない */
+const MAX_TIMES = 24;
 
-export function Calendar() {
+const parseMs = (s: string | null) => {
+  const t = s ? Date.parse(s) : NaN;
+  return Number.isFinite(t) ? t : null;
+};
+
+/** Hermes の cron を、見えている範囲の日ごとの1件にする。止めているものは出さない */
+export function cronItems(jobs: CronJob[], first: string, last: string, today: string): Item[] {
+  const out: Item[] = [];
+  for (const j of jobs) {
+    if (!j.enabled || j.state === "paused" || j.state === "completed") continue;
+    const lastRun = parseMs(j.last_run_at);
+    const lastDay = lastRun ? dayOfMs(lastRun) : null;
+    // 過ぎた日は、前回の実行だけ（これまでの全部の回は分からない）
+    if (lastDay && lastDay >= first && lastDay <= last && lastDay < today) out.push({ kind: "cron", day: lastDay, job: j, ran: true });
+    const from = first > today ? first : today;
+    if (from > last) continue;
+    const days = j.kind === "cron" || j.kind === null ? cronDays(j.schedule, from, last) : null;
+    if (days) {
+      for (const d of days) out.push({ kind: "cron", day: d.day, job: j, times: d.times.slice(0, MAX_TIMES), ran: d.day === lastDay });
+    } else {
+      // 間隔・1回きりなど、式で数えられないものは、次の1回だけ
+      const next = parseMs(j.next_run_at);
+      const nd = next ? dayOfMs(next) : null;
+      if (nd && nd >= from && nd <= last) out.push({ kind: "cron", day: nd, job: j, times: [new Date(next!).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", hour12: false })] });
+    }
+  }
+  return out;
+}
+
+export function Calendar({ snap }: { snap?: Snapshot | null }) {
   const today = localDay();
-  const [rules, setRules] = useState<RecurringRule[]>([]);
-  const [agents, setAgents] = useState<Agents>([]);
+  const [jobs, setJobs] = useState<CronJob[]>([]);
+  const [cronError, setCronError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Map<number, AppTask>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"month" | "week">("month");
@@ -370,9 +300,12 @@ export function Calendar() {
   const [anchor, setAnchor] = useState(today);
   const [titleDay, setTitleDay] = useState(today);
   const [range, setRange] = useState({ first: today, last: today });
-  const [edit, setEdit] = useState<Draft | null>(null);
+  /** 隠しているエージェント（顔のボタンで切り替える） */
+  const [off, setOff] = useState<Set<string>>(new Set());
   const api = useRef<Api | null>(null);
   const covered = useRef<{ a: string; b: string } | null>(null);
+
+  const who: Who = useCallback((id) => (id ? profileOf(snap?.agents ?? [], id) : null), [snap?.agents]);
 
   const span = async (a: string, b: string): Promise<AppTask[]> => {
     const out: AppTask[] = [];
@@ -389,11 +322,15 @@ export function Calendar() {
     for (const t of list) n.set(t.id, t);
     return n;
   });
-  const loadRules = async () => {
-    const r = await call<{ rules: RecurringRule[]; agents: Agents }>("/api/recurring");
-    setRules(r.rules);
-    setAgents(r.agents ?? []);
-  };
+  // cron は範囲に関係なく全部読む（数が少ない）。遅くても、タスクの表示は待たせない
+  useEffect(() => {
+    call<SchedulesData>("/api/system/schedules")
+      .then((d) => {
+        setJobs(d.hermes);
+        setCronError(d.errors.length ? d.errors.map((e) => `${e.source}: ${e.error}`).join(" / ") : null);
+      })
+      .catch((e) => setCronError(`定期実行を読めない（${e instanceof Error ? e.message : String(e)}）`));
+  }, []);
   // 範囲が広がったら、足りない分だけ読む
   useEffect(() => {
     const c = covered.current;
@@ -401,12 +338,11 @@ export function Calendar() {
       try {
         if (!c) {
           merge(await span(range.first, range.last), true);
-          await loadRules();
         } else {
-          const jobs: Promise<AppTask[]>[] = [];
-          if (range.first < c.a) jobs.push(span(range.first, shiftDay(c.a, -1)));
-          if (range.last > c.b) jobs.push(span(shiftDay(c.b, 1), range.last));
-          if (jobs.length) merge((await Promise.all(jobs)).flat(), false);
+          const js: Promise<AppTask[]>[] = [];
+          if (range.first < c.a) js.push(span(range.first, shiftDay(c.a, -1)));
+          if (range.last > c.b) js.push(span(shiftDay(c.b, 1), range.last));
+          if (js.length) merge((await Promise.all(js)).flat(), false);
         }
         covered.current = { a: c && c.a < range.first ? c.a : range.first, b: c && c.b > range.last ? c.b : range.last };
         setError(null);
@@ -416,43 +352,30 @@ export function Calendar() {
     };
     void run();
   }, [range]); // eslint-disable-line react-hooks/exhaustive-deps
-  /** 変えたあとは、見えている範囲を全部読み直す */
-  const load = useCallback(async () => {
-    try {
-      merge(await span(range.first, range.last), true);
-      await loadRules();
-      covered.current = { a: range.first, b: range.last };
-      setError(null);
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
-    }
-  }, [range]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const byDay = useMemo(() => {
     const m = new Map<string, Item[]>();
     const add = (it: Item) => m.set(it.day, [...(m.get(it.day) ?? []), it]);
-    const list = [...tasks.values()];
-    const made = new Set(list.filter((t) => t.source === "recur").map((t) => t.sourceKey));
-    for (const t of list) if (t.due && t.due >= range.first && t.due <= range.last && t.doneReason !== "unneeded") add({ kind: "task", day: t.due, task: t });
-    for (const r of rules) {
-      if (!r.enabled) continue;
-      for (const d of occurrences(r, range.first > today ? range.first : today, range.last)) if (!made.has(`${r.id}:${d}`)) add({ kind: "plan", day: d, rule: r, skipped: r.skips.includes(d) });
-    }
+    const shown = (id: string | null) => !off.has(id ?? "me");
+    for (const t of tasks.values()) if (t.due && t.due >= range.first && t.due <= range.last && t.doneReason !== "unneeded" && shown(t.agent)) add({ kind: "task", day: t.due, task: t });
+    for (const it of cronItems(jobs, range.first, range.last, today)) if (shown(it.job!.profile)) add(it);
+    // 1日の中は、時刻のあるもの（cron）を時刻順、タスクは前に
+    for (const list of m.values()) list.sort((a, b) => (a.kind === b.kind ? (a.times?.[0] ?? "").localeCompare(b.times?.[0] ?? "") : a.kind === "task" ? -1 : 1));
     return m;
-  }, [tasks, rules, range, today]);
+  }, [tasks, jobs, range, today, off]);
 
-  const act = async (f: () => Promise<unknown>) => {
-    try {
-      await f();
-      await load();
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
-    }
-  };
-  const skip = (rule: RecurringRule, day: string, v: boolean) => act(() => call(`/api/recurring/${rule.id}/skip`, "POST", { day, skip: v }));
-  const toggle = (r: RecurringRule) => act(() => call(`/api/recurring/${r.id}`, "PATCH", { enabled: !r.enabled }));
-  const { ask, node: confirmNode } = useConfirm();
-  const remove = (r: RecurringRule) => ask(`「${r.title}」のルールを消します。作ったタスクは残ります。`, () => void act(() => call(`/api/recurring/${r.id}`, "DELETE")));
+  /** 顔のボタン: いま範囲にあるタスクと cron の担当 */
+  const members = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of tasks.values()) if (t.agent) ids.add(t.agent);
+    for (const j of jobs) ids.add(j.profile);
+    return [...ids];
+  }, [tasks, jobs]);
+  const toggle = (id: string) => setOff((s) => {
+    const n = new Set(s);
+    if (!n.delete(id)) n.add(id);
+    return n;
+  });
 
   const onRange = useCallback((first: string, last: string) => setRange((r) => (r.first === first && r.last === last ? r : { first, last })), []);
   const switchMode = (m: "month" | "week") => {
@@ -465,7 +388,8 @@ export function Calendar() {
   const seg = (on: boolean) => `min-h-8 rounded-full px-3.5 text-[12.5px] transition-colors ${on ? "bg-panel font-semibold text-ink shadow-sm" : "text-ink-2"}`;
   const navBtn = "flex size-9 flex-none items-center justify-center rounded-full bg-chip text-[18px] leading-none text-ink-2 transition-colors hover:bg-line/60";
   const selItems = byDay.get(sel) ?? [];
-  const props = { anchor, today, sel, byDay, onSel: setSel, onRange, onTitle: setTitleDay, api };
+  const props = { anchor, today, sel, byDay, who, onSel: setSel, onRange, onTitle: setTitleDay, api };
+  const live = jobs.filter((j) => j.enabled && j.state !== "paused" && j.state !== "completed").sort((a, b) => (parseMs(a.next_run_at) ?? Infinity) - (parseMs(b.next_run_at) ?? Infinity));
 
   return (
     <Page title="タスクカレンダー" current="#/pj" right={<IconButton name="list" label="タスク一覧" href="#/todos" />}>
@@ -483,39 +407,51 @@ export function Calendar() {
             <button onClick={() => api.current?.shift(-1)} aria-label="前へ" className={navBtn}>‹</button>
             <button onClick={() => api.current?.shift(1)} aria-label="次へ" className={navBtn}>›</button>
           </div>
+          {members.length > 0 && (
+            <div className="flex flex-none flex-wrap items-center gap-1.5" role="group" aria-label="エージェントで絞る">
+              {members.map((id) => {
+                const p = profileOf(snap?.agents ?? [], id);
+                const on = !off.has(id);
+                return (
+                  <button key={id} aria-pressed={on} onClick={() => toggle(id)} title={`${p.name}${on ? "を隠す" : "を出す"}`} className={`flex min-h-8 items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2.5 text-[12px] transition-opacity ${on ? "bg-chip text-ink" : "bg-chip/40 text-mute opacity-60"}`}>
+                    <Avatar p={p} size={22} />
+                    {p.name}
+                  </button>
+                );
+              })}
+              <span className="ml-auto flex items-center gap-1 text-[11px] text-mute"><span className="inline-block h-3 w-4 rounded border border-dashed border-line-2" aria-hidden="true" />定期実行</span>
+            </div>
+          )}
           {mode === "month" ? <MonthScroller key="m" {...props} /> : <WeekScroller key="w" {...props} />}
         </div>
 
         <aside className="flex min-w-0 flex-col gap-5 lg:sticky lg:top-2">
           <section aria-label={md(sel)}>
             <h2 className="m-0 mb-2 px-1 text-[13px] font-semibold">{md(sel)}{sel === today ? " · 今日" : ""}<span className="ml-2 font-normal text-mute">{selItems.length}件</span></h2>
-            <DayItems items={selItems} agents={agents} onSkip={skip} />
+            <DayItems items={selItems} who={who} />
           </section>
 
-          <section aria-label="繰り返しのルール">
+          <section aria-label="Hermes の定期実行">
             <div className="mb-2 flex items-center px-1">
-              <h2 className="m-0 text-[13px] font-semibold">繰り返しのルール</h2>
-              <IconButton name="plus" label="ルールを足す" onClick={() => setEdit(draftOf(null, today))} tone="solid" className="ml-auto !size-8" />
+              <h2 className="m-0 text-[13px] font-semibold">Hermes の定期実行</h2>
+              <a href="#/settings?tab=agents" className="ml-auto text-[11.5px] text-blue no-underline">設定で見る</a>
             </div>
-            {rules.length === 0 && <div className="rounded-2xl border border-dashed border-line-2 px-3 py-4 text-center text-[12.5px] text-mute">まだありません。「週報を毎週月曜」のように足せます</div>}
+            {cronError && <div className="mb-2 rounded-xl bg-orange/10 px-3 py-2 text-[11.5px] text-orange-ink">{cronError}</div>}
+            {live.length === 0 && !cronError && <div className="rounded-2xl border border-dashed border-line-2 px-3 py-4 text-center text-[12.5px] text-mute">登録されていません。足すときはエージェントに頼みます</div>}
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
-              {rules.map((r) => (
-                <li key={r.id} className={`flex min-w-0 items-center gap-2 rounded-2xl bg-chip/70 px-3 py-2 ${r.enabled ? "" : "opacity-60"}`}>
+              {live.map((j) => (
+                <li key={`${j.profile}:${j.id}`} className="flex min-w-0 items-center gap-2.5 rounded-2xl bg-chip/70 px-3 py-2">
+                  <Face p={who(j.profile)} size={26} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13.5px] text-ink">{r.title}</div>
-                    <div className="truncate text-[11px] text-mute">{cadenceLabel(r.cadence)} ・ {r.leadDays}日前から ・ {r.agent ? `${nameOf(agents, r.agent)}が担当` : "自分"}{r.project ? ` ・ ${r.project}` : ""}{r.enabled ? "" : " ・ 停止中"}</div>
+                    <div className="truncate text-[13.5px] text-ink">{j.name}</div>
+                    <div className="truncate text-[11px] text-mute">{j.kind === "cron" ? cronText(j.schedule) : j.schedule ?? "?"}{parseMs(j.next_run_at) ? ` ・ 次 ${when(parseMs(j.next_run_at))}` : ""}</div>
                   </div>
-                  <IconButton name={r.enabled ? "pause" : "play"} label={r.enabled ? "止める" : "再開する"} onClick={() => void toggle(r)} size={16} className="!size-8" />
-                  <IconButton name="rename" label="直す" onClick={() => setEdit(draftOf(r, today))} size={16} className="!size-8" />
-                  <IconButton name="trash" label={`${r.title}を消す`} onClick={() => remove(r)} tone="danger" size={16} className="!size-8" />
                 </li>
               ))}
             </ul>
           </section>
         </aside>
       </div>
-      {confirmNode}
-      {edit && <RuleSheet draft={edit} agents={agents} onClose={() => setEdit(null)} onSaved={() => void load()} />}
     </Page>
   );
 }
