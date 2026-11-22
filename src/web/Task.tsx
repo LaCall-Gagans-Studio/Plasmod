@@ -1,7 +1,7 @@
 // カンバンのカードの詳細（#/task/<ID>）。Hermes のダッシュボードのカードと同じ中身を見て、コメント・ファイルを付けられる。
 import { ing } from "./dots";
 import { useEffect, useState } from "react";
-import type { MediaItem, Snapshot, TaskDetail, TaskRef } from "../shared/types";
+import { DEFAULT_TEAMS, type MediaItem, type Snapshot, type TaskDetail, type TaskRef, teamOfProfile } from "../shared/types";
 import { MediaList } from "./Media";
 import { RichText } from "./markdown";
 import { Composer } from "./Composer";
@@ -57,7 +57,8 @@ function Ref({ r, snap }: { r: TaskRef; snap: Snapshot }) {
 function Triage({ id, snap, current, onDone }: { id: string; snap: Snapshot; current: string | null; onDone: (d: TaskDetail) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const agents = snap.agents.filter((a) => a.team !== "watch");
+  // 「仕事を任せられる」チームの人だけ（設定でチームを変えたらここも変わる）
+  const agents = snap.agents.filter((a) => teamOfProfile(a, snap.teams ?? DEFAULT_TEAMS).delegable);
   const post = async (key: string, path: string, body?: object) => {
     setBusy(key);
     setError(null);
