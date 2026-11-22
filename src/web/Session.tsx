@@ -168,7 +168,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   /** チームごとに切り替える。メンバーがいるチームだけ順に回す */
   const teams = snap?.teams ?? DEFAULT_TEAMS;
   const teamOf = (id: string) => teamOfProfile(snap ? profileOf(snap.agents, id) : undefined, teams).id;
-  const liveTeams = teams.filter((t) => all.some((a) => teamOf(a.id) === t.id));
+  // メンバーのいないチーム（作ったばかり）も巡回に入れる。入れないと、新しいチームに着けない
+  const liveTeams = teams;
   const [teamPick, setTeamState] = useState<string>(() => recall(CHAT_TEAM) ?? DEFAULT_TEAM);
   const team = liveTeams.some((t) => t.id === teamPick) ? teamPick : (liveTeams[0]?.id ?? DEFAULT_TEAM);
   const agents = all.filter((a) => teamOf(a.id) === team);
@@ -244,6 +245,9 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   const { view } = useView(target, latest?.id ?? null, 3000);
   const outgoing = useOutgoing(target ?? "", latest?.id ?? null);
   const unread = useChatUnread(all, target);
+  /** 次のチーム（チームが3つ以上なら順に回る） */
+  const other = liveTeams.length > 1 ? liveTeams[(liveTeams.findIndex((t) => t.id === team) + 1) % liveTeams.length] : null;
+  const otherUnread = all.some((a) => teamOf(a.id) !== team && unread.has(a.id));
 
   return (
     <section className="mx-3.5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-panel font-mono" aria-label="セッション">
@@ -287,28 +291,20 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
             {NAME(snap, a.id)}
           </button>
         ))}
-        {liveTeams.length > 1 && (
-          <div role="group" aria-label="チーム" className="sticky right-0 ml-auto flex flex-none items-center gap-1 bg-panel pl-1">
-            {liveTeams.map((t) => {
-              const on = t.id === team;
-              const unreadHere = !on && all.some((a) => teamOf(a.id) === t.id && unread.has(a.id));
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => !on && setTeam(t.id)}
-                  aria-pressed={on}
-                  aria-label={`${t.name}チーム${on ? "（表示中）" : "に切り替える"}`}
-                  title={`${t.name}チーム`}
-                  className={`relative flex min-h-8 flex-none items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold ${on ? "border-ink bg-ink text-paper" : "border-line-2 text-ink-2"}`}
-                >
-                  <span className="size-2 flex-none rounded-full" style={{ background: t.color }} />
-                  {t.name}
-                  {unreadHere && <span className="absolute -right-1 -top-1 size-2 rounded-full border border-panel bg-orange" aria-label="未読あり" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {other ? (
+          <button
+            onClick={() => setTeam(other.id)}
+            aria-label={`${other.name}チームに切り替える`}
+            title={`${other.name}チーム`}
+            className="sticky right-0 ml-auto flex min-h-8 flex-none items-center gap-1 rounded-md border border-line-2 bg-panel px-2 text-[11px] font-semibold text-ink-2"
+          >
+            <span className="relative">
+              <Icon name="team" size={16} />
+              {otherUnread && <span className="absolute -right-1 -top-1 size-2 rounded-full border border-panel bg-orange" aria-label="未読あり" />}
+            </span>
+            {other.name}
+          </button>
+        ) : null}
       </div>
 
       {/* スマホ以外: セッションの一覧を左に出しておく（スマホは時計のボタンで開く） */}
