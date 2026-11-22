@@ -59,6 +59,30 @@ describe("memos", () => {
     expect(s.get(leaf.id)!.parentId).toBeNull();
   });
 
+  test("親をアーカイブすると子・孫もアーカイブ。戻すのはそのメモだけ", () => {
+    const s = fresh();
+    const a = s.create({ title: "親" }, "app", 1000);
+    const b = s.create({ title: "子", parentId: a.id }, "app", 1001);
+    const c = s.create({ title: "孫", parentId: b.id }, "app", 1002);
+    const d = s.create({ title: "別" }, "app", 1003);
+    s.setArchived(a.id, true, "app", 2000);
+    expect([a, b, c, d].map((m) => !!s.get(m.id)!.archivedAt)).toEqual([true, true, true, false]);
+    expect(s.history(c.id).map((e) => e.kind)).toEqual(["archive", "create"]);
+    s.setArchived(a.id, false, "app", 3000);
+    expect([a, b, c].map((m) => !!s.get(m.id)!.archivedAt)).toEqual([false, true, true]);
+  });
+
+  test("前の版でアーカイブした親の下の子も、起動時にアーカイブ済みになる", () => {
+    const db = new Store(":memory:").db;
+    const s = new MemoStore(db);
+    const a = s.create({ title: "親" }, "app", 1000);
+    const b = s.create({ title: "子", parentId: a.id }, "app", 1001);
+    db.query("UPDATE memos SET archived_at = 2000 WHERE id = ?").run(a.id); // 前の版: 親だけ
+    const s2 = new MemoStore(db);
+    expect(!!s2.get(b.id)!.archivedAt).toBe(true);
+    expect(s2.changedSince(1002).map((m) => m.id)).toContain(b.id);
+  });
+
   test("ヘッダー画像は http(s) のリンクだけ。付ける・外す・一覧に出る", () => {
     expect(normalizeImageUrl(" https://example.com/a b.png ")).toBe("https://example.com/a%20b.png");
     for (const bad of ["javascript:alert(1)", "data:image/png;base64,AAAA", "ftp://x/y.png", "not a url", "", null, 3]) expect(normalizeImageUrl(bad)).toBeNull();

@@ -5,7 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { memoLinkText, memoRef } from "../shared/memo-ref";
 import type { Memo, MemoEvent, MemoList, MemoSummary } from "../shared/types";
-import { insertAtCursor, setAuthorship } from "./live-preview";
+import { insertAtCursor, insertCodeBlock, setAuthorship } from "./live-preview";
 import { attribute } from "./memo-authorship";
 import { MicButton } from "./speech";
 import { Icon, ago } from "./ui";
@@ -379,6 +379,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
     await flush();
     await memoSync.run();
     if (idRef.current < 0 || memoSync.status.offline) return void toast("アーカイブは、つながっているときにできる", "error");
+    if (archived && !confirm("このメモをアーカイブします。子のメモ・孫のメモもまとめてアーカイブされます。\n戻すときは、戻したメモだけが戻ります（子のメモは、それぞれ戻します）。よいですか？")) return;
     try {
       const m = await json<Memo>(await fetch(`/api/memos/${idRef.current}/${archived ? "archive" : "restore"}`, { method: "POST" }));
       await memoSync.adopt(m);
@@ -671,8 +672,9 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
         {/* 音声入力（カーソルの位置に入れる） */}
         {draft && !archived && (
           <div className="pointer-events-none fixed bottom-[max(env(safe-area-inset-bottom),20px)] right-5 z-10">
-            <div className="pointer-events-auto rounded-full bg-panel shadow-lg">
-              <MicButton onText={(t) => (viewRef.current ? insertAtCursor(viewRef.current, t) : change({ body: `${draft.body}${t}` }))} size={52} />
+            <div className="pointer-events-auto flex items-center gap-2">
+              <button onClick={() => viewRef.current && insertCodeBlock(viewRef.current)} aria-label="コードブロックを入れる" title="コードブロックを入れる" className="flex size-[52px] items-center justify-center rounded-full bg-panel font-mono text-[15px] font-semibold text-ink-2 shadow-lg">&lt;/&gt;</button>
+              <div className="rounded-full bg-panel shadow-lg"><MicButton onText={(t) => (viewRef.current ? insertAtCursor(viewRef.current, t) : change({ body: `${draft.body}${t}` }))} size={52} /></div>
             </div>
           </div>
         )}

@@ -147,6 +147,11 @@ export class MemoStore {
     // ピン留め（一覧の一番上に固定）
     if (!cols.includes("pinned_at")) db.exec("ALTER TABLE memos ADD COLUMN pinned_at INTEGER");
     if (!cols.includes("header_image")) db.exec("ALTER TABLE memos ADD COLUMN header_image TEXT");
+    // アーカイブ済みの親の下に残っている子・孫も、まとめてアーカイブ済みにする（以前は親だけだった）
+    this.db.transaction(() => {
+      const roots = this.db.query("SELECT c.id FROM memos c JOIN memos p ON c.parent_id = p.id WHERE p.archived_at IS NOT NULL AND c.archived_at IS NULL").all() as { id: number }[];
+      for (const { id } of roots) for (const d of [id, ...this.descendants(id)]) this.archiveOne(d, "app", Date.now());
+    })();
     // 起動時に索引を合わせる（中身が同じなら upsert は何もしない）
     const ids = this.db.query("SELECT id FROM memos WHERE archived_at IS NULL").all() as { id: number }[];
     for (const { id } of ids) this.index(this.get(id)!);
@@ -289,15 +294,44 @@ export class MemoStore {
     })();
   }
 
+  /** アーカイブするとピン留めは外れる。すでにアーカイブ済みなら何もしない */
+  private archiveOne(id: number, author: string, now: number): boolean {
+    const cur = this.must(id);
+    if (cur.archivedAt) return false;
+    const at = Math.max(now, cur.updatedAt + 1);
+    this.db.query("UPDATE memos SET archived_at = ?, pinned_at = NULL, updated_at = ? WHERE id = ?").run(at, at, id);
+    const m = this.must(id);
+    this.event(m, "archive", author, at);
+    this.index(m);
+    return true;
+  }
+
+  /** このメモの子・孫…（親から近い順） */
+  private descendants(id: number): number[] {
+    const out: number[] = [];
+    const seen = new Set<number>([id]);
+    for (let queue = [id]; queue.length; ) {
+      const next: number[] = [];
+      for (const p of queue) for (const r of this.db.query("SELECT id FROM memos WHERE parent_id = ?").all(p) as { id: number }[]) if (!seen.has(r.id)) (seen.add(r.id), out.push(r.id), next.push(r.id));
+      queue = next;
+    }
+    return out;
+  }
+
+  /** アーカイブすると、子・孫もまとめてアーカイブする。戻すのはそのメモだけ */
   setArchived(id: number, archived: boolean, author: string, now = Date.now()): Memo {
     return this.db.transaction(() => {
       const cur = this.must(id);
       if (!!cur.archivedAt === archived) return cur;
+      if (archived) {
+        this.archiveOne(id, author, now);
+        for (const d of this.descendants(id)) this.archiveOne(d, author, now);
+        return this.must(id);
+      }
       const at = Math.max(now, cur.updatedAt + 1);
-      // アーカイブするとピン留めは外れる
-      this.db.query("UPDATE memos SET archived_at = ?, pinned_at = NULL, updated_at = ? WHERE id = ?").run(archived ? at : null, at, id);
+      this.db.query("UPDATE memos SET archived_at = NULL, updated_at = ? WHERE id = ?").run(at, id);
       const m = this.must(id);
-      this.event(m, archived ? "archive" : "restore", author, at);
+      this.event(m, "restore", author, at);
       this.index(m);
       return m;
     })();

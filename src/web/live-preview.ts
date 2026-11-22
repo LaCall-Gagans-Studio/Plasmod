@@ -670,4 +670,17 @@ export function insertAtCursor(view: EditorView, text: string) {
   view.focus();
 }
 
+/** カーソルの位置にコードブロック（```）を作り、カーソルを中に置く。選んだ文字があれば、その文字を囲む */
+export function insertCodeBlock(view: EditorView) {
+  const r = view.state.selection.main;
+  const doc = view.state.doc;
+  const sel = doc.sliceString(r.from, r.to);
+  const head = r.from > 0 && doc.sliceString(r.from - 1, r.from) !== "\n" ? "\n" : "";
+  const tail = r.to < doc.length && doc.sliceString(r.to, r.to + 1) !== "\n" ? "\n" : "";
+  const open = `${head}\`\`\`\n`;
+  const insert = `${open}${sel}\n\`\`\`${tail}`;
+  view.dispatch({ changes: { from: r.from, to: r.to, insert }, selection: { anchor: r.from + open.length + sel.length } });
+  view.focus();
+}
+
 export { build as buildLivePreview, setFocus as focusEffect };
