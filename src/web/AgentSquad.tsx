@@ -42,9 +42,31 @@ export function useAgentSettings() {
     fetchRetry("/api/agents-settings").then((r) => take(r, at)).catch(fail);
     void loadTeams();
   }, []);
+  // 保存の状況。「保存中」「保存した」「失敗」を編集欄に出す（保存できたのかわからない、を無くす）
+  const [save, setSave] = useState<{ state: "idle" | "saving" | "saved" | "error"; text?: string }>({ state: "idle" });
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const done = (state: "saved" | "error", text?: string) => {
+    setSave({ state, text });
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    if (state === "saved") savedTimer.current = setTimeout(() => setSave({ state: "idle" }), 2500);
+  };
   const patch = (id: string, body: Record<string, unknown>) => {
     const at = ++edits.current;
-    return fetch(`/api/agents-settings/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => take(r, at)).catch(fail);
+    setSave({ state: "saving" });
+    // 返事を待たずに、画面にはすぐ反映する。失敗したらサーバーの値に戻す
+    setAgents((cur) => cur && cur.map((a) => (a.id === id ? { ...a, ...Object.fromEntries(Object.entries(body).filter(([k, v]) => ["name", "role", "color", "team", "hidden"].includes(k) && v !== undefined).map(([k, v]) => [k, typeof v === "string" && (k === "name" || k === "role") ? v.trim() : v])) } : a)));
+    return fetch(`/api/agents-settings/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(async (r) => {
+        await take(r, at);
+        done("saved");
+        // 名前は Hermes への反映をサーバーが裏でやる。少しあとに結果（nameSync）を取り直す
+        if (body.name !== undefined) setTimeout(() => void fetch("/api/agents-settings").then((x) => take(x, edits.current)).catch(() => {}), 2500);
+      })
+      .catch((e) => {
+        fail(e);
+        done("error", String(e instanceof Error ? e.message : e));
+        void fetch("/api/agents-settings").then((x) => take(x, edits.current)).catch(() => {});
+      });
   };
   const upload = (id: string, f: File | undefined) => {
     if (!f) return;
@@ -78,7 +100,7 @@ export function useAgentSettings() {
     const at = ++edits.current;
     return fetch(`/api/agents-settings/${encodeURIComponent(id)}/sync-name`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) }).then((r) => take(r, at)).catch(fail);
   };
-  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName };
+  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName, save };
 }
 
 /** 選手カードの表の面 */
@@ -167,7 +189,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 /** プロフィールの編集: 顔・名前・役割・チーム・色・隠す */
-export function ProfileEditor({ a, patch, upload, teams, syncName }: { teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void; syncName?: (id: string, force?: boolean) => Promise<unknown> }) {
+export function ProfileEditor({ a, patch, upload, teams, syncName, save }: { save?: { state: "idle" | "saving" | "saved" | "error"; text?: string }; teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void; syncName?: (id: string, force?: boolean) => Promise<unknown> }) {
   const input = "min-h-11 w-full min-w-0 rounded-xl border border-line-2 bg-panel-2 px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-mute/60 focus:border-ink focus:bg-panel";
   const color = /^#[0-9a-f]{6}$/i.test(a.color) ? a.color.toLowerCase() : "#2f6fdb";
   const custom = !SWATCHES.some((c) => c.toLowerCase() === color);
@@ -252,6 +274,11 @@ export function ProfileEditor({ a, patch, upload, teams, syncName }: { teams: Te
           <span className={`absolute top-0.5 size-5 rounded-full bg-paper shadow-sm transition-transform ${a.hidden ? "translate-x-[18px]" : "translate-x-0.5"}`} />
         </span>
       </button>
+      {save && save.state !== "idle" && (
+        <span role="status" className={`pointer-events-none sticky bottom-3 z-10 self-center rounded-full px-3.5 py-1.5 text-[12px] font-semibold shadow-md ${save.state === "error" ? "bg-red-soft text-red-ink" : save.state === "saved" ? "bg-ink text-paper" : "bg-chip text-ink-2"}`}>
+          {save.state === "saving" ? "保存中…" : save.state === "saved" ? "✓ 保存した" : `保存できなかった: ${save.text ?? ""}`}
+        </span>
+      )}
     </div>
   );
 }
