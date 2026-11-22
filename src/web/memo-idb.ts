@@ -21,7 +21,7 @@ const plain = ({ a: _a, p: _p, ...s }: Row): MemoSummary => s;
 
 /** 絞り込み。本文を見ない部分（一覧の行だけで決まる） */
 export function matchesFilter(m: { project: string | null; tags: string[]; parentId?: number | null; archived: boolean }, o: LocalListOptions): boolean {
-  return m.archived === !!o.archived && (o.project === "" ? !m.project : o.project ? m.project === o.project : true) && (!o.tag || m.tags.includes(o.tag)) && (!o.parent || m.parentId === o.parent);
+  return (o.parent ? true : m.archived === !!o.archived) && (o.project === "" ? !m.project : o.project ? m.project === o.project : true) && (!o.tag || m.tags.includes(o.tag)) && (!o.parent || m.parentId === o.parent);
 }
 
 export function count(names: string[]) {

@@ -154,6 +154,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
   const [mentions, setMentions] = useState<MemoSummary[]>([]);
   const [children, setChildren] = useState<MemoSummary[]>([]);
   const [parentTitle, setParentTitle] = useState<string | null>(null);
+  const [parentArchived, setParentArchived] = useState(false);
   const [pickingParent, setPickingParent] = useState(false);
   // #/memo/new?parent=9 から作る子のメモ。最初の保存で親が付く
   const newParent = useRef<number | null>(initialId === "new" ? Number(hashQuery().get("parent")) || null : null);
@@ -217,8 +218,9 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
   // 親のメモの題と、子のメモ
   const parentId = memo?.parentId ?? newParent.current;
   useEffect(() => {
-    if (!parentId) return setParentTitle(null);
+    if (!parentId) return setParentTitle(null), setParentArchived(false);
     let alive = true;
+    void memoSync.get(parentId).then((m) => alive && setParentArchived(!!m?.archivedAt)).catch(() => {});
     void lookupIssue(`MEMO-${parentId}`).then((b) => alive && setParentTitle(b?.title ?? `MEMO-${parentId}`));
     return () => {
       alive = false;
@@ -556,17 +558,6 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                   </datalist>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute"><Icon name="memo" size={14} />親メモ</span>
-                  {parentId ? (
-                    <span className="flex min-w-0 flex-1 items-center gap-1">
-                      <a href={`#/memo/${parentId}`} className="min-w-0 truncate text-ink no-underline">{parentTitle ?? `MEMO-${parentId}`}</a>
-                      {!archived && <button onClick={() => void changeParent(null)} aria-label="親メモを外す" className="flex size-7 flex-none items-center justify-center text-mute">×</button>}
-                    </span>
-                  ) : (
-                    <button onClick={() => setPickingParent(true)} disabled={archived} className="min-h-8 flex-1 text-left text-mute">なし</button>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
                   <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute"><Icon name="memo" size={14} />ヘッダー画像</span>
                   <input
                     value={draft.headerImage}
@@ -614,6 +605,29 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                 />
               </div>
 
+              {/* 親のメモ */}
+              {(ref || parentId) && (
+                <section className="mt-6 border-t border-line pt-4" aria-label="親のメモ">
+                  <div className="flex items-baseline pb-2 text-[12px] font-semibold text-mute">
+                    親のメモ
+                    {!archived && (parentId ? (
+                      <button onClick={() => void changeParent(null)} className="ml-auto font-normal text-ink-2">外す</button>
+                    ) : (
+                      <button onClick={() => setPickingParent(true)} className="ml-auto font-normal text-ink-2">＋ 親を選ぶ</button>
+                    ))}
+                  </div>
+                  {parentId ? (
+                    <a href={`#/memo/${parentId}`} className={`-mx-2 flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13.5px] no-underline hover:bg-chip/60 ${parentArchived ? "text-mute" : "text-ink"}`}>
+                      <Icon name="memo" size={14} />
+                      <span className="min-w-0 flex-1 truncate">{parentTitle ?? `MEMO-${parentId}`}</span>
+                      {parentArchived && <span className="flex-none rounded bg-chip px-1.5 text-[10.5px]">アーカイブ</span>}
+                    </a>
+                  ) : (
+                    <div className="text-[12.5px] text-mute">なし</div>
+                  )}
+                </section>
+              )}
+
               {/* 子のメモ */}
               {ref && (
                 <section className="mt-6 border-t border-line pt-4" aria-label="子のメモ">
@@ -623,9 +637,10 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
                   </div>
                   {children.length === 0 && <div className="text-[12.5px] text-mute">まだありません</div>}
                   {children.map((m) => (
-                    <a key={m.id} href={`#/memo/${m.id}`} className="-mx-2 flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13.5px] text-ink no-underline hover:bg-chip/60">
+                    <a key={m.id} href={`#/memo/${m.id}`} className={`-mx-2 flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13.5px] no-underline hover:bg-chip/60 ${m.archived ? "text-mute" : "text-ink"}`}>
                       <Icon name="memo" size={14} />
                       <span className="min-w-0 flex-1 truncate">{m.title}</span>
+                      {m.archived && <span className="flex-none rounded bg-chip px-1.5 text-[10.5px]">アーカイブ</span>}
                       <span className="flex-none text-[11px] text-mute">{ago(m.updatedAt)}</span>
                     </a>
                   ))}

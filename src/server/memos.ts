@@ -358,7 +358,8 @@ export class MemoStore {
    * project="" は「プロジェクトなし」。projects・tags は絞り込み用に、アーカイブ以外の件数を返す
    */
   list(opts: { q?: string; project?: string | null; tag?: string | null; archived?: boolean; limit?: number; parent?: number | null } = {}): MemoList {
-    const where = [opts.archived ? "m.archived_at IS NOT NULL" : "m.archived_at IS NULL"];
+    // 親を指定した一覧（子のメモ）は、アーカイブ済みも含める
+    const where = opts.parent ? ["1=1"] : [opts.archived ? "m.archived_at IS NOT NULL" : "m.archived_at IS NULL"];
     const args: (string | number)[] = [];
     if (opts.project === "") where.push("m.project_id IS NULL");
     else if (opts.project) {
