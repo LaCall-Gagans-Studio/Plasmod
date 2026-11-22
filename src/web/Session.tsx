@@ -168,7 +168,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
   /** チームごとに切り替える。メンバーがいるチームだけ順に回す */
   const teams = snap?.teams ?? DEFAULT_TEAMS;
   const teamOf = (id: string) => teamOfProfile(snap ? profileOf(snap.agents, id) : undefined, teams).id;
-  const liveTeams = teams.filter((t) => all.some((a) => teamOf(a.id) === t.id));
+  // メンバーのいないチーム（作ったばかり）も巡回に入れる。入れないと、新しいチームに着けない
+  const liveTeams = teams;
   const [teamPick, setTeamState] = useState<string>(() => recall(CHAT_TEAM) ?? DEFAULT_TEAM);
   const team = liveTeams.some((t) => t.id === teamPick) ? teamPick : (liveTeams[0]?.id ?? DEFAULT_TEAM);
   const agents = all.filter((a) => teamOf(a.id) === team);
@@ -408,7 +409,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
           )}
           {agents.length === 0 && list.state === "ok" && (
             <div className="p-4 text-[12.5px] text-mute">
-              {team === "watch" ? "監察チーム（監査・ITS・戦略立案）はまだチャットにつながっていない。Hermes 側でプロファイルを作ると、ここに並ぶ" : "セッションの窓口につながっていない"}
+              {`${teams.find((t) => t.id === team)?.name ?? ""}チームのエージェントは、まだチャットにつながっていない。Hermes 側でプロファイルを作ると、ここに並ぶ`}
             </div>
           )}
           {error && <div className="p-4 text-[12.5px] text-orange-ink">{error}</div>}
