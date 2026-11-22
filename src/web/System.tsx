@@ -20,7 +20,7 @@ import { PushSection } from "./webpush";
 import { RELEASE_NOTES, versionName } from "../shared/release-notes";
 import { ProfileCard } from "./ProfileCard";
 import { VpsChart } from "./VpsChart";
-import { Allowlists } from "./Allowlists";
+import { Allowlists, ModelCandidates } from "./Allowlists";
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -205,7 +205,7 @@ function Agents({ snap }: { snap: Snapshot | null }) {
   const [listError, setListError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelEntry[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [picking, setPicking] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   /** 切り替え中のモデルの key。終わるまで同じ欄のボタンを押せなくする（#30） */
   const [saving, setSaving] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -236,7 +236,6 @@ function Agents({ snap }: { snap: Snapshot | null }) {
       const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; models?: ModelEntry[] };
       if (b.ok && b.models) {
         setModels(b.models);
-        setPicking(null);
         setMsg({ ok: true, text: `${m.name} を ${label} にした（次のセッション・次のカードから）` });
         // カードのモデル表示は agents の方を見ているので、読み直す（#30）
         get<AgentInfo[]>("/api/system/agents").then(setList).catch(() => {});
@@ -284,35 +283,48 @@ function Agents({ snap }: { snap: Snapshot | null }) {
               <div className="flex flex-col gap-3 p-3">
                 {settings.agents && <ProfileEditor a={p} patch={settings.patch} upload={settings.upload} teams={settings.teams} syncName={settings.syncName} />}
                 {a && <>
-                {/* モデル（許可リストの中から変えられる） */}
-                <div className="flex flex-col gap-1">
-                  <div className="text-[11px] text-mute">モデル</div>
+                {/* モデル: 候補（許可リスト）から選ぶ。候補そのものの編集も、ここから（root のパスワードが要る） */}
+                <section aria-label="モデル" className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="m-0 text-[12px] font-semibold text-ink-2">モデル</h3>
+                    {a.kind !== "claude-code" && (
+                      <button onClick={() => setEditing(editing === a.id ? null : a.id)} aria-expanded={editing === a.id} className="ml-auto min-h-8 rounded-full px-2.5 text-[11.5px] text-blue">
+                        {editing === a.id ? "候補の編集をとじる" : "候補を編集"}
+                      </button>
+                    )}
+                  </div>
                   {models === null && <div className="text-[12px] text-mute">読み込み中<Dots /></div>}
                   {models !== null && modelsOf(a).length === 0 && <div className="text-[12px] text-mute">選べるモデルは無い（許可リストに無いプロファイル）</div>}
                   {modelsOf(a).map((m) => (
-                    <div key={m.key} className="overflow-hidden rounded-lg border border-line-2">
-                      <button onClick={() => setPicking(picking === m.key ? null : m.key)} disabled={!m.choices.length || saving === m.key} className="flex min-h-10 w-full items-center gap-2 px-2.5 text-left text-[12.5px]">
-                        <span className="text-ink-2">{m.name.includes("（") ? m.name.slice(m.name.indexOf("（")) : "いまのモデル"}</span>
-                        <span className="ml-auto font-mono text-[11.5px]">{saving === m.key ? ing("切り替え中…") : `${m.current}${m.choices.length ? " ▾" : ""}`}</span>
-                      </button>
-                      {m.error && <div className="px-2.5 pb-2 text-[11px] text-orange-ink">{m.error}</div>}
-                      {picking === m.key && (
-                        <div className="flex flex-col gap-0.5 border-t border-line p-1">
+                    <div key={m.key} className="overflow-hidden rounded-xl border border-line-2">
+                      <div className="flex min-h-10 items-center gap-2 bg-chip/50 px-3 text-[12px]">
+                        <span className="text-ink-2">{m.name.includes("（") ? m.name.slice(m.name.indexOf("（") + 1, m.name.lastIndexOf("）")) : "いまのモデル"}</span>
+                        <span className="ml-auto min-w-0 truncate font-mono text-[11.5px] font-semibold">{saving === m.key ? ing("切り替え中…") : m.current}</span>
+                      </div>
+                      {m.error && <div className="px-3 py-1.5 text-[11px] text-orange-ink">{m.error}</div>}
+                      {m.choices.length > 0 && (
+                        <div role="radiogroup" aria-label="モデルを選ぶ" className="flex flex-col p-1">
                           {/* いまのモデルが許可リストに無いと、切り替えた後にこの画面からは戻せない（#30） */}
                           {!m.choices.some((c) => c.current) && (
-                            <div className="px-2 py-1.5 text-[11px] leading-relaxed text-orange-ink">いまの {m.current} は許可リストに無いので、切り替えるとこの画面からは戻せない</div>
+                            <div className="px-2 py-1.5 text-[11px] leading-relaxed text-orange-ink">いまの {m.current} は候補に無いので、切り替えるとこの画面からは戻せない</div>
                           )}
                           {m.choices.map((c) => (
-                            <button key={c.id} onClick={() => void choose(m, c.id, c.label)} disabled={saving !== null || c.current} className="flex min-h-9 items-center gap-2 rounded-md px-2 text-left text-[12px] hover:bg-line disabled:opacity-50">
-                              <span className="font-mono">{c.label}</span>
-                              <span className="ml-auto text-[11px] text-mute">{c.current ? "いまのモデル" : c.note}</span>
+                            <button key={c.id} role="radio" aria-checked={c.current} onClick={() => !c.current && void choose(m, c.id, c.label)} disabled={saving !== null} className="flex min-h-10 items-center gap-2.5 rounded-lg px-2 text-left text-[12.5px] hover:bg-chip/70 disabled:opacity-60">
+                              <span className={`grid size-4 flex-none place-items-center rounded-full border ${c.current ? "border-ink" : "border-line-2"}`} aria-hidden="true">{c.current && <span className="size-2 rounded-full bg-ink" />}</span>
+                              <span className="min-w-0 flex-1 truncate font-mono">{c.label}</span>
+                              {c.note && !c.current && <span className="flex-none text-[11px] text-mute">{c.note}</span>}
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
                   ))}
-                </div>
+                  {editing === a.id && a.kind !== "claude-code" && (
+                    <div className="rounded-xl border border-line-2 p-2.5">
+                      <ModelCandidates profile={a.id} />
+                    </div>
+                  )}
+                </section>
                 {a.soul && (
                   <div className="flex flex-col gap-1">
                     <div className="text-[11px] text-mute">{RUNTIME_CAPS[a.kind].soulFile}</div>
@@ -663,8 +675,8 @@ function Section({ title }: { title: string }) {
   return <h2 className="m-0 mx-5 mt-5 text-[12px] font-semibold text-mute">{title}</h2>;
 }
 
-/** VPS: 状態・root 作業・許可リスト・ファイル */
-function VpsTab({ snap }: { snap: Snapshot | null }) {
+/** VPS: 状態・root 作業・ログイン許可・ファイル */
+function VpsTab() {
   return (
     <>
       <Vps />
@@ -676,8 +688,8 @@ function VpsTab({ snap }: { snap: Snapshot | null }) {
         </span>
         <span className="text-mute">›</span>
       </a>
-      <Section title="許可リスト" />
-      <Allowlists agents={snap?.agents ?? []} />
+      <Section title="ログイン許可" />
+      <Allowlists />
       <Section title="ファイル" />
       <Files />
     </>
@@ -726,7 +738,7 @@ export function System({ snap }: { snap: Snapshot | null }) {
       ) : tab === "connections" ? (
         <Connections />
       ) : tab === "vps" ? (
-        <VpsTab snap={snap} />
+        <VpsTab />
       ) : (
         <General />
       )}

@@ -129,7 +129,7 @@ function Routes() {
   if (hash.startsWith("#/memo/voice")) return <Suspense fallback={loading}><VoiceMemo /></Suspense>;
   const memo = hash.match(/^#\/memo\/(new|-?[0-9]{1,18})(?:\?|$)/);
   if (memo) return <Suspense fallback={loading}><MemoPage key={memo[1]} id={memo[1] === "new" ? "new" : Number(memo[1])} /></Suspense>;
-  if (hash === "#/calendar") return <Suspense fallback={loading}><Calendar /></Suspense>;
+  if (hash === "#/calendar") return <Suspense fallback={loading}><Calendar snap={snap} /></Suspense>;
   if (hash === "#/habits") return <Suspense fallback={loading}><Habits /></Suspense>;
   // システムは「設定」になった（#/system は古いリンク用）
   if (hash === "#/settings" || hash.startsWith("#/settings?") || hash === "#/system") return <System snap={snap} />;

@@ -1,7 +1,6 @@
 // ルートの部品が受け取るもの
 import type { Hono } from "hono";
 import type { HabitStore } from "../habits";
-import type { RecurringStore } from "../recurring";
 import type { TeamStore } from "../teams";
 import type { WebPush } from "../webpush";
 import type { Config } from "../config";
@@ -41,7 +40,6 @@ export interface AppServices {
   taskSync?: TaskSync;
   projects?: ProjectStore;
   habits?: HabitStore;
-  recurring?: RecurringStore;
   teams?: TeamStore;
   webPush?: WebPush;
   feed?: NotifyFeed;

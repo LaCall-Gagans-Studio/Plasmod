@@ -1,8 +1,6 @@
-// 許可リスト: アプリを開けるログインと、エージェントが切り替えられるモデル。書き換えは root の作業（毎回パスワード）
+// 許可リスト: アプリを開けるログイン（VPS タブ）と、エージェントが切り替えられるモデルの候補（エージェントのカード）。書き換えは root の作業（毎回パスワード）
 import { ing, Dots } from "./dots";
 import { useEffect, useState } from "react";
-import type { AgentProfile } from "../shared/types";
-import { profileOf } from "./ui";
 
 type Choice = { provider: string; model: string; label?: string; note?: string };
 type Cur = { provider: string | null; model: string | null };
@@ -115,63 +113,80 @@ function Logins({ initial, me }: { initial: string[]; me: string }) {
   );
 }
 
-function Models({ initial, current, agents }: { initial: Record<string, Choice[]>; current: Record<string, Cur>; agents: AgentProfile[] }) {
-  const [m, setM] = useState(initial);
-  const dirty = JSON.stringify(m) !== JSON.stringify(initial);
-  const profiles = Object.keys(m);
-  const set = (p: string, i: number, k: keyof Choice, v: string) => setM({ ...m, [p]: m[p].map((c, j) => (j === i ? { ...c, [k]: v } : c)) });
-  const changed = Object.fromEntries(profiles.filter((p) => JSON.stringify(m[p]) !== JSON.stringify(initial[p])).map((p) => [p, m[p].map(({ label, ...c }) => ({ ...c, ...(label?.trim() ? { label: label.trim() } : {}) }))]));
+
+/** 許可リストを1度だけ読む（エージェントのカードごとに読み直さない）。保存すると root 作業の画面へ移るので、使い回してよい */
+let cached: Promise<Data> | null = null;
+function loadAllowlists(): Promise<Data> {
+  cached ??= fetch("/api/root/allowlists")
+    .then(async (r) => {
+      if (r.status === 403) throw new Error("Tailscale の入口から開いたときだけ見られる");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return (await r.json()) as Data;
+    })
+    .catch((e) => {
+      cached = null;
+      throw e;
+    });
+  return cached;
+}
+
+/** エージェント1人の、切り替えられるモデルの候補を編集する（エージェントのカードの中） */
+export function ModelCandidates({ profile }: { profile: string }) {
+  const [d, setD] = useState<Data | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    loadAllowlists().then(setD).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+  if (error) return <div className="text-[12px] text-mute">{error}</div>;
+  if (!d) return <div className="text-[12px] text-mute">読み込んでいます<Dots /></div>;
+  if (d.error) return <div className="text-[12px] text-orange-ink">{d.error}</div>;
+  if (!d.models[profile]) return <div className="text-[12px] text-mute">このエージェントは許可リストに無い（Hermes のプロファイルではない）</div>;
   return (
-    <div className="mx-4 mt-3 rounded-xl border border-line bg-panel px-3.5 py-3 text-[13px]">
-      <div className="font-semibold">切り替えられるモデル</div>
-      <div className="mb-1 text-[11px] text-mute">エージェントの設定の「モデル」で選べるもの。プロバイダーとモデル名は Hermes の設定と同じ書き方</div>
-      {!profiles.length && <div className="py-2 text-[12px] text-mute">エージェント（Hermes のプロファイル）が見つからない</div>}
-      {profiles.map((p) => {
-        const cur = current[p];
-        const has = !!cur?.model && m[p].some((c) => c.model === cur.model && c.provider === (cur.provider ?? ""));
-        return (
-          <div key={p} className="border-b border-line py-2.5 last:border-b-0">
-            <div className="flex items-baseline gap-2">
-              <span className="font-semibold">{profileOf(agents, p).name}</span>
-              <span className="min-w-0 truncate text-[11px] text-mute">いま: {cur?.model ? `${cur.provider ?? "?"} · ${cur.model}` : "不明"}</span>
-            </div>
-            {m[p].map((c, i) => (
-              <div key={i} className="mt-1.5 grid grid-cols-[5.5rem_1fr_auto] items-center gap-1.5">
-                <input value={c.provider} onChange={(e) => set(p, i, "provider", e.target.value)} placeholder="provider" aria-label="プロバイダー" autoCapitalize="off" spellCheck={false} className={`${field} font-mono`} />
-                <input value={c.model} onChange={(e) => set(p, i, "model", e.target.value)} placeholder="model" aria-label="モデル" autoCapitalize="off" spellCheck={false} className={`${field} font-mono`} />
-                <X onClick={() => setM({ ...m, [p]: m[p].filter((_, j) => j !== i) })} label="外す" />
-                <input value={c.label ?? ""} onChange={(e) => set(p, i, "label", e.target.value)} placeholder="表示名（任意）" aria-label="表示名" className={`${field} col-span-2`} />
-              </div>
-            ))}
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <button type="button" onClick={() => setM({ ...m, [p]: [...m[p], { provider: "", model: "" }] })} className="min-h-8 rounded-full border border-line-2 px-3 text-[12px]">
-                ＋ 行を足す
-              </button>
-              {cur?.model && cur.provider && !has && (
-                <button type="button" onClick={() => setM({ ...m, [p]: [...m[p], { provider: cur.provider!, model: cur.model! }] })} className="min-h-8 rounded-full border border-line-2 px-3 text-[12px] text-mute">
-                  ＋ いまのモデルを加える
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })}
-      <SaveBar kind="models" payload={changed} dirty={dirty} onReset={() => setM(initial)} />
+    <>
+      {!d.rootd && <div className="mb-2 text-[12px] text-orange-ink">plasmod-rootd が使えないので、見るだけ（変えるには setup.sh の root 作業の部品が要る）</div>}
+      <CandidateRows profile={profile} initial={d.models[profile]} current={d.current[profile]} />
+    </>
+  );
+}
+
+function CandidateRows({ profile, initial, current: cur }: { profile: string; initial: Choice[]; current?: Cur }) {
+  const [rows, setRows] = useState(initial);
+  const dirty = JSON.stringify(rows) !== JSON.stringify(initial);
+  const set = (i: number, k: keyof Choice, v: string) => setRows(rows.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
+  const has = !!cur?.model && rows.some((c) => c.model === cur.model && c.provider === (cur.provider ?? ""));
+  const payload = { [profile]: rows.map(({ label, ...c }) => ({ ...c, ...(label?.trim() ? { label: label.trim() } : {}) })) };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="m-0 text-[11px] leading-relaxed text-mute">ここに並べたものだけが、上の「モデル」で選べる。プロバイダーとモデル名は Hermes の設定と同じ書き方</p>
+      {rows.map((c, i) => (
+        <div key={i} className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-1.5 rounded-lg bg-chip/50 p-1.5">
+          <input value={c.provider} onChange={(e) => set(i, "provider", e.target.value)} placeholder="provider" aria-label="プロバイダー" autoCapitalize="off" spellCheck={false} className={`${field} font-mono`} />
+          <input value={c.model} onChange={(e) => set(i, "model", e.target.value)} placeholder="model" aria-label="モデル" autoCapitalize="off" spellCheck={false} className={`${field} font-mono`} />
+          <X onClick={() => setRows(rows.filter((_, j) => j !== i))} label="外す" />
+          <input value={c.label ?? ""} onChange={(e) => set(i, "label", e.target.value)} placeholder="表示名（任意）" aria-label="表示名" className={`${field} col-span-2`} />
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => setRows([...rows, { provider: "", model: "" }])} className="min-h-8 rounded-full border border-line-2 px-3 text-[12px]">
+          ＋ 候補を足す
+        </button>
+        {cur?.model && cur.provider && !has && (
+          <button type="button" onClick={() => setRows([...rows, { provider: cur.provider!, model: cur.model! }])} className="min-h-8 rounded-full border border-line-2 px-3 text-[12px] text-mute">
+            ＋ いまのモデルを加える
+          </button>
+        )}
+      </div>
+      <SaveBar kind="models" payload={payload} dirty={dirty} onReset={() => setRows(initial)} />
     </div>
   );
 }
 
-export function Allowlists({ agents }: { agents: AgentProfile[] }) {
+/** VPS タブ: アプリを開けるログイン */
+export function Allowlists() {
   const [d, setD] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    fetch("/api/root/allowlists")
-      .then(async (r) => {
-        if (r.status === 403) throw new Error("Tailscale の入口から開いたときだけ見られる");
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        setD((await r.json()) as Data);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    loadAllowlists().then(setD).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
   if (error) return <div className="mx-5 mt-2 text-[12px] text-mute">{error}</div>;
   if (!d) return <div className="mx-5 mt-2 text-[12px] text-mute">読み込んでいます<Dots /></div>;
@@ -179,7 +194,6 @@ export function Allowlists({ agents }: { agents: AgentProfile[] }) {
     <>
       {!d.rootd && <div className="mx-5 mt-2 text-[12px] text-orange-ink">plasmod-rootd が使えないので、見るだけ（変えるには setup.sh の root 作業の部品が要る）</div>}
       <Logins initial={d.logins} me={d.me} />
-      {d.error ? <div className="mx-5 mt-3 text-[12px] text-orange-ink">モデル: {d.error}</div> : <Models initial={d.models} current={d.current} agents={agents} />}
     </>
   );
 }

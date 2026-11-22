@@ -24,7 +24,6 @@ import { ProjectStore } from "./projects";
 import { TeamStore } from "./teams";
 import { WebPush } from "./webpush";
 import { HabitStore } from "./habits";
-import { RecurringStore } from "./recurring";
 import { INBOX_ASSIGNEES } from "./model";
 import { TaskSync } from "./task-sync";
 import { agentUids, MemoSpool } from "./memo-spool";
@@ -113,20 +112,6 @@ const memos = new MemoStore(store.db);
 const tasks = new TaskStore(store.db, config.taskRefPrefix);
 const projects = new ProjectStore(store.db, memos, tasks);
 const habits = new HabitStore(store.db);
-const recurring = new RecurringStore(store.db, tasks);
-recurring.agentOk = (id) => {
-  const p = findProfile(config.profiles, id);
-  return p && !INBOX_ASSIGNEES.includes(p.id.toLowerCase()) ? p.id : null;
-};
-// 担当のエージェントがいるルールの回は、浮上と同時にカンバンのカードにして任せる（AI-Driven）
-recurring.delegate = async (t, rule) => {
-  const to = rule.agent!;
-  const body = [rule.body, `期日: ${t.due}`, `タスク: #${t.id}（Plasmod）`, `（繰り返しのルール「${rule.title}」から自動で作ったタスク）`].filter(Boolean).join("\n\n");
-  const created = await hub.createCard(t.title, body, to, []);
-  tasks.linkKanban(t.id, created, to, "繰り返しのルール", "recur");
-  hub.changed();
-};
-recurring.start(() => hub.changed());
 hub.setTasks(tasks);
 dev.onPrs = (prs, complete) => {
   if (tasks.syncPrs(prs, complete)) hub.changed();
@@ -145,7 +130,7 @@ merge.onMerged = () => {
 };
 if (config.memoSpool) {
   const agents = agentUids(config.memoAgents, readFileSync("/etc/passwd", "utf8"));
-  new MemoSpool(memos, config.memoSpool, agents, tasks, () => hub.changed(), habits, merge, recurring).start();
+  new MemoSpool(memos, config.memoSpool, agents, tasks, () => hub.changed(), habits, merge).start();
   console.log(`メモの受け渡し: ${config.memoSpool}（${[...agents.values()].join(", ") || "使えるユーザーなし"}）`);
 }
 const taskSync = new TaskSync(tasks, config.githubToken ? new GitHub(config.githubToken, fetch, config.githubApi) : null, {
@@ -158,7 +143,7 @@ new TokenTotal(new AppSettings(store.db)).start(() => system.usage());
 new UsageAlert(store.db, () => system.credits(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/system", actions: [] })).start();
 const connections = new ConnectionWatch(store.db, () => system.connectionsRaw(), (n) => feed.add({ kind: "system", key: n.key, title: n.title, message: n.message, priority: 4, path: "#/settings?tab=connections", actions: [] }));
 connections.start();
-const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, recurring, teams, webPush, taskSync, projects, feed, connections });
+const app = createApp(config, hub, store, webRoot, { registry, sessions, dev, merge, shares, system, media, rootd, watch, memos, tasks, habits, teams, webPush, taskSync, projects, feed, connections });
 
 export default {
   hostname: config.host,
