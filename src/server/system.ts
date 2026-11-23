@@ -151,6 +151,17 @@ export class SystemService {
     return value;
   }
 
+  /** Hermes のプロファイルがいま使っている provider。分からなければ null（その場合は Nous のバーを出す側に倒さない） */
+  async providerOf(profile: string): Promise<string | null> {
+    if (!this.broker) return null;
+    try {
+      const r = JSON.parse(await this.broker("models")) as Record<string, { current?: { provider?: string | null } }>;
+      return r[profile]?.current?.provider ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async models(): Promise<ModelEntry[]> {
     const out: ModelEntry[] = [];
     const claude = !!this.bridge && this.claudeEnabled();

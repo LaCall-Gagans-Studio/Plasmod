@@ -186,15 +186,16 @@ export function useView(agent: string | null, id: string | null, ms = 2000) {
 }
 
 /** Nous のクレジット。Hermes の「You've used $X of your $Y cap」と同じもの */
-export function useCredits(enabled: boolean) {
+export function useCredits(enabled: boolean, agent: string) {
   const [credits, setCredits] = useState<NousCredits | null>(null);
   const stopped = credits?.paidAccess === false;
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
+    setCredits(null);
     // 取れなかったときは前の値を黙って使い続けず、取れなかったと分かるようにする（止まっている表示が回復後も残らないように）
     const load = () =>
-      getJson<NousCredits>("/api/system/credits")
+      getJson<NousCredits | null>(`/api/system/credits?agent=${encodeURIComponent(agent)}`)
         .then((c) => alive && setCredits(c))
         .catch(() => alive && setCredits((p) => (p ? { ...p, error: p.error ?? "最新の残高を取得できなかった" } : p)));
     void load();
@@ -207,7 +208,7 @@ export function useCredits(enabled: boolean) {
       clearInterval(t);
       document.removeEventListener("visibilitychange", vis);
     };
-  }, [enabled, stopped]);
+  }, [enabled, stopped, agent]);
   return enabled ? credits : null;
 }
 

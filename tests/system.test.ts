@@ -48,6 +48,12 @@ describe("システム", () => {
     expect(bridgeCalls.filter((c) => c.type === "usage").length).toBe(2);
   });
 
+  test("providerOf: プロファイルがいま使っている provider を返す（知らないプロファイルは null）", async () => {
+    const { svc } = fakes();
+    expect(await svc.providerOf("acct1")).toBe("nous");
+    expect(await svc.providerOf("nobody")).toBeNull();
+  });
+
   test("Nous のクレジット: 仲介の返事を形をそろえて返し、5分はキャッシュする", async () => {
     const { svc, brokerCalls } = fakes();
     const c = await svc.credits();

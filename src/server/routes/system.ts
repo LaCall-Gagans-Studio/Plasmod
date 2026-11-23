@@ -24,6 +24,9 @@ export function systemRoutes({ app, system, connections }: RouteContext) {
   });
   app.get("/api/system/credits", async (c) => {
     if (!system) return c.json({ ok: false, error: "システムは使えない" }, 404);
+    // Nous のクレジットは Nous を使うエージェントだけのもの。Vercel などほかの接続先なら出さない（null）
+    const agent = c.req.query("agent");
+    if (agent && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(agent) && (await system.providerOf(agent)) !== "nous") return c.json(null);
     return c.json(await system.credits(c.req.query("force") === "1"));
   });
   app.get("/api/system/models", async (c) => (system ? c.json(await system.models()) : c.json([], 404)));
