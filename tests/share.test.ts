@@ -47,7 +47,7 @@ describe("共有メニューとチャットの添付", () => {
   test("上限を超えるものは置かない", () => {
     const s = new ShareStore(mkdtempSync(join(tmpdir(), "gh-share-")));
     const big = { name: "x", type: "", data: new Uint8Array(SHARE_LIMITS.fileBytes + 1) };
-    expect(() => s.save({}, [big])).toThrow("25MB");
+    expect(() => s.save({}, [big])).toThrow("100MB");
     expect(() => s.save({}, Array.from({ length: 11 }, () => ({ name: "a", type: "", data: new Uint8Array(1) })))).toThrow("10 個");
     expect(s.get("../../etc")).toBeNull();
     expect(() => s.remove("../../etc")).toThrow("不正な ID");

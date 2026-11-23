@@ -112,7 +112,7 @@ class Bridge:
         os.chmod(SOCK, 0o600)
         if os.path.exists(APP_SOCK):
             os.unlink(APP_SOCK)
-        self.app_server = await asyncio.start_unix_server(self.on_app_conn, path=APP_SOCK, limit=96 * 1024 * 1024)   # 添付（base64）は1行で届く
+        self.app_server = await asyncio.start_unix_server(self.on_app_conn, path=APP_SOCK, limit=160 * 1024 * 1024)   # 添付（base64）は1行で届く
         os.chmod(APP_SOCK, 0o666)   # 入れるかどうかは置き場所のディレクトリ（cc:plasmod 0750）と on_app_conn の uid 確認で決める
         self.loop.create_task(self.reaper())
 
@@ -288,8 +288,8 @@ class Bridge:
             rp = os.path.realpath(p)
             if not (rp.startswith(WORK + "/") or rp.startswith("/tmp/")) or not os.path.isfile(rp):
                 return False, f"添付できないパス: {p}（~/work か /tmp の下のファイルだけ）"
-            if os.path.getsize(rp) > 25 * 1024 * 1024:
-                return False, f"25MB を超えている: {p}"
+            if os.path.getsize(rp) > 100 * 1024 * 1024:
+                return False, f"100MB を超えている: {p}"
             media.append({"name": os.path.basename(p), "path": rp})
         await self.log_chat(tid, {"author": "dev", "content": m.get("text", ""),
                                   "attachments": [os.path.basename(p) for p in (m.get("files") or [])], "media": media})
@@ -351,8 +351,8 @@ class Bridge:
         for i, f in enumerate(files):
             name = os.path.basename(str(f.get("name") or "")).lstrip(".").strip()[:100] or f"file-{i + 1}"
             data = base64.b64decode(str(f.get("data") or ""), validate=True)
-            if len(data) > 25 * 1024 * 1024:
-                raise ValueError(f"{name} が 25MB を超えている")
+            if len(data) > 100 * 1024 * 1024:
+                raise ValueError(f"{name} が 100MB を超えている")
             os.makedirs(d, exist_ok=True)
             p = os.path.join(d, f"app-{int(time.time() * 1000)}-{i}-{name}")
             with open(p, "wb") as fh:

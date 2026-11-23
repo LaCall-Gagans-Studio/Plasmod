@@ -150,6 +150,7 @@ export default {
   port: config.port,
   fetch: app.fetch,
   idleTimeout: 0,
+  maxRequestBodySize: 160 * 1024 * 1024, // 添付は合計100MBまで（既定は128MB）
 };
 
 console.log(`plasmod: http://${config.host}:${config.port} (kanban=${config.kanbanSource})`);
@@ -164,7 +165,7 @@ if (config.tailscaleSock) {
   rmSync(config.tailscaleSock, { force: true });
   // SSE（/api/stream）を切らないよう idleTimeout は 0（TCP と同じ）。Bun の型は unix のとき idleTimeout を許さないが、実際には効く
   // （server.timeout(req, 0) では切れた。2026-11-04 に curl --unix-socket で 35 秒以上つながることを確認）
-  const tsOptions = { unix: config.tailscaleSock, fetch: (req: Request) => app.fetch(req, tailscaleEnv()), idleTimeout: 0 };
+  const tsOptions = { unix: config.tailscaleSock, fetch: (req: Request) => app.fetch(req, tailscaleEnv()), idleTimeout: 0, maxRequestBodySize: 160 * 1024 * 1024 };
   Bun.serve(tsOptions as unknown as Parameters<typeof Bun.serve>[0]);
   chmodSync(config.tailscaleSock, 0o660);
   console.log(`Tailscale の入口: ${config.tailscaleSock}`);

@@ -277,8 +277,8 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
 
   const addFiles = (list: FileList | null) => {
     const picked = Array.from(list ?? []);
-    const big = picked.find((f) => f.size > 25 * 1024 * 1024);
-    if (big) return setError(`${big.name} は 25MB を超えている`);
+    const big = picked.find((f) => f.size > 100 * 1024 * 1024);
+    if (big) return setError(`${big.name} は 100MB を超えている`);
     setError(null);
     setFiles((x) => [...x, ...picked].slice(0, 10));
   };
