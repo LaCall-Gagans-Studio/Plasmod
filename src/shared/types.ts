@@ -582,6 +582,8 @@ export interface SessionInfo {
   last: number;
   alive: boolean;
   working: boolean;
+  /** 承認待ち（working は false にして出す）。一覧で「承認待ち」とオレンジの点滅にする */
+  waiting?: boolean;
   /** Hermes の cron が動いた回（source=cron）。一覧のトグルで省ける */
   cron?: boolean;
   /** ピン留めした時刻。ピンのものは一覧の一番上 */
@@ -623,9 +625,16 @@ export interface HistoryCursor {
   capped?: boolean;
 }
 
+/** そのセッションが答えを待っている承認。key は承認カードの key（/api/cards/:key/act に許可・拒否を送る） */
+export interface ApprovalPrompt {
+  key: string;
+  title: string;
+  body: string;
+}
+
 export type SessionView =
-  | { kind: "terminal"; text: string; alive: boolean; working: boolean; messages?: ChatMessage[]; chatError?: string; cursor?: HistoryCursor }
-  | { kind: "chat"; messages: HermesMessage[]; alive: boolean; working: boolean; error?: string; cursor?: HistoryCursor; approvalCard?: string };
+  | { kind: "terminal"; text: string; alive: boolean; working: boolean; approval?: ApprovalPrompt; messages?: ChatMessage[]; chatError?: string; cursor?: HistoryCursor }
+  | { kind: "chat"; messages: HermesMessage[]; alive: boolean; working: boolean; error?: string; cursor?: HistoryCursor; approval?: ApprovalPrompt };
 
 export type OlderPage = { messages: ChatMessage[] | HermesMessage[]; cursor: HistoryCursor };
 

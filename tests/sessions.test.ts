@@ -234,7 +234,10 @@ describe("Hermes の API サーバー", () => {
     expect(a).toMatchObject({ agent: "acct1", session: sid, runId: "run_1", command: "rm -rf /tmp/x", description: "再帰削除" });
     expect(changes).toBeGreaterThan(0);
     const v = await svc.view("acct1", sid);
-    expect(v.kind === "chat" && v.approvalCard).toBe(`hperm:${a.id}`);
+    expect(v.kind === "chat" && v.approval).toMatchObject({ key: `hperm:${a.id}` });
+    expect(v.kind === "chat" && v.working).toBe(false); // 承認待ちは作業中ではない
+    const list = await svc.list("acct1");
+    expect(list.find((s) => s.id === sid)).toMatchObject({ waiting: true, working: false });
     expect(svc.pendingApprovals(a.createdAt + 300_000)).toEqual([]); // 時間切れで消える
     a.createdAt -= 300_000; // 時間切れのものには答えられない
     await expect(svc.answerApproval(a.id, "once")).rejects.toThrow("もう終わっている");

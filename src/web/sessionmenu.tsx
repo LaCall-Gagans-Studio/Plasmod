@@ -94,7 +94,7 @@ export function SessionMenu() {
     }
   };
 
-  const state = s.working ? { label: "作業中", dot: "bg-lime" } : s.alive ? { label: "待機", dot: "bg-mute" } : { label: "停止", dot: "bg-line-2" };
+  const state = s.waiting ? { label: "承認待ち", dot: "gh-blink bg-orange" } : s.working ? { label: "作業中", dot: "bg-lime" } : s.alive ? { label: "待機", dot: "bg-mute" } : { label: "停止", dot: "bg-line-2" };
   return (
     <Sheet label={`「${s.title}」のメニュー`} onClose={close}>
       <SheetCard>
