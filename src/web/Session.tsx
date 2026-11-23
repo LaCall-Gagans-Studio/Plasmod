@@ -379,8 +379,8 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
                   <span className="line-clamp-2 text-[12px] leading-snug">{s.pinnedAt && <PinMark />}{s.title}</span>
                   <span className="flex items-center gap-1.5 text-[10.5px] text-mute">
                     {isAll && <Who p={snap ? profileOf(snap.agents, s.agent) : undefined} />}
-                    <span className={`size-1.5 rounded-full ${s.working ? "bg-lime" : s.alive ? "bg-mute" : "bg-line-2"}`} />
-                    {s.working ? "作業中" : s.alive ? "待機" : "停止"} · {ago(s.last)}
+                    <span className={`size-1.5 rounded-full ${s.waiting ? "gh-blink bg-orange" : s.working ? "bg-lime" : s.alive ? "bg-mute" : "bg-line-2"}`} />
+                    {s.waiting ? "承認待ち" : s.working ? "作業中" : s.alive ? "待機" : "停止"} · {ago(s.last)}
                   </span>
                 </SessionRow>
               ))}
@@ -435,7 +435,7 @@ export function SessionPanel({ snap }: { snap: Snapshot | null }) {
                   className={`flex min-h-10 w-full items-center gap-2 border-b border-line px-2.5 text-left text-[12px] last:border-b-0 ${sessionKey(s) === (latest && sessionKey(latest)) ? "font-semibold text-ink" : "text-ink-2"}`}
                 >
                   {isAll && snap && <Avatar p={profileOf(snap.agents, s.agent)} size={18} />}
-                  {s.working && <span className="size-1.5 flex-none rounded-full bg-lime" aria-label="作業中" />}
+                  {s.waiting ? <span className="gh-blink size-1.5 flex-none rounded-full bg-orange" aria-label="承認待ち" /> : s.working && <span className="size-1.5 flex-none rounded-full bg-lime" aria-label="作業中" />}
                   {s.pinnedAt && <PinMark />}
                   <span className="min-w-0 flex-1 truncate">{s.title}</span>
                   <span className="flex-none text-[10.5px] text-mute">{ago(s.last)}</span>
@@ -588,8 +588,8 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
           >
             <span className="line-clamp-2 text-[13px] leading-snug">{s.pinnedAt && <PinMark />}{s.title}</span>
             <span className="flex items-center gap-1.5 text-[11px] text-mute">
-              <span className={`size-1.5 rounded-full ${s.working ? "bg-lime" : s.alive ? "bg-mute" : "bg-line-2"}`} />
-              {s.working ? "作業中" : s.alive ? "待機" : "停止"} · {ago(s.last)}
+              <span className={`size-1.5 rounded-full ${s.waiting ? "gh-blink bg-orange" : s.working ? "bg-lime" : s.alive ? "bg-mute" : "bg-line-2"}`} />
+              {s.waiting ? "承認待ち" : s.working ? "作業中" : s.alive ? "待機" : "停止"} · {ago(s.last)}
             </span>
           </SessionRow>
         ))}

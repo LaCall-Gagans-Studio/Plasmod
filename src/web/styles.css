@@ -171,9 +171,14 @@ button:not(:disabled):active {
 @keyframes gh-pulse {
   50% { opacity: 0.45; }
 }
+/* 承認待ちの点（緑の作業中をオレンジの点滅に） */
+@keyframes gh-blink {
+  50% { opacity: 0.2; }
+}
+.gh-blink { animation: gh-blink 1s ease-in-out infinite; }
 .gh-pulse { animation: gh-pulse 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .gh-pulse { animation: none; }
+  .gh-pulse, .gh-blink { animation: none; }
 }
 
 /* プロフィールカードの節が、順に明滅する */

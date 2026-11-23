@@ -1,6 +1,7 @@
 // セッション。Claude Code は plasmod-bridge、Hermes のエージェント（ハブ・経理エージェント…）は Hermes の API サーバーにつなぐ。
 import type { ChatMessage, HermesApproval, HermesMessage, HistoryCursor, MediaItem, OlderPage, SessionInfo, SessionView } from "../shared/types";
 import { CLAUDE_AGENT, type RuntimeKind } from "../shared/types";
+import { hermesApprovalCard, permissionCard } from "./model";
 import type { BridgeClient } from "./bridge";
 import type { SessionMark } from "./store";
 import { hermesUrl, mediaKind, mediaName, devUrl } from "./media";
@@ -392,21 +393,29 @@ export class ClaudeCodeRuntime implements AgentRuntime {
 
   async list(): Promise<SessionInfo[]> {
       const r = await this.bridge.request({ type: "list_sessions" });
-      return ((r.sessions as Record<string, unknown>[]) ?? []).map((s) => ({
-        agent: CLAUDE_AGENT,
-        id: String(s.thread),
-        title: cleanTitle(String(s.title ?? "")),
-        last: toMs(s.last),
-        alive: !!s.alive,
-        working: !!s.working,
-      }));
+      const asking = new Set(this.bridge.requests().map((p) => p.thread));
+      return ((r.sessions as Record<string, unknown>[]) ?? []).map((s) => {
+        const waiting = asking.has(String(s.thread));
+        return {
+          agent: CLAUDE_AGENT,
+          id: String(s.thread),
+          title: cleanTitle(String(s.title ?? "")),
+          last: toMs(s.last),
+          alive: !!s.alive,
+          // 承認待ちは作業中ではない
+          working: !!s.working && !waiting,
+          ...(waiting ? { waiting } : {}),
+        };
+      });
       }
 
   async view(_agent: string, id: string): Promise<SessionView> {
       const [r, chat] = await Promise.all([this.bridge.request({ type: "pane", thread: id }), this.chat(id)]);
       const first = chat.messages?.[0];
       const cursor: HistoryCursor | undefined = first ? { before: first.id, more: chat.messages!.length >= BRIDGE_FIRST } : undefined;
-      return { kind: "terminal", text: String(r.text ?? ""), alive: !!r.alive, working: !!r.working, ...chat, ...(cursor ? { cursor } : {}) };
+      const ask = this.bridge.requests().find((p) => p.thread === id);
+      const card = ask && permissionCard(ask);
+      return { kind: "terminal", text: String(r.text ?? ""), alive: !!r.alive, working: !!r.working && !ask, ...(card ? { approval: { key: card.key, title: card.title, body: card.body } } : {}), ...chat, ...(cursor ? { cursor } : {}) };
       }
 
   async transcript(_agent: string, id: string): Promise<string> {
@@ -463,7 +472,9 @@ export class HermesRuntime implements AgentRuntime {
   }
 
   async list(agent: string): Promise<SessionInfo[]> {
-    return this.api(agent).list();
+    const waiting = new Set(this.pendingApprovals().filter((a) => a.agent === agent).map((a) => a.session));
+    const list = await this.api(agent).list();
+    return waiting.size ? list.map((s) => (waiting.has(s.id) ? { ...s, working: false, waiting: true } : s)) : list;
     }
 
   /** 今答えられる承認待ち（時間切れのものは Hermes 側で拒否になっているので出さない） */
@@ -539,7 +550,8 @@ export class HermesRuntime implements AgentRuntime {
       }
     }
     const approval = this.pendingApprovals().find((a) => a.agent === agent && a.session === id);
-    return { kind: "chat", messages, alive: true, working: live?.status === "running" || (!live && busy), error: live?.error, ...(cursor ? { cursor } : {}), ...(approval ? { approvalCard: `hperm:${approval.id}` } : {}) };
+    const card = approval && hermesApprovalCard(approval);
+    return { kind: "chat", messages, alive: true, working: !approval && (live?.status === "running" || (!live && busy)), error: live?.error, ...(cursor ? { cursor } : {}), ...(card ? { approval: { key: card.key, title: card.title, body: card.body } } : {}) };
     }
 
   async transcript(agent: string, id: string): Promise<string> {

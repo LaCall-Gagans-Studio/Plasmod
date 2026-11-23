@@ -2,7 +2,8 @@
 import { IconButton, useConfirm } from "./sheet";
 import { Dots, MiniAmoeba } from "./dots";
 import { createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AgentProfile, ChatMessage, HermesMessage, NousCredits, SessionView } from "../shared/types";
+import type { AgentProfile, ApprovalPrompt, ChatMessage, HermesMessage, NousCredits, SessionView } from "../shared/types";
+import { act } from "./api";
 import { Avatar } from "./ui";
 import { discard, imageUrl, isDelivered, type Outgoing, retry } from "./outbox";
 import { MediaList } from "./Media";
@@ -226,6 +227,45 @@ function NoticeView({ text, compact }: { text: string; compact: boolean }) {
   );
 }
 
+/** 承認待ち。上のカードと同じ判断（許可・拒否）をチャットの中でも押せる */
+function ApprovalBar({ a }: { a: ApprovalPrompt }) {
+  const [busy, setBusy] = useState<"allow" | "deny" | null>(null);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState<string | null>(null);
+  useEffect(() => {
+    setBusy(null);
+    setSent(null);
+    setError("");
+  }, [a.key]);
+  const answer = async (option: "allow" | "deny") => {
+    setBusy(option);
+    setError("");
+    try {
+      await act(a.key, option, "");
+      setSent(option === "allow" ? "許可した" : "拒否した");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div role="group" aria-label="承認待ち" className="flex flex-col gap-2 rounded-xl border border-orange-ink/40 bg-orange/10 p-3 font-sans text-[13px]">
+      <div className="font-semibold text-orange-ink">⏸ 承認待ち: {a.title.replace(/^承認が必要: /, "")}</div>
+      {a.body && <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[12px] leading-snug text-ink-2">{a.body}</pre>}
+      {sent ? (
+        <div className="text-mute" role="status">{sent}。続きを待っています<Dots /></div>
+      ) : (
+        <div className="flex gap-2">
+          <button disabled={!!busy} onClick={() => void answer("allow")} className="min-h-11 flex-[2] rounded-full bg-lime text-sm font-bold text-on disabled:opacity-40">{busy === "allow" ? "送っています…" : "許可"}</button>
+          <button disabled={!!busy} onClick={() => void answer("deny")} className="min-h-11 flex-1 rounded-full border border-line-2 text-sm font-semibold text-ink disabled:opacity-40">{busy === "deny" ? "送っています…" : "拒否"}</button>
+        </div>
+      )}
+      {error && <div className="text-orange-ink" role="alert">⚠ {error}</div>}
+    </div>
+  );
+}
+
 export function CreditsLine({ c }: { c: NousCredits }) {
   const u = creditsUsed(c);
   if (c.paidAccess === false)
@@ -311,6 +351,7 @@ export function ViewBody({ who, view, compact = false, outgoing = [], scrollKey 
             </ChoiceScope>
           ))}
           {sending.length > 0 && <div className="flex flex-col gap-2.5 font-sans">{sending}</div>}
+          {view.approval && <ApprovalBar a={view.approval} />}
           {activity.length > 0 && <div className="flex flex-col gap-1.5 font-sans">{activity.map((b, i) => <TermBlockView key={`a${i}`} b={b} compact />)}</div>}
           {view.alive && view.working && activity.length === 0 && <div className="text-mute"><MiniAmoeba />作業中<Dots /></div>}
           {!view.alive && <div className="text-[11.5px] text-mute">（このセッションは止まっている。送ると再開する）</div>}
@@ -321,6 +362,7 @@ export function ViewBody({ who, view, compact = false, outgoing = [], scrollKey 
       "flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto p-3.5 font-sans",
       <>
         {(compact ? blocks.slice(-6) : blocks).map((b, i) => <TermBlockView key={i} b={b} compact={compact} />)}
+        {view.approval && <ApprovalBar a={view.approval} />}
         {sending}
       </>,
     );
@@ -343,9 +385,7 @@ export function ViewBody({ who, view, compact = false, outgoing = [], scrollKey 
         ),
       )}
       {sending.length > 0 && <div className="flex flex-col gap-2.5 font-sans">{sending}</div>}
-      {view.approvalCard ? (
-        <a className="font-sans text-[13px] text-orange-ink underline" href={`#/card/${encodeURIComponent(view.approvalCard)}`}>⏸ 承認を待っています（開いて判断する）</a>
-      ) : view.working && <div className="text-mute"><MiniAmoeba />考えています<Dots /></div>}
+      {view.approval ? <ApprovalBar a={view.approval} /> : view.working && <div className="text-mute"><MiniAmoeba />考えています<Dots /></div>}
       {view.error && <div className="text-orange-ink">⚠ {view.error}</div>}
     </>,
   );
