@@ -25,6 +25,7 @@ function fakes() {
     if (args[0] === "usage") return JSON.stringify({ default: { h5: { tokens: 1, cost: 0, sessions: 1 }, d7: { tokens: 2, cost: 0, sessions: 1 }, d30: { tokens: 3, cost: 0.5, sessions: 2 }, models: [] } });
     if (args[0] === "agents") return JSON.stringify([{ id: "dev", model: { provider: "nous", model: "hermes-4" }, soul: null, files: {}, skills: [] }]);
     if (args[0] === "models") return JSON.stringify({ acct1: { current: { provider: "nous", model: "hermes-4" }, choices: [{ provider: "nous", model: "hermes-4" }, { provider: "openai-codex", model: "gpt-5", note: "ChatGPT Plus" }] } });
+    if (args[0] === "balance") return JSON.stringify({ provider: "openrouter", label: "OpenRouter", total: 50, used: 12.5, remaining: 37.5, unit: "USD", error: null });
     if (args[0] === "set-model") return "{}";
     if (args[0] === "credits") return JSON.stringify({ logged_in: true, paid_access: false, reason: "out_of_credits", plan: "Plus", monthly: 110, subscription_remaining: 19.32, purchased_remaining: 0, total_remaining: 19.32, period_end: null, error: null });
     if (args[0] === "fs-list") return JSON.stringify({ path: "", items: [] });
@@ -52,6 +53,13 @@ describe("システム", () => {
     const { svc } = fakes();
     expect(await svc.providerOf("acct1")).toBe("nous");
     expect(await svc.providerOf("nobody")).toBeNull();
+  });
+
+  test("Nous 以外の残高: 総額が分かれば枠として、同じ形（NousCredits）にそろえる", async () => {
+    const { svc } = fakes();
+    const c = await svc.balance("acct1");
+    expect(c).toMatchObject({ label: "OpenRouter", monthly: 50, subscriptionRemaining: 37.5, totalRemaining: 37.5 });
+    expect(c.error).toBeUndefined();
   });
 
   test("Nous のクレジット: 仲介の返事を形をそろえて返し、5分はキャッシュする", async () => {

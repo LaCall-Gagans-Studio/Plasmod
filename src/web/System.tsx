@@ -73,15 +73,33 @@ function UsageBox({ title, sub, color, rows }: { title: string; sub: string; col
   );
 }
 
-/** Nous のクレジット（Hermes のエージェント全員で同じアカウント） */
+/** Nous 以外を使うエージェントの残高（Venice・OpenRouter など） */
+function BalanceMeter({ c, who }: { c: NousCredits; who: string }) {
+  const u = creditsUsed(c);
+  const fmt = (n: number) => (c.unit ? `${n.toFixed(2)} ${c.unit}` : `$${n.toFixed(2)}`);
+  const title = c.label ?? "API";
+  if (c.error && !u && c.totalRemaining === null) return <Meter title={title} sub={who} value="?" ratio={null} note={c.error} color="#FF8A3D" />;
+  return (
+    <Meter
+      title={title}
+      sub={who}
+      value={u ? `${fmt(u.used)} / ${fmt(u.cap)}` : c.totalRemaining !== null ? `残り ${fmt(c.totalRemaining)}` : "?"}
+      ratio={u ? u.ratio : null}
+      note={u ? "これまでの合計に対して使った額" : "残高（枠は分からない）"}
+      color={u && u.ratio >= 0.75 ? "#FF8A3D" : "#8FB8FF"}
+    />
+  );
+}
+
+/** Nous のクレジット（Nous を使うエージェントで同じアカウント） */
 function CreditsMeter({ c }: { c: NousCredits }) {
   const u = creditsUsed(c);
   const left = [c.purchasedRemaining ? `買い足し分の残り $${c.purchasedRemaining.toFixed(2)}` : "", c.periodEnd ? `枠の更新 ${c.periodEnd.slice(0, 10)}` : ""].filter(Boolean).join(" · ");
-  if (c.error && !u) return <Meter title="Nous" sub="Hermes のクレジット" value="?" ratio={null} note={c.error} color="#FF8A3D" />;
+  if (c.error && !u) return <Meter title="Nous" sub="Nous を使うエージェントのクレジット" value="?" ratio={null} note={c.error} color="#FF8A3D" />;
   return (
     <Meter
       title="Nous"
-      sub={`Hermes のクレジット${c.plan ? ` · ${c.plan}` : ""}`}
+      sub={`Nous を使うエージェントのクレジット${c.plan ? ` · ${c.plan}` : ""}`}
       value={u ? `$${u.used.toFixed(2)} / $${u.cap.toFixed(2)}` : c.totalRemaining !== null ? `残り $${c.totalRemaining.toFixed(2)}` : "?"}
       ratio={u ? u.ratio : null}
       note={c.paidAccess === false ? `⚠ Nous の有料モデルが使えない状態と報告されている${c.reason ? `（${c.reason}）` : ""}` : left || "月の枠に対して使った額"}
@@ -93,8 +111,10 @@ function CreditsMeter({ c }: { c: NousCredits }) {
 function Usage({ snap }: { snap: Snapshot | null }) {
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
   const [credits, setCredits] = useState<NousCredits | null>(null);
+  const [balances, setBalances] = useState<{ profiles: string[]; credits: NousCredits }[]>([]);
 
   useEffect(() => {
+    fetch("/api/system/balances").then((r) => r.json()).then((b) => Array.isArray(b) && setBalances(b)).catch(() => {});
     fetch("/api/system/usage").then((r) => r.json()).then(setUsage).catch(() => {});
     fetch("/api/system/credits").then((r) => r.json()).then(setCredits).catch(() => {});
   }, []);
@@ -139,6 +159,7 @@ function Usage({ snap }: { snap: Snapshot | null }) {
           )
         )}
         {credits && <CreditsMeter c={credits} />}
+        {balances.map((b) => <BalanceMeter key={b.profiles.join()} c={b.credits} who={b.profiles.map((p) => (snap ? profileOf(snap.agents, p).name : p)).join('・')} />)}
         {usage &&
           Object.entries(usage.hermes).map(([id, h]) =>
             "error" in h ? (
