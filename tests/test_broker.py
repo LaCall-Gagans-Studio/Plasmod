@@ -206,7 +206,7 @@ class BrokerWriteTest(unittest.TestCase):
                 run("attach", "t_1", "a.txt")
         finally:
             _sys.stdin = orig
-            broker.MAX_ATTACH = 25 * 1024 * 1024
+            broker.MAX_ATTACH = 100 * 1024 * 1024
 
 
 class BrokerPutFileTest(unittest.TestCase):

@@ -4,7 +4,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync }
 import { join } from "node:path";
 import type { ShareInfo } from "../shared/types";
 
-export const SHARE_LIMITS = { files: 10, fileBytes: 25 * 1024 * 1024, totalBytes: 60 * 1024 * 1024, ttlMs: 7 * 86400_000 };
+export const SHARE_LIMITS = { files: 10, fileBytes: 100 * 1024 * 1024, totalBytes: 100 * 1024 * 1024, ttlMs: 7 * 86400_000 };
 
 const ID_RE = /^[0-9a-f]{24}$/;
 
@@ -94,10 +94,10 @@ export function checkFiles(files: { name: string; data: Uint8Array }[]) {
   if (files.length > SHARE_LIMITS.files) throw new Error(`ファイルは ${SHARE_LIMITS.files} 個まで`);
   let total = 0;
   for (const f of files) {
-    if (f.data.length > SHARE_LIMITS.fileBytes) throw new Error(`${f.name} が 25MB を超えている`);
+    if (f.data.length > SHARE_LIMITS.fileBytes) throw new Error(`${f.name} が 100MB を超えている`);
     total += f.data.length;
   }
-  if (total > SHARE_LIMITS.totalBytes) throw new Error("合計が 60MB を超えている");
+  if (total > SHARE_LIMITS.totalBytes) throw new Error("合計が 100MB を超えている");
 }
 
 /** 画像だけインライン表示。それ以外はダウンロード扱い（ブラウザに HTML などとして解釈させない） */
