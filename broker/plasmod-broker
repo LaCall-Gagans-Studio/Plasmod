@@ -16,6 +16,7 @@
   put-file NAME              標準入力の中身を ~/.hermes/plasmod-inbox/ に置いて、置いたパスを出す（チャットの添付を Hermes のエージェントに渡す。100MB まで）
   media-read PATH            エージェントが出したファイルを、そのまま標準出力に出す（チャットで見る用。許可した場所の中だけ、15MB まで）
   usage                      プロファイルごとのトークン数・費用（直近5時間・7日・30日）
+  balance PROFILE            Nous 以外（Venice・OpenRouter）の残高。プロファイルがいま使っている接続先を Hermes に解決させ、その接続先の残高だけを聞く。キーは出さない
   credits                    Nous のクレジット（月の枠・残り・有料モデルが使えるか）。金額と状態だけで、アカウントの情報は出さない
   models                     プロファイルごとの今のモデルと、選べるモデル（/etc/plasmod-models.json）
   set-model PROFILE INDEX    選べるモデルの INDEX 番目に切り替える（許可リストの外は選べない）
@@ -429,6 +430,57 @@ def connections():
 
 def credits():
     print(json.dumps(hermes_exec(CREDITS_CODE, what="クレジットの取得"), ensure_ascii=False))
+
+
+# Nous 以外の接続先の残高。キーは Hermes の解決結果から取り、残高を聞く決まった接続先にだけ送る（返事に載せない）
+BALANCE_CODE = r"""
+import json
+import urllib.request
+from urllib.parse import urlparse
+from hermes_cli.runtime_provider import resolve_runtime_provider
+rt = resolve_runtime_provider()
+provider = str(rt.get("provider") or "")
+host = (urlparse(str(rt.get("base_url") or "")).hostname or "").lower()
+key = rt.get("api_key") or ""
+num = lambda v: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+def get(url):
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + key, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+out = {"provider": provider, "label": None, "total": None, "used": None, "remaining": None, "unit": "USD", "error": None}
+try:
+    if not key:
+        out["error"] = "キーが解決できない"
+    elif host == "venice.ai" or host.endswith(".venice.ai"):
+        out["label"] = "Venice"
+        b = (get("https://api.venice.ai/api/v1/api_keys/rate_limits").get("data") or {}).get("balances") or {}
+        usd, diem = num(b.get("USD")), num(b.get("DIEM"))
+        out["remaining"] = usd if usd is not None else diem
+        out["unit"] = "USD" if usd is not None else "DIEM"
+        if out["remaining"] is None:
+            out["error"] = "残高が返ってこなかった"
+    elif host == "openrouter.ai" or host.endswith(".openrouter.ai"):
+        out["label"] = "OpenRouter"
+        d = get("https://openrouter.ai/api/v1/credits").get("data") or {}
+        total, used = num(d.get("total_credits")), num(d.get("total_usage"))
+        out["total"], out["used"] = total, used
+        out["remaining"] = total - used if total is not None and used is not None else None
+        if out["remaining"] is None:
+            out["error"] = "残高が返ってこなかった"
+    else:
+        out["label"] = provider or host or "?"
+        out["error"] = "この接続先の残高は取れない"
+except Exception as e:
+    out["error"] = type(e).__name__ + ": " + str(e)[:120].replace(key, "***") if key else type(e).__name__
+print(json.dumps(out))
+"""
+
+
+def balance(profile):
+    homes = profiles()
+    if not PROFILE_RE.match(profile) or profile not in homes:
+        die("そのプロファイルは無い")
+    print(json.dumps(hermes_exec(BALANCE_CODE, {"HERMES_HOME": homes[profile]}, "残高の取得"), ensure_ascii=False))
 
 
 # triage → todo。Hermes の CLI には手で仕分けるコマンドが無い（specify は AI に仕分けさせる）ので、
@@ -908,6 +960,10 @@ def main(argv):
         with contextlib.suppress(OSError):
             os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
         credits()
+    elif op == "balance" and len(rest) == 1:
+        with contextlib.suppress(OSError):
+            os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
+        balance(rest[0])
     elif op == "models" and not rest:
         models()
     elif op == "set-model" and len(rest) == 2:

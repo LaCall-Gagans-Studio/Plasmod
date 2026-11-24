@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 loader = importlib.machinery.SourceFileLoader("broker", os.path.join(HERE, "..", "broker", "plasmod-broker"))
@@ -468,6 +469,19 @@ class BrokerCreditsTest(unittest.TestCase):
             self.fake_hermes(printed)
             with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 run("credits")
+
+    def test_balance_unknown_provider_reports_without_leaking_key(self):
+        open(os.path.join(self.dir, "hermes_cli", "runtime_provider.py"), "w").write(
+            "def resolve_runtime_provider():\n    return {'provider': 'custom', 'base_url': 'https://llm.example.com/v1', 'api_key': 'sk-SECRET'}\n")
+        self.fake_hermes(json.dumps(self.cmd))
+        with mock.patch.object(broker, "profiles", return_value={"acct": self.dir}):
+            out = json.loads(run("balance", "acct"))
+        self.assertEqual(out["error"], "この接続先の残高は取れない")
+        self.assertNotIn("sk-SECRET", json.dumps(out))
+
+    def test_balance_refuses_unknown_profile(self):
+        with mock.patch.object(broker, "profiles", return_value={"acct": self.dir}), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            run("balance", "nobody")
 
 
 FAKE_PROFILES = '''

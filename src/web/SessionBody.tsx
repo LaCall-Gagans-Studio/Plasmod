@@ -276,15 +276,27 @@ export function CreditsLine({ c }: { c: NousCredits }) {
         <span className="block text-mute">失敗した直後に同じ依頼を送り直すと、実行済みの操作が二重になることがあります。先に会話の記録を確かめてください</span>
       </div>
     );
-  if (!u) return null;
+  const label = c.label ?? "Nous";
+  const fmt = (n: number) => (c.unit ? `${n.toFixed(2)} ${c.unit}` : usd(n));
+  if (!u) {
+    // 枠は分からないが残りは分かる接続先（Venice など）と、残高を取れなかったとき
+    if (c.totalRemaining === null && !c.error) return null;
+    return (
+      <div className="flex items-center gap-2.5 border-b border-line px-4 py-1.5 text-[11px] text-mute">
+        <span className="flex-none">{label}</span>
+        <span className="min-w-0 flex-1 truncate">{c.totalRemaining !== null ? "残高" : (c.error ?? "残高を取れなかった")}</span>
+        {c.totalRemaining !== null && <span className="flex-none font-mono">{fmt(c.totalRemaining)}</span>}
+      </div>
+    );
+  }
   const warn = u.ratio >= 0.75;
   return (
     <div className="flex items-center gap-2.5 border-b border-line px-4 py-1.5 text-[11px] text-mute">
-      <span className="flex-none">Nous</span>
+      <span className="flex-none">{label}</span>
       <div className="h-1.5 min-w-0 flex-1 rounded bg-line">
         <div className="h-1.5 rounded" style={{ width: `${Math.max(2, u.ratio * 100)}%`, background: warn ? "#FF8A3D" : "#8FB8FF" }} />
       </div>
-      <span className={`flex-none font-mono ${warn ? "text-orange-ink" : ""}`}>{usd(u.used)} / {usd(u.cap)}</span>
+      <span className={`flex-none font-mono ${warn ? "text-orange-ink" : ""}`}>{fmt(u.used)} / {fmt(u.cap)}</span>
     </div>
   );
 }

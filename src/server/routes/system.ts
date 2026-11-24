@@ -24,8 +24,18 @@ export function systemRoutes({ app, system, connections }: RouteContext) {
   });
   app.get("/api/system/credits", async (c) => {
     if (!system) return c.json({ ok: false, error: "システムは使えない" }, 404);
-    return c.json(await system.credits(c.req.query("force") === "1"));
+    // agent を渡されたら、そのエージェントの接続先の残高を返す（Nous なら Nous、Venice・OpenRouter ならその残高）。分からなければ null
+    const agent = c.req.query("agent");
+    const force = c.req.query("force") === "1";
+    if (agent) {
+      if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(agent)) return c.json(null);
+      const provider = await system.providerOf(agent);
+      if (!provider) return c.json(null);
+      if (provider !== "nous") return c.json(await system.balance(agent, force));
+    }
+    return c.json(await system.credits(force));
   });
+  app.get("/api/system/balances", async (c) => (system ? c.json(await system.balances()) : c.json([], 404)));
   app.get("/api/system/models", async (c) => (system ? c.json(await system.models()) : c.json([], 404)));
   app.get("/api/system/agents", async (c) => (system ? c.json(await system.agents()) : c.json([], 404)));
   app.get("/api/system/vps-series", (c) => (system ? c.json({ samples: system.vpsSeries() }) : c.json({ ok: false, error: "システムは使えない" }, 404)));

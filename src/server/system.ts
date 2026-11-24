@@ -151,6 +151,67 @@ export class SystemService {
     return value;
   }
 
+  private balanceCache = new Map<string, { at: number; value: NousCredits }>();
+
+  /** Nous 以外（Venice・OpenRouter など）を使うプロファイルの残高。NousCredits と同じ形にそろえる（総額が分かるときだけ枠として出す） */
+  async balance(profile: string, force = false): Promise<NousCredits> {
+    const hit = this.balanceCache.get(profile);
+    if (!force && hit && Date.now() - hit.at < 300_000) return hit.value;
+    const empty: NousCredits = { paidAccess: null, reason: null, plan: null, monthly: null, subscriptionRemaining: null, purchasedRemaining: null, totalRemaining: null, periodEnd: null, at: Date.now() };
+    let value: NousCredits;
+    try {
+      if (!this.broker) throw new Error("仲介が設定されていない");
+      const r = JSON.parse(await this.broker("balance", profile)) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+      const total = num(r.total);
+      const remaining = num(r.remaining);
+      value = {
+        ...empty,
+        label: typeof r.label === "string" && r.label ? r.label : "API",
+        ...(typeof r.unit === "string" && r.unit !== "USD" ? { unit: r.unit } : {}),
+        monthly: total,
+        subscriptionRemaining: total !== null ? remaining : null,
+        totalRemaining: remaining,
+        ...(typeof r.error === "string" && r.error ? { error: r.error } : {}),
+      };
+    } catch (e) {
+      value = { ...empty, error: e instanceof Error ? e.message : String(e) };
+    }
+    this.balanceCache.set(profile, { at: value.error ? Date.now() - 240_000 : Date.now(), value });
+    return value;
+  }
+
+  /** 設定の System 画面用: Nous 以外を使っているプロファイルごとの残高（同じ接続先はまとめる） */
+  async balances(): Promise<{ profiles: string[]; credits: NousCredits }[]> {
+    if (!this.broker) return [];
+    let models: Record<string, { current?: { provider?: string | null } }>;
+    try {
+      models = JSON.parse(await this.broker("models"));
+    } catch {
+      return [];
+    }
+    const names = Object.entries(models).filter(([, v]) => v.current?.provider && v.current.provider !== "nous").map(([k]) => k);
+    const rows = await Promise.all(names.map(async (n) => ({ n, c: await this.balance(n) })));
+    const out: { profiles: string[]; credits: NousCredits }[] = [];
+    for (const { n, c } of rows) {
+      const same = out.find((o) => o.credits.label === c.label && o.credits.totalRemaining === c.totalRemaining && o.credits.monthly === c.monthly && !c.error && !o.credits.error);
+      if (same) same.profiles.push(n);
+      else out.push({ profiles: [n], credits: c });
+    }
+    return out;
+  }
+
+  /** Hermes のプロファイルがいま使っている provider。分からなければ null（その場合は Nous のバーを出す側に倒さない） */
+  async providerOf(profile: string): Promise<string | null> {
+    if (!this.broker) return null;
+    try {
+      const r = JSON.parse(await this.broker("models")) as Record<string, { current?: { provider?: string | null } }>;
+      return r[profile]?.current?.provider ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async models(): Promise<ModelEntry[]> {
     const out: ModelEntry[] = [];
     const claude = !!this.bridge && this.claudeEnabled();

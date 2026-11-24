@@ -761,6 +761,10 @@ export interface UsageSnapshot {
 
 /** Nous のクレジット（仲介の credits）。金額はドル */
 export interface NousCredits {
+  /** 接続先の名前（省略は Nous）。Venice・OpenRouter などの残高も同じ形で返す */
+  label?: string;
+  /** 金額の単位（省略はドル）。Venice の DIEM など */
+  unit?: string;
   paidAccess: boolean | null;
   reason: string | null;
   plan: string | null;

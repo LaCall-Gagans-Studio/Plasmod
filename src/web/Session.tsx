@@ -531,7 +531,7 @@ export function SessionPage({ snap, agent, id }: { snap: Snapshot | null; agent:
   const info = sessions?.find((s) => s.id === current);
   const outgoing = useOutgoing(agent, current);
   const older = useOlder(agent, current, view);
-  const credits = useCredits(caps.credits);
+  const credits = useCredits(caps.credits, agent);
   const unread = useChatUnread(agents, agent);
   const who = snap ? profileOf(snap.agents, agent) : undefined;
   useEffect(() => {
