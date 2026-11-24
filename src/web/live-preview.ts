@@ -260,6 +260,8 @@ class ImageWidget extends WidgetType {
 
 /** 長い読み物も枠の中でスクロールさせない */
 const BOX_MAX_HEIGHT = 30000;
+/** 枠のページから「ready」が来るまで待つ時間。過ぎたらスクリプトなしの表示にする */
+const BOX_READY_MS = 3000;
 /** 箱から開けるのは別のメモだけ */
 export const isMemoHash = (h: unknown): h is string => typeof h === "string" && /^#\/memo\/\d+$/.test(h);
 export const isExternalHref = (h: unknown): h is string => {
@@ -311,7 +313,13 @@ class CopyCodeWidget extends WidgetType {
   }
 }
 
-/** ```html の箱: 隔離した枠の中で表示する。スクリプトは動くが、アプリの中身・API には届かない */
+/** 枠のページ（/memo-box）に届かないとき（オフライン）の表示用。sandbox の枠はオフラインの写し（Service Worker）を使えないので、アプリ自身が持つ HTML で出す。スクリプトは動かさない */
+export function boxFallbackDoc(source: string, dark: boolean): string {
+  const c = dark ? "dark" : "light";
+  return `<!doctype html><html data-theme=${c}><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><style>:root{color-scheme:${c}}html,body{margin:0}body{padding:12px;font:14px/1.7 system-ui,'Noto Sans JP',sans-serif;background:${dark ? "#15151a" : "#fff"};color:${dark ? "#f2f1ec" : "#17171a"};overflow-wrap:anywhere}img,svg{max-width:100%}</style>${source}`;
+}
+
+/** ```html の箱: 隔離した枠の中で表示する。スクリプトは動くが、アプリの中身・API には届かない。枠のページに届かなければ、スクリプトなしで表示する */
 class HtmlBoxWidget extends WidgetType {
   private off: (() => void) | null = null;
   constructor(readonly source: string) {
@@ -334,18 +342,61 @@ class HtmlBoxWidget extends WidgetType {
     frame.src = "/memo-box";
     frame.style.height = "200px";
     const dark = document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+    let ready = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // 枠のページに届かない（オフライン）: スクリプトなしの枠に差し替える。同じ出どころの枠だが、スクリプトは sandbox と CSP の両方で動かない
+    const fallback = () => {
+      if (ready || !frame.isConnected) return;
+      const f = document.createElement("iframe");
+      f.setAttribute("sandbox", "allow-same-origin");
+      f.setAttribute("referrerpolicy", "no-referrer");
+      f.title = "HTML の表示（オフライン）";
+      f.style.height = frame.style.height;
+      f.srcdoc = boxFallbackDoc(this.source, dark);
+      f.addEventListener("load", () => {
+        const doc = f.contentDocument;
+        if (!doc) return;
+        const fit = () => {
+          f.style.height = `${Math.min(BOX_MAX_HEIGHT, Math.max(48, Math.ceil(doc.documentElement.scrollHeight)))}px`;
+          view.requestMeasure();
+        };
+        new ResizeObserver(fit).observe(doc.documentElement);
+        doc.addEventListener("click", (e) => {
+          const a = (e.target as Element | null)?.closest?.("a[href]");
+          if (!a) return;
+          const raw = a.getAttribute("href") ?? "";
+          const h: unknown = raw;
+          if (isMemoHash(h)) {
+            e.preventDefault();
+            location.hash = h;
+          } else if (isExternalHref(h)) {
+            e.preventDefault();
+            openBoxLink(h);
+          } else if (!raw.startsWith("#")) e.preventDefault();
+        });
+        fit();
+      });
+      frame.replaceWith(f);
+    };
+    timer = setTimeout(fallback, navigator.onLine === false ? 50 : BOX_READY_MS);
     const on = (e: MessageEvent) => {
       if (e.source !== frame.contentWindow) return;
       const d = e.data as { plasmodBox?: string; h?: unknown; hash?: unknown; href?: unknown };
-      if (d?.plasmodBox === "ready") frame.contentWindow?.postMessage({ html: this.source, dark }, "*");
-      else if (d?.plasmodBox === "height" && typeof d.h === "number") {
+      if (d?.plasmodBox === "ready") {
+        ready = true;
+        clearTimeout(timer);
+        frame.contentWindow?.postMessage({ html: this.source, dark }, "*");
+      } else if (d?.plasmodBox === "height" && typeof d.h === "number") {
         frame.style.height = `${Math.min(BOX_MAX_HEIGHT, Math.max(48, Math.ceil(d.h)))}px`;
         view.requestMeasure();
       } else if (d?.plasmodBox === "open" && isMemoHash(d.hash)) location.hash = d.hash;
       else if (d?.plasmodBox === "external" && isExternalHref(d.href)) openBoxLink(d.href);
     };
     addEventListener("message", on);
-    this.off = () => removeEventListener("message", on);
+    this.off = () => {
+      clearTimeout(timer);
+      removeEventListener("message", on);
+    };
     const edit = document.createElement("button");
     edit.className = "cm-lp-box-edit";
     edit.textContent = "HTML を編集";
