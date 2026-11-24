@@ -279,3 +279,12 @@ test("枠から開ける外部リンクは https だけ", () => {
   expect(isExternalHref("https://yandex.uz/maps/?text=Registon%20maydoni%20Samarqand")).toBe(true);
   for (const h of ["http://example.com/", "javascript:alert(1)", "intent://x#Intent;end", "data:text/html,x", "#/memo/1", "", null, 1]) expect(isExternalHref(h)).toBe(false);
 });
+
+test("オフライン用の枠: 本文をそのまま入れ、色と余白を付ける", async () => {
+  const { boxFallbackDoc } = await import("../src/web/live-preview");
+  const d = boxFallbackDoc("<b>中</b>", true);
+  expect(d).toContain("<b>中</b>");
+  expect(d).toContain("data-theme=dark");
+  expect(boxFallbackDoc("x", false)).toContain("data-theme=light");
+  expect(d).not.toContain("<script");
+});
