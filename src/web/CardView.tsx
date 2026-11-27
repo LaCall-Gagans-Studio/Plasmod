@@ -2,7 +2,7 @@ import { IconButton } from "./sheet";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { ing } from "./dots";
 import type { Card, CardOption, Snapshot, SnoozeKind } from "../shared/types";
-import { act, ActFailed, hideCard, markSeen, refreshSnapshot } from "./api";
+import { act, ActFailed, hideCard, markSeen, refreshSnapshot, unhideCard } from "./api";
 import { submit } from "./outbox";
 import { useAgents } from "./session-data";
 import { TaskBadges, refsIn } from "./badges";
@@ -101,11 +101,12 @@ export function talkText(card: Card, note: string): string {
 
 /**
  * 「〇〇と話す」: ほかの選択肢と同じ形のボタン。左の顔を押すと話す相手が順に切り替わる
- * （カードを出したエージェント → 任せる先 → ほか）。ボタンを押すと、カードの中身を最初のメッセージにしてチャットを始める（カードは残る）
+ * （既定の AI → カードを出したエージェント → ほか）。ボタンを押すと、カードの中身を最初のメッセージにしてチャットを始める（カードは残る）
  */
 function TalkOption({ snap, card, note, disabled }: { snap: Snapshot; card: Card; note: string; disabled: boolean }) {
   const agents = useAgents().filter((a) => a.available);
-  const first = [card.agent, card.delegate].filter((x): x is string => !!x && x !== "me");
+  // 既定の AI（default）を先頭に。任せたいときもここから頼み、既定の AI が振り分ける
+  const first = ["default", card.agent, card.delegate].filter((x): x is string => !!x && x !== "me");
   const rank = (id: string) => {
     const i = first.findIndex((f) => profileOf(snap.agents, f).name === profileOf(snap.agents, id).name);
     return i < 0 ? 9 : i;
@@ -143,7 +144,7 @@ function TalkOption({ snap, card, note, disabled }: { snap: Snapshot; card: Card
         className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-full border border-line-2 py-1.5 text-[15px] font-bold text-ink disabled:opacity-50"
       >
         {busy ? ing("始めています…") : `${p.name}と話す`}
-        <span className="text-[11px] font-normal opacity-70">この件をチャットで相談する（カードは残る）</span>
+        <span className="text-[11px] font-normal opacity-70">相談・任せたいときはここから（カードは残る）</span>
       </button>
     </div>
   );
@@ -179,6 +180,14 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
   /** 添付を送っている間の進み具合 */
   const [uploading, setUploading] = useState<{ files: File[]; ratio: number } | null>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+  // 書いた分だけ欄を伸ばす（上限は CSS の max-h。そこから先は中で送る）
+  useEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
   const [busy, setBusy] = useState(false);
   const [laterOpen, setLaterOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,9 +218,22 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
     if (present) markSeen(cardKey);
   }, [cardKey, present]);
 
+  /**
+   * 判断したあとに開くカード: 今のカードの次（3枚目を判断したら、繰り上がった新しい3枚目＝前の4枚目）。
+   * 最後のカードなら1つ前、無ければチャットへ。伏せたカードは BackLog のあとに並ぶ
+   */
+  const nextHref = (key = cardKey) => {
+    const s = snapRef.current;
+    const list = [...(s?.cards ?? []), ...(s?.snoozed ?? [])];
+    const i = list.findIndex((c) => c.key === key);
+    const after = i < 0 ? list : [...list.slice(i + 1), ...list.slice(0, i).reverse()];
+    // 伏せたカードには飛ばない（BackLog が残っていれば BackLog を先に）
+    const live = new Set((s?.cards ?? []).map((c) => c.key));
+    const pick = after.find((c) => live.has(c.key)) ?? null;
+    return pick ? `#/card/${encodeURIComponent(pick.key)}` : "#/";
+  };
   const next = () => {
-    const rest = (snapRef.current?.cards ?? []).filter((c) => c.key !== cardKey);
-    location.hash = rest.length ? `#/card/${encodeURIComponent(rest[0].key)}` : "#/";
+    location.hash = nextHref();
   };
 
   const choose = async (o: CardOption, snooze?: SnoozeKind) => {
@@ -219,26 +241,47 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
       setError("返事を書いてから選んでください");
       return;
     }
-    setBusy(true);
     setError(null);
+    const z = SNOOZES.find((x) => x.id === snooze);
+    // 添付が無ければ、返事を待たずにすぐ次のカードへ（送るのは裏で。失敗したらカードを列に戻して知らせる）
+    if (!files.length) {
+      const key = cardKey;
+      const title = card?.title ?? "";
+      const note = text;
+      const to = nextHref(key);
+      if (o.id !== "later") hideCard(key);
+      location.hash = to;
+      toast(z ? `${z.label}まで伏せた` : `「${o.label}」で返した`);
+      act(key, o.id, note, [], undefined, snooze)
+        .then(() => refreshSnapshot())
+        .catch((e) => {
+          refreshSnapshot();
+          // 別の端末・通知のボタンで、もう判断されていた: そのまま
+          if (e instanceof ActFailed && e.status === 404) return;
+          unhideCard(key);
+          toast(`「${title.slice(0, 20)}」を送れませんでした: ${e instanceof Error ? e.message : String(e)}`, "error");
+        });
+      return;
+    }
+    setBusy(true);
     try {
-      if (files.length) setUploading({ files, ratio: 0 });
+      setUploading({ files, ratio: 0 });
       await act(cardKey, o.id, text, files, (ratio) => setUploading({ files, ratio }), snooze);
-      setDone(o.label);
-      const z = SNOOZES.find((x) => x.id === snooze);
       if (z) toast(`${z.label}まで伏せた`);
+      else toast(`「${o.label}」で返した`);
+      const to = nextHref();
       // 「あとで」は伏せたカードの列に移るので、畳まずに取り直すだけ
       if (o.id !== "later") hideCard(cardKey);
       refreshSnapshot();
-      setTimeout(next, 700);
+      location.hash = to;
     } catch (e) {
       if (e instanceof ActFailed && e.status === 404) {
         // 別の端末・通知のボタンで、もう判断されていた。エラーにせず畳んで次へ
+        const to = nextHref();
         hideCard(cardKey);
         refreshSnapshot();
-        setDone(null);
         setStale(true);
-        setTimeout(next, 900);
+        setTimeout(() => (location.hash = to), 900);
       } else setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -323,6 +366,7 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
   const p = profileOf(snap!.agents, card.agent);
   /** 添付はカンバンのカードにだけ付けられる */
   const canAttach = !!card.taskId;
+  const canComment = !!(card.taskId || card.appTaskId || card.recordTaskId);
   const main = card.options.filter((o) => o.tone !== "quiet");
   const quiet = card.options.filter((o) => o.tone === "quiet");
   return (
@@ -406,31 +450,47 @@ export function CardView({ snap, cardKey }: { snap: Snapshot | null; cardKey: st
                 ))}
               </div>
             )}
-            <div className="flex min-h-[52px] items-center gap-1 rounded-full border border-line-2 pl-1.5 pr-1.5">
-              {canAttach && <button onClick={() => picker.current?.click()} aria-label="ファイルを添える" className="flex size-10 flex-none items-center justify-center rounded-full text-mute hover:text-ink">
-                <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9" /></svg>
-              </button>}
-              <input ref={picker} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
-              <label className="flex min-w-0 flex-1">
+            {/* コメント: 改行できる欄。書くほど縦に伸びる（長くなったら中で送る）。⌘/Ctrl+Enter で送る */}
+            <div className="flex flex-col rounded-[22px] border border-line-2 focus-within:border-ink">
+              <label className="flex min-w-0">
                 <span className="sr-only">コメント</span>
-                <input
+                <textarea
+                  ref={area}
                   value={text}
+                  rows={1}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="コメントを書く…"
-                  className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing && canComment) {
+                      e.preventDefault();
+                      void sendComment();
+                    }
+                  }}
+                  placeholder="コメントを書く…（改行できます）"
+                  className="max-h-[40vh] min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-4 pb-1 pt-3 text-sm leading-6 text-ink outline-none placeholder:text-mute"
                 />
               </label>
-              <MicButton onText={(t) => setText((x) => x + t)} />
-              {(card.taskId || card.appTaskId || card.recordTaskId) && (
-                <button
-                  onClick={() => void sendComment()}
-                  disabled={busy || (!text.trim() && !files.length)}
-                  aria-label="コメントだけ送る（カードは残る）"
-                  className="flex size-10 flex-none items-center justify-center rounded-full bg-ink text-paper disabled:opacity-30"
-                >
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-                </button>
-              )}
+              <div className="flex items-center gap-1 px-1.5 pb-1.5">
+                {canAttach && (
+                  <button onClick={() => picker.current?.click()} aria-label="ファイルを添える" className="flex size-10 flex-none items-center justify-center rounded-full text-mute hover:text-ink">
+                    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9" /></svg>
+                  </button>
+                )}
+                <input ref={picker} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+                <MicButton onText={(t) => setText((x) => x + t)} />
+                <span className="flex-1" />
+                {text.includes("\n") && <span className="pr-1 text-[11px] tabular-nums text-mute">{text.split("\n").length} 行</span>}
+                {canComment && (
+                  <button
+                    onClick={() => void sendComment()}
+                    disabled={busy || (!text.trim() && !files.length)}
+                    aria-label="コメントだけ送る（カードは残る）"
+                    title="コメントだけ送る（⌘/Ctrl+Enter）"
+                    className="flex size-10 flex-none items-center justify-center rounded-full bg-ink text-paper disabled:opacity-30"
+                  >
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

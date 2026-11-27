@@ -226,7 +226,7 @@ describe("タスクからカード", () => {
     const card = hub.cards().find((c) => c.key.startsWith("apptask:"))!;
     expect(card).toMatchObject({ kind: "reply", source: "mail", delegate: "acct", agent: "default" });
     expect(card.ref).toBeUndefined(); // メールのスレッド ID は見せない
-    expect(card.options.map((o) => o.id)).toEqual(["kanban", "draft", "dismiss", "mine", "later"]);
+    expect(card.options.map((o) => o.id)).toEqual(["draft", "dismiss", "mine", "later"]);
     await hub.act(card.key, "dismiss", "営業メール", "app");
     expect(hub.cards().some((c) => c.key === card.key)).toBe(false);
     expect(tasks.list({ status: ["dismissed"] }).length).toBe(1);
@@ -236,16 +236,14 @@ describe("タスクからカード", () => {
     expect(hub.cards().some((c) => c.key.startsWith("apptask:"))).toBe(true);
   });
 
-  test("「任せる」でカンバンのカードを作ってつなぎ、カンバンが終わればタスクも済み", async () => {
+  test("カードに「任せる」は無い（任せるときは「〇〇と話す」で既定の AI に頼む）", async () => {
     const { hub, tasks, source } = await setup();
     const { task } = tasks.upsert({ source: "beeper", key: "chat-9:msg-3", title: "打ち合わせの日程", kind: "todo", agent: "default" }, "hermes/default");
-    await hub.act(`apptask:${task.id}`, "handle", "来週で", "app");
-    const t = tasks.get(task.id)!;
-    expect(t.status).toBe("doing");
-    expect(t.kanbanId).toMatch(/^t_fx/);
-    await source.complete(t.kanbanId!, "日程を返した");
-    await hub.refresh();
-    expect(tasks.get(task.id)!.status).toBe("done");
+    const card = hub.cards().find((c) => c.key === `apptask:${task.id}`)!;
+    expect(card.options.map((o) => o.id)).toEqual(["mine", "later", "dismiss"]);
+    await expect(hub.act(card.key, "handle", "来週で", "app")).rejects.toThrow("無い");
+    expect(tasks.get(task.id)!.status).toBe("inbox");
+    expect(source.log.some((l) => l.startsWith("create"))).toBe(false);
   });
 
   test("「自分でやる」は todo に、「あとで」は伏せるだけ（タスクは BackLog のまま）", async () => {

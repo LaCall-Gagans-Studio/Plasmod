@@ -19,10 +19,10 @@ const task = (p: Partial<KanbanTask>): KanbanTask => ({
 const NONE = { snoozedUntil: new Map<string, number>(), decidedAt: new Map<string, number>() };
 
 describe("受信箱のカード", () => {
-  test("オーナーさん宛てのカンバンのカードは、任せる・あとで・不要の選択肢つきのカードになる。作った人がカードの主", () => {
+  test("オーナーさん宛てのカンバンのカードは、あとで・不要の選択肢つきのカードになる（任せるは出さない）。作った人がカードの主", () => {
     const c = inboxCard(task({ title: "期限が明日", body: "スライドを仕上げる", created_by: "hub1" }), config.profiles)!;
     expect(c).toMatchObject({ key: "task:t_in1", kind: "todo", agent: "default", statusLabel: "対応", body: "スライドを仕上げる", taskId: "t_in1" });
-    expect(c.options.map((o) => o.id)).toEqual(["handle", "later", "dismiss"]);
+    expect(c.options.map((o) => o.id)).toEqual(["later", "dismiss"]);
     expect(inboxCard(task({ created_by: null }), config.profiles)!.agent).toBe("me");
     expect(inboxCard(task({ status: "done" }), config.profiles)).toBeNull();
   });
@@ -64,17 +64,11 @@ describe("受信箱の判断", () => {
   }
   const todo = task({ id: "t_td", title: "請求書の返信", body: "田中さんから。" });
 
-  test("任せる: ハブ（ハブ）にカードを起こし、受信箱のカードは完了にする（本文と一言を引き継ぐ）", async () => {
+  test("任せるは選べない（カードは残る）", async () => {
     const { hub, source } = await setup([todo]);
-    await hub.act("task:t_td", "handle", "来週払いで返信して", "app");
-    expect(source.log.find((l) => l.startsWith("create "))).toMatch(/^create t_fx\d+ default 請求書の返信$/);
-    expect(source.log.some((l) => l.startsWith("complete t_td") && l.includes("対応する → t_fx"))).toBe(true);
-    const board = await source.board();
-    const made = board.tasks.find((t) => t.title === "請求書の返信" && t.assignee === "default")!;
-    expect(made.body).toContain("来週払いで返信して");
-    expect(made.body).toContain("田中さんから。");
-    expect(made.body).toContain("受信箱のカード: t_td");
-    expect(hub.cards().some((c) => c.key === "task:t_td")).toBe(false);
+    await expect(hub.act("task:t_td", "handle", "来週払いで返信して", "app")).rejects.toThrow("無い");
+    expect(source.log.some((l) => l.startsWith("create "))).toBe(false);
+    expect(hub.cards().some((c) => c.key === "task:t_td")).toBe(true);
   });
 
   test("不要: 実行者を起こさず、完了にするだけ。あとでは残る", async () => {
