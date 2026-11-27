@@ -59,11 +59,12 @@ export class ProjectStore {
       .query(
         `SELECT
            (SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status IN ('inbox','todo','doing')) AS open,
+           (SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status = 'done') AS done,
            (SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status IN ('inbox','todo','doing') AND due IS NOT NULL AND due < ?) AS late,
            (SELECT MIN(due) FROM tasks WHERE project_id = ? AND status IN ('inbox','todo','doing') AND due IS NOT NULL) AS next_due,
            (SELECT COUNT(*) FROM memos WHERE project_id = ? AND archived_at IS NULL) AS memos`,
       )
-      .get(r.id, r.id, today(), r.id, r.id) as { open: number; late: number; next_due: string | null; memos: number };
+      .get(r.id, r.id, r.id, today(), r.id, r.id) as { open: number; done: number; late: number; next_due: string | null; memos: number };
     return {
       id: r.id,
       name: r.name,
@@ -71,6 +72,7 @@ export class ProjectStore {
       status: (PROJECT_STATUSES as string[]).includes(r.status ?? "") ? (r.status as ProjectStatus) : "active",
       emoji: r.emoji ?? null,
       openTasks: c.open,
+      doneTasks: c.done,
       lateTasks: c.late,
       nextDue: c.next_due,
       memos: c.memos,
@@ -154,7 +156,8 @@ export class ProjectStore {
     });
     const noneTasks = this.tasks.list({ status: ["inbox", "todo", "doing"], project: "", limit: 500 });
     const noneMemos = this.memos.list({ project: "", limit: 200 }).memos;
-    return { projects, none: { tasks: top(noneTasks).slice(0, perProject), urgent: near(noneTasks), recentMemos: noneMemos.slice(0, 3), openTasks: noneTasks.length, memos: noneMemos.length } };
+    const noneDone = (this.db.query("SELECT COUNT(*) AS n FROM tasks WHERE project_id IS NULL AND status = 'done'").get() as { n: number }).n;
+    return { projects, none: { tasks: top(noneTasks).slice(0, perProject), urgent: near(noneTasks), recentMemos: noneMemos.slice(0, 3), openTasks: noneTasks.length, doneTasks: noneDone, memos: noneMemos.length } };
   }
 
   /** プロジェクトをまとめる: from のメモ・タスクを into に移し、from を消す（説明は into が空なら引き継ぐ） */
@@ -188,15 +191,17 @@ export class ProjectStore {
   }
 
   /** タグ（メモとタスクで共通の名前）と、それぞれの件数 */
-  tags(): { name: string; memos: number; tasks: number }[] {
+  /** tasks は開いているタスク、doneTasks は完了したタスク */
+  tags(): { name: string; memos: number; tasks: number; doneTasks: number }[] {
     return this.db
       .query(
-        `SELECT name, SUM(m) AS memos, SUM(t) AS tasks FROM (
-           SELECT tag AS name, COUNT(*) AS m, 0 AS t FROM memo_tags GROUP BY tag
-           UNION ALL SELECT tag AS name, 0 AS m, COUNT(*) AS t FROM task_tags GROUP BY tag
-         ) GROUP BY name ORDER BY (SUM(m) + SUM(t)) DESC, name`,
+        `SELECT name, SUM(m) AS memos, SUM(t) AS tasks, SUM(d) AS doneTasks FROM (
+           SELECT tag AS name, COUNT(*) AS m, 0 AS t, 0 AS d FROM memo_tags GROUP BY tag
+           UNION ALL SELECT tt.tag AS name, 0 AS m, SUM(t.status != 'done') AS t, SUM(t.status = 'done') AS d
+             FROM task_tags tt JOIN tasks t ON t.id = tt.task_id GROUP BY tt.tag
+         ) GROUP BY name ORDER BY (SUM(m) + SUM(t) + SUM(d)) DESC, name`,
       )
-      .all() as { name: string; memos: number; tasks: number }[];
+      .all() as { name: string; memos: number; tasks: number; doneTasks: number }[];
   }
 
   /** タグの名前を変える。to がもうあれば、まとめる */

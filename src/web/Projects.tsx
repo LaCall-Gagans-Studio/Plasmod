@@ -42,6 +42,9 @@ function Stat({ children, tone }: { children: ReactNode; tone?: "late" }) {
   );
 }
 
+/** 完了したタスクの数（薄く）。0 なら出さない */
+const Done = ({ n }: { n: number }) => (n > 0 ? <span className="opacity-45">・完了 {n}</span> : null);
+
 /** 絵文字を置く角丸の台 */
 function EmojiTile({ emoji, dashed = false, size = "md" }: { emoji: string; dashed?: boolean; size?: "md" | "lg" }) {
   return (
@@ -137,7 +140,7 @@ function ProjectCard({ p, snap, reload }: { p: ProjectOverview["projects"][numbe
               {p.status !== "active" && <StatusPill s={p.status} />}
             </span>
             <span className="flex flex-wrap gap-1">
-              <Stat>タスク {p.openTasks}</Stat>
+              <Stat>タスク {p.openTasks}<Done n={p.doneTasks} /></Stat>
               {p.lateTasks > 0 && <Stat tone="late">期限切れ {p.lateTasks}</Stat>}
               <Stat>メモ {p.memos}</Stat>
             </span>
@@ -191,7 +194,7 @@ function NoneCard({ none, snap, reload }: { none: ProjectOverview["none"]; snap:
           <span className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="min-w-0 truncate text-[14.5px] font-bold tracking-tight text-ink-2">未仕訳</span>
             <span className="flex flex-wrap gap-1">
-              <Stat>タスク {none.openTasks}</Stat>
+              <Stat>タスク {none.openTasks}<Done n={none.doneTasks} /></Stat>
               <Stat>メモ {none.memos}</Stat>
             </span>
           </span>
@@ -416,7 +419,7 @@ export function ProjectPage({ snap, id }: { snap: Snapshot | null; id: number })
                     {STATUS[s].label}
                   </button>
                 ))}
-                <span className="ml-2 text-[12px] text-mute">タスク {p.openTasks}{p.lateTasks ? `（期限切れ ${p.lateTasks}）` : ""}・メモ {p.memos}</span>
+                <span className="ml-2 text-[12px] text-mute">タスク {p.openTasks}{p.lateTasks ? `（期限切れ ${p.lateTasks}）` : ""}<Done n={p.doneTasks} />・メモ {p.memos}</span>
               </div>
 
               <div className="mt-5 grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-8">
@@ -487,12 +490,12 @@ export function ProjectPage({ snap, id }: { snap: Snapshot | null; id: number })
 
 /** 設定: プロジェクト（名前・絵文字・状態・まとめる・消す）とタグ（名前の変更・まとめる・外す） */
 export function PjSettings() {
-  const [data, setData] = useState<{ projects: Project[]; tags: { name: string; memos: number; tasks: number }[] } | null>(null);
+  const [data, setData] = useState<{ projects: Project[]; tags: { name: string; memos: number; tasks: number; doneTasks: number }[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const load = useCallback(() => {
     fetch("/api/projects-settings")
-      .then((r) => json<{ projects: Project[]; tags: { name: string; memos: number; tasks: number }[] }>(r))
+      .then((r) => json<{ projects: Project[]; tags: { name: string; memos: number; tasks: number; doneTasks: number }[] }>(r))
       .then(setData)
       .catch((e) => setError(String(e instanceof Error ? e.message : e)));
   }, []);
@@ -541,7 +544,7 @@ export function PjSettings() {
                       <input defaultValue={p.emoji ?? ""} onBlur={(e) => e.target.value !== (p.emoji ?? "") && void patchProject(p, { emoji: e.target.value || null }, "絵文字を変えた")} placeholder="📁" aria-label={`${p.name} の絵文字`} className="size-10 flex-none rounded-xl bg-chip text-center text-[19px] outline-none transition-shadow focus:ring-2 focus:ring-line-2" />
                       <input defaultValue={p.name} onBlur={(e) => e.target.value.trim() && e.target.value !== p.name && void patchProject(p, { name: e.target.value }, `「${e.target.value}」に変えた`)} aria-label={`${p.name} の名前`} className="min-h-9 min-w-0 flex-1 rounded-lg bg-transparent px-2 text-[14.5px] font-bold tracking-tight text-ink outline-none hover:bg-chip/60 focus:bg-chip" />
                       <span className="hidden flex-none gap-1 sm:flex">
-                        <Stat>タスク {p.openTasks}</Stat>
+                        <Stat>タスク {p.openTasks}<Done n={p.doneTasks} /></Stat>
                         <Stat>メモ {p.memos}</Stat>
                       </span>
                       <a href={`#/pj/${p.id}`} aria-label={`${p.name} を開く`} title="開く" className="flex size-8 flex-none items-center justify-center rounded-lg text-mute no-underline hover:bg-chip hover:text-ink">
@@ -614,7 +617,7 @@ export function PjSettings() {
                     className="min-h-8 min-w-0 flex-1 rounded-lg bg-transparent px-1.5 text-[14px] text-ink outline-none hover:bg-chip/60 focus:bg-chip"
                   />
                   <a href={`#/memos?tag=${encodeURIComponent(t.name)}`} className="flex-none rounded-md bg-chip px-1.5 py-px text-[11px] tabular-nums text-ink-2 no-underline hover:bg-line">メモ {t.memos}</a>
-                  <a href={`#/todos?tag=${encodeURIComponent(t.name)}`} className="flex-none rounded-md bg-chip px-1.5 py-px text-[11px] tabular-nums text-ink-2 no-underline hover:bg-line">タスク {t.tasks}</a>
+                  <a href={`#/todos?tag=${encodeURIComponent(t.name)}`} className="flex-none rounded-md bg-chip px-1.5 py-px text-[11px] tabular-nums text-ink-2 no-underline hover:bg-line">タスク {t.tasks}<Done n={t.doneTasks} /></a>
                   <button onClick={() => confirm(`「#${t.name}」をメモ・タスクから外しますか？`) && void run(`#${t.name} を外した`, () => fetch(`/api/tags?name=${encodeURIComponent(t.name)}`, { method: "DELETE" }))} aria-label={`タグ ${t.name} を外す`} title="外す" className="flex size-8 flex-none items-center justify-center rounded-lg text-mute hover:bg-red-soft hover:text-red-ink">
                     <MiniIcon d={TRASH} />
                   </button>
