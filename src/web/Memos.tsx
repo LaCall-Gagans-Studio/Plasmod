@@ -5,7 +5,7 @@ import { memoRef } from "../shared/memo-ref";
 import type { MemoList, MemoSummary } from "../shared/types";
 import { PjTabs } from "./pjtabs";
 import { Icon, Nav, RAIL, ago } from "./ui";
-import { json, FolderIcon, TagIcon } from "./memo-light";
+import { json, ProjectGlyph, TagIcon, useProjectEmojis } from "./memo-light";
 import { Skeleton } from "./loading";
 import { MemoLink } from "./pjmenus";
 import { localMemoList, memoList, SyncBadge, useMemoSyncStatus } from "./memo-db";
@@ -37,6 +37,7 @@ function bucket(ms: number, now = Date.now()): string {
 /** メモの1行。子があれば右に数を出し、押すと下に開く */
 function MemoNode({ m, kids, onChanged, depth = 0 }: { m: MemoSummary; kids: Map<number, MemoSummary[]>; onChanged: () => void; depth?: number }) {
   const [open, setOpen] = useState(false);
+  const emojis = useProjectEmojis();
   const children = kids.get(m.id) ?? [];
   return (
     <>
@@ -51,7 +52,7 @@ function MemoNode({ m, kids, onChanged, depth = 0 }: { m: MemoSummary; kids: Map
           {(m.project || m.tags.length > 0) && (
             <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 pt-0.5 text-[11.5px] text-mute">
               {m.project && (
-                <span className="flex items-center gap-1"><FolderIcon size={12} />{m.project}</span>
+                <span className="flex items-center gap-1"><ProjectGlyph emoji={emojis[m.project]} size={12} />{m.project}</span>
               )}
               {m.tags.map((t) => <span key={t} className="rounded-md bg-chip px-1.5 py-px text-[11px] text-ink-2"><span className="text-mute">#</span>{t}</span>)}
             </span>
@@ -80,6 +81,7 @@ function groupByDate(memos: MemoSummary[]): [string, MemoSummary[]][] {
 
 /** 左（広い画面）・上（スマホ）のプロジェクトとタグ */
 function Facets({ list, project, tag, toggle, vertical }: { list: MemoList; project: string | null; tag: string | null; toggle: (k: string, v: string | null) => void; vertical: boolean }) {
+  const emojis = useProjectEmojis();
   const item = (on: boolean) =>
     vertical
       ? `flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors ${on ? "bg-panel pl-card font-semibold text-ink" : "text-ink-2 hover:bg-chip/70 hover:text-ink"}`
@@ -102,7 +104,7 @@ function Facets({ list, project, tag, toggle, vertical }: { list: MemoList; proj
         </button>
         {list.projects.map((p) => (
           <button key={p.name} className={item(project === p.name)} onClick={() => toggle("project", p.name)}>
-            <FolderIcon />
+            <ProjectGlyph emoji={emojis[p.name]} />
             <span className="truncate">{p.name}</span>
             {count(p.count)}
           </button>
