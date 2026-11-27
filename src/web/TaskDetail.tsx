@@ -5,7 +5,7 @@ import type { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppTask, AppTaskEvent, AppTaskLinks, AppTaskList, AppTaskStatus, MemoSummary, Snapshot } from "../shared/types";
 import { FolderIcon, json } from "./memo-light";
-import { BodyEditor, TagField } from "./memo-fields";
+import { BodyEditor, ProjectField, TagField } from "./memo-fields";
 import { Icon, ago, profileOf } from "./ui";
 import { STATUS_LABEL, SOURCE_LABEL, STATUS_DOT, OPEN, UNDONE_LABEL, taskDot, dueLabel, DUE_CLS, TaskRow } from "./TaskRow";
 import { AddField } from "./AddField";
@@ -236,6 +236,14 @@ function StatusButton({ status, on, outlined, onPick }: { status: AppTaskStatus;
 
 export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: Snapshot | null; onChanged: () => void; onBack: () => void }) {
   const [task, setTask] = useState<AppTask | null>(null);
+  // プロジェクトの選択肢（入力途中の文字で新しいプロジェクトを作らないため、選択式にしている）
+  const [projectNames, setProjectNames] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/api/projects-settings")
+      .then((r) => json<{ projects: { name: string }[] }>(r))
+      .then((x) => setProjectNames(x.projects.map((p) => p.name)))
+      .catch(() => {});
+  }, []);
   const [events, setEvents] = useState<AppTaskEvent[]>([]);
   const [card, setCard] = useState<string | null>(null);
   const [links, setLinks] = useState<AppTaskLinks | null>(null);
@@ -402,7 +410,7 @@ export function TaskDetail({ id, snap, onChanged, onBack }: { id: number; snap: 
               <div className="mt-4 flex flex-col gap-0.5 border-b border-line pb-4 text-[13.5px]">
                 <div className="flex items-center gap-3">
                   <span className="flex w-28 flex-none items-center gap-2 text-mute"><FolderIcon />プロジェクト</span>
-                  <input value={task.project ?? ""} onChange={(e) => edit({ project: e.target.value || null })} placeholder="未仕訳" aria-label="プロジェクト" className="min-h-8 min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute" />
+                  <ProjectField value={task.project ?? ""} options={projectNames} onChange={(v) => edit({ project: v || null })} />
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute">#　タグ</span>
