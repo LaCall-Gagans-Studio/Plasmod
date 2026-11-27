@@ -80,7 +80,7 @@ export class HabitStore {
       streak++;
       d = shift(d, -1);
     }
-    return { id: r.id, name: r.name, emoji: r.emoji, doneToday: set.has(today), streak, total: days.length };
+    return { id: r.id, name: r.name, emoji: r.emoji, doneToday: set.has(today), streak, total: days.length, week: Array.from({ length: 7 }, (_, i) => set.has(shift(today, i - 6))) };
   }
 
   overview(now = Date.now()): HabitOverview {

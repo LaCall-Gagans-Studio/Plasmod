@@ -161,11 +161,11 @@ export const COL = "mx-auto w-full max-w-[520px] md:max-w-none md:px-2 lg:px-4 2
 /** 広い画面（lg 以上）では、下のメニューを左の縦並びにする。その幅だけ中身を右にずらす */
 export const RAIL = "lg:pl-[88px]";
 
-// 下のメニューは3つ（チャット・プロジェクト・ルーティーン）と「メニュー」。ほかの画面は左から出るメニューから開く
+// 下のメニューは3つ（チャット・プロジェクト・統計）と「メニュー」。ほかの画面は左から出るメニューから開く
 const TABS = [
   { href: "#/", label: "チャット", icon: "chat" },
   { href: "#/pj", to: "#/todos", label: "プロジェクト", icon: "pj" }, // 開くのはタスク（印・選択中の判定は #/pj のまま）
-  { href: "#/habits", label: "ルーティーン", icon: "habit" },
+  { href: "#/habits", label: "統計", icon: "habit" },
 ] as const;
 
 /** 下のメニューの数字。画面をまたいで1つを共有し、20秒おき（と画面に戻ったとき）に取り直す */
@@ -234,7 +234,7 @@ const MENU: { href: string; to?: string; label: string; icon: string; badge?: ke
     sub: [{ href: "#/session", label: "セッション", match: "#/session/" }, { href: "#/watching", label: "カンバン", match: "#/task/", badge: "watching" }, { href: "#/search", label: "検索", match: "#/search" }],
   },
   { href: "#/pj", to: "#/todos", label: "プロジェクト", icon: "pj", match: ["#/memo", "#/todo", "#/calendar"], sub: [{ href: "#/todos", label: "タスク" }, { href: "#/memos", label: "メモ" }, { href: "#/todos?sort=due", label: "タスク（期限順）" }, { href: "#/calendar", label: "タスクカレンダー" }] },
-  { href: "#/habits", label: "ルーティーン", icon: "habit" },
+  { href: "#/habits", label: "統計", icon: "habit" },
   { href: "#/report", label: "レポート", icon: "insights", match: ["#/watch"], sub: [{ href: "#/report", label: "今日のレポート" }, { href: "#/watch", label: "定期報告" }] },
   {
     href: "#/settings",

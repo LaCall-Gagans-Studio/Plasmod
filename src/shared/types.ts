@@ -363,6 +363,38 @@ export interface Habit {
   /** 続いている日数（今日がまだでも、昨日まで続いていれば数える） */
   streak: number;
   total: number;
+  /** 直近7日（古い順、最後が今日）にチェックしたか */
+  week: boolean[];
+}
+
+export type StatsRange = "week" | "month" | "30d";
+
+/** 統計の1日。onTime・late・noDue はその日に完了したタスク（期限内・遅れ・期限なし） */
+export interface StatsDay {
+  /** YYYY-MM-DD */
+  day: string;
+  created: number;
+  onTime: number;
+  late: number;
+  noDue: number;
+  /** ルーティーンのチェックの数 */
+  habits: number;
+  memos: number;
+}
+
+export interface StatsReport {
+  range: StatsRange;
+  from: string;
+  to: string;
+  today: string;
+  /** 期間の始めに開いていたタスク（グラフの「全体」の出発点） */
+  openAtStart: number;
+  /** いま期限切れの開いているタスク */
+  overdue: number;
+  /** いまのルーティーンの数 */
+  habitCount: number;
+  days: StatsDay[];
+  tags: { name: string; count: number }[];
 }
 
 export interface HabitOverview {
