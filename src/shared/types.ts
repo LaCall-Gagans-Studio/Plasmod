@@ -574,6 +574,8 @@ export interface Project {
   status: ProjectStatus;
   emoji: string | null;
   openTasks: number;
+  /** 完了したタスク */
+  doneTasks: number;
   /** 期限切れの開いているタスク */
   lateTasks: number;
   nextDue: string | null;
@@ -592,7 +594,7 @@ export interface ProjectDetail {
 export interface ProjectOverview {
   /** urgent は期限切れと3日以内のタスク（サブタスクも）。畳んでいても常に見せる */
   projects: (Project & { tasks: AppTask[]; urgent: AppTask[]; recentMemos: MemoSummary[] })[];
-  none: { tasks: AppTask[]; urgent: AppTask[]; recentMemos: MemoSummary[]; openTasks: number; memos: number };
+  none: { tasks: AppTask[]; urgent: AppTask[]; recentMemos: MemoSummary[]; openTasks: number; doneTasks: number; memos: number };
 }
 
 /** 保存のたびの版 */

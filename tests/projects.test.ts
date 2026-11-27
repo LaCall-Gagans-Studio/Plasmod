@@ -75,14 +75,14 @@ describe("プロジェクト（PJ）", () => {
     tasks.create({ title: "ばらばら" }, "app");
     memos.create({ title: "Aのメモ", project: "A" }, "app");
     const a = projects.byName("A")!;
-    expect(a).toMatchObject({ openTasks: 2, lateTasks: 1, nextDue: "2000-01-01", memos: 1 });
+    expect(a).toMatchObject({ openTasks: 2, doneTasks: 1, lateTasks: 1, nextDue: "2000-01-01", memos: 1 });
     const det = projects.detail(a.id);
     expect(det.tasks.map((t) => t.title)).toEqual(["遅れ", "近い"]);
     expect(det.doneTasks.map((t) => t.title)).toEqual(["済んだ"]);
     expect(det.memos.map((m) => m.title)).toEqual(["Aのメモ"]);
     const ov = projects.overview();
     expect(ov.projects.map((p) => p.name)).toEqual(["A"]);
-    expect(ov.none).toMatchObject({ openTasks: 1, memos: 0 });
+    expect(ov.none).toMatchObject({ openTasks: 1, doneTasks: 0, memos: 0 });
   });
 
   test("API: 一覧・中身・作る・書き換える", async () => {

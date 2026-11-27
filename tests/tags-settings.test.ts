@@ -44,7 +44,9 @@ describe("プロジェクトとタグの設定", () => {
     const { memos, tasks, projects } = setup();
     const m = memos.create({ title: "m", tags: ["旅行"] }, "app");
     const t = tasks.create({ title: "t", tags: ["旅行", "旅"] }, "app");
-    expect(projects.tags()).toEqual([{ name: "旅行", memos: 1, tasks: 1 }, { name: "旅", memos: 0, tasks: 1 }]);
+    expect(projects.tags()).toEqual([{ name: "旅行", memos: 1, tasks: 1, doneTasks: 0 }, { name: "旅", memos: 0, tasks: 1, doneTasks: 0 }]);
+    tasks.update(t.id, { status: "done" }, "app");
+    expect(projects.tags()).toEqual([{ name: "旅行", memos: 1, tasks: 0, doneTasks: 1 }, { name: "旅", memos: 0, tasks: 0, doneTasks: 1 }]);
     projects.renameTag("旅行", "旅");
     expect(memos.get(m.id)!.tags).toEqual(["旅"]);
     expect(tasks.get(t.id)!.tags).toEqual(["旅"]);

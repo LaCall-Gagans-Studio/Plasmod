@@ -178,7 +178,7 @@ export function MemoLink({ m, onChanged, className = "", children }: { m: MemoOp
 }
 
 // ---- プロジェクト ----
-type ProjectOpen = { p: Pick<Project, "id" | "name" | "status" | "openTasks" | "memos">; onChanged?: () => void };
+type ProjectOpen = { p: Pick<Project, "id" | "name" | "status" | "openTasks" | "memos"> & { doneTasks?: number }; onChanged?: () => void };
 const projectMenu = menuStore<ProjectOpen>();
 export const openProjectMenu = projectMenu.open;
 
@@ -221,7 +221,7 @@ export function ProjectMenu() {
     <Sheet label={`「${p.name}」のメニュー`} onClose={projectMenu.close}>
       <SheetCard>
         <div className="px-4 pb-1 pt-3.5">
-          <div className="text-[11px] text-mute">プロジェクト ・ タスク {p.openTasks} ・ メモ {p.memos}</div>
+          <div className="text-[11px] text-mute">プロジェクト ・ タスク {p.openTasks}{p.doneTasks ? <span className="opacity-60">（完了 {p.doneTasks}）</span> : null} ・ メモ {p.memos}</div>
           <div className="line-clamp-2 text-[15.5px] font-semibold leading-snug">{p.name}</div>
         </div>
         {confirm ? (
