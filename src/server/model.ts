@@ -64,16 +64,9 @@ function taskBody(t: KanbanTask): string {
  * 仕分け待ち（triage）の選択肢: 任せられるチームのエージェントごとに「〇〇に任せる」（今の担当を先頭に）・不要（アーカイブ）・あとで。
  * Hermes の「完了」は triage に効かないので、進める＝担当を決めて todo に戻す、不要＝アーカイブ
  */
-export function triageOptions(t: KanbanTask, profiles: AgentProfile[]): CardOption[] {
-  const work = profiles.filter((p) => teamOfProfile(p, config.teams).delegable);
-  const cur = t.assignee ? findProfile(profiles, t.assignee)?.id : undefined;
-  const sorted = [...work].sort((a, b) => Number(b.id === cur) - Number(a.id === cur));
-  return [
-    ...sorted.map((p, i): CardOption => ({ id: `to-${p.id}`, label: `${p.name}に任せる`, tone: i === 0 ? "primary" : "default", hint: `→ AI-Driven。${p.name}を担当にして、カンバンを動かす` })),
-    MINE_KANBAN,
-    LATER,
-    { id: "archive", label: "不要", tone: "quiet", hint: "→ Done（不要）。カンバンも片付け" },
-  ];
+export function triageOptions(_t: KanbanTask, _profiles: AgentProfile[]): CardOption[] {
+  // 「〇〇に任せる」は出さない（任せるときは、カードの「〇〇と話す」から既定の AI に頼み、そこから振り分けてもらう）
+  return [{ ...MINE_KANBAN, tone: "primary" }, LATER, { id: "archive", label: "不要", tone: "quiet", hint: "→ Done（不要）。カンバンも片付け" }];
 }
 
 export function taskCard(t: KanbanTask, profiles: AgentProfile[]): Card | null {
@@ -173,20 +166,16 @@ export interface InboxMeta {
  * メールの返信は「下書きを頼む」（送るのは自分）。Beeper は見るだけなので返信の選択肢を出さない。
  */
 export function inboxOptions(m: InboxMeta, delegateName: string): CardOption[] {
-  // ボタンには誰に頼むかを書き、押すと何が起きるかを hint に添える
-  const handle: CardOption = { id: "handle", label: `${delegateName}に任せる`, tone: "default", hint: `→ AI-Driven。${delegateName}がカンバンで作業する` };
-  const proposals: CardOption[] = m.propose.map((p) =>
-    p === "kanban" ? { ...handle, id: "kanban" } : { id: "task", label: "自分でやる", tone: "default", hint: "→ Todo。自分のタスクに残す" },
-  );
+  // 「〇〇に任せる」は出さない。任せるときは「〇〇と話す」で既定の AI に頼み、そこから振り分けてもらう（delegateName は互換のため残す）
+  void delegateName;
+  const proposals: CardOption[] = m.propose.filter((p) => p === "task").map(() => ({ id: "task", label: "自分でやる", tone: "default", hint: "→ Todo。自分のタスクに残す" }));
   const base: CardOption[] =
     m.kind === "reply" && m.source !== "beeper"
       ? [
           { id: "draft", label: "下書きを頼む", tone: "default", hint: "→ AI-Driven。返信の下書きまで作ってもらう（送るのは自分）" },
           { id: "dismiss", label: "返信不要", tone: "default", hint: "→ Done（不要）。返信しない" },
         ]
-      : (m.kind === "todo" || m.kind === "confirm") && !proposals.some((p) => p.id === "kanban")
-        ? [handle]
-        : [];
+      : [];
   // 確認は「見たので閉じる」が主（完了）
   const opts = [...(m.kind === "confirm" ? [DONE] : []), ...proposals, ...base];
   if (opts.length) opts[0] = { ...opts[0], tone: "primary" };

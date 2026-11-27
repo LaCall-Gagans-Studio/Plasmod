@@ -19,6 +19,13 @@ export function hideCard(key: string) {
   for (const fn of hiddenListeners) fn();
 }
 
+/** 畳んだのを取り消す（送れなかったとき、カードを列に戻す） */
+export function unhideCard(key: string) {
+  if (!hidden.delete(key)) return;
+  hiddenVersion++;
+  for (const fn of hiddenListeners) fn();
+}
+
 /** 畳んだカードを除く。サーバーの一覧から消えたもの・古いものは忘れる */
 export function withoutHidden(s: Snapshot, now = Date.now()): Snapshot {
   if (!hidden.size) return s;

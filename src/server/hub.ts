@@ -266,7 +266,7 @@ export class Hub {
     if (opt.needsText && !note) throw new ActError("この選択肢には返事の文章が要る");
     if (files.length && !card.taskId && !card.appTaskId) throw new ActError("このカードには添付できない");
     // タスクのカードの添付は、任せる先のカンバンのカードに付ける（ほかの選択肢では渡す先が無い）
-    if (files.length && card.appTaskId && !["handle", "kanban", "draft"].includes(optionId)) throw new ActError("添付は「任せる」「下書きを頼む」のときだけ渡せる");
+    if (files.length && card.appTaskId && !["handle", "kanban", "draft"].includes(optionId)) throw new ActError("添付は「下書きを頼む」のときだけ渡せる");
 
     const record = (ok: boolean, error?: string) =>
       this.store.recordDecision({ key, choice: optionId, text: note, cardCreatedAt: card.createdAt, via, ok, error });

@@ -47,14 +47,13 @@ describe("チーム", () => {
     expect(teamOfProfile({ team: "watch" }, DEFAULT_TEAMS).id).toBe("watch");
   });
 
-  test("任せ先は delegable のチームだけ", () => {
+  test("仕分けのカードに「〇〇に任せる」は出さない", () => {
     const ps: AgentProfile[] = [
       { id: "a", name: "A", initial: "A", color: "#000000" },
       { id: "b", name: "B", initial: "B", color: "#000000", team: "watch" },
     ];
     const ids = triageOptions({ id: "t", title: "x", status: "triage" } as KanbanTask, ps).map((o) => o.id);
-    expect(ids).toContain("to-a");
-    expect(ids).not.toContain("to-b");
+    expect(ids.some((x) => x.startsWith("to-"))).toBe(false);
   });
 
   test("3つ目のチームを API で作って割り当てられる。消せる", async () => {

@@ -120,19 +120,19 @@ describe("カードの判断はタスクに残る（Hub）", () => {
 });
 
 describe("仕分け待ち（triage）も BackLog のタスク", () => {
-  test("カードになり、実働のエージェントごとの「〇〇に任せる」（今の担当が先頭）・不要・あとで", () => {
+  test("カードになり、自分でやる・あとで・不要（「〇〇に任せる」は出さない）", () => {
     const { tasks, cards } = setup();
     const profiles = [...PROFILES, { id: "dev", name: "開発くん", initial: "つ", color: "#000" }, { id: "audit", name: "監査", initial: "監", color: "#000", team: "watch" as const }];
     const cs = deriveCards(board(kt({ id: "k5", status: "triage", assignee: "dev" })), [], profiles, NONE, NOW, [], () => tasks.inbox(), "default", (i) => tasks.mirror(i, new Set(["kanban"]), NOW));
     expect(cs).toHaveLength(1);
     expect(cs[0]).toMatchObject({ key: "task:k5", kind: "triage", statusLabel: "仕分け" });
-    expect(cs[0].options.map((o) => o.id)).toEqual(["to-dev", "to-default", "mine", "later", "archive"]);
+    expect(cs[0].options.map((o) => o.id)).toEqual(["mine", "later", "archive"]);
     expect(tasks.inbox()[0]).toMatchObject({ source: "kanban", kanbanId: "k5" });
     expect(tasks.events(tasks.inbox()[0].id)[0].text).toContain("仕分け待ちになった");
     void cards;
   });
 
-  test("〇〇に任せる → カンバンの担当を決めて todo、タスクは任せ中。不要 → アーカイブ、タスクは完了（不要）", async () => {
+  test("「〇〇に任せる」は選べない。不要 → アーカイブ、タスクは完了（不要）", async () => {
     const { mkdtempSync, readFileSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -150,11 +150,11 @@ describe("仕分け待ち（triage）も BackLog のタスク", () => {
     await hub.refresh();
     const a = hub.cards().find((c) => c.key === "task:k6")!;
     const b = hub.cards().find((c) => c.key === "task:k7")!;
-    await hub.act(a.key, "to-dev", "急ぎで", "app");
+    await expect(hub.act(a.key, "to-dev", "急ぎで", "app")).rejects.toThrow("無い");
     await hub.act(b.key, "archive", "", "app");
-    expect(source.log).toContain("specify k6 dev");
+    expect(source.log.some((l) => l.startsWith("specify"))).toBe(false);
     expect(source.log).toContain("archive k7");
-    expect(tasks.get(a.recordTaskId!)).toMatchObject({ status: "doing", kanbanId: "k6" });
+    expect(tasks.get(a.recordTaskId!)).toMatchObject({ status: "inbox" });
     expect(tasks.get(b.recordTaskId!)).toMatchObject({ status: "done", doneReason: "unneeded" });
     await expect(hub.act(hub.cards()[0]?.key ?? "x", "to-../x", "", "app")).rejects.toThrow();
   });
