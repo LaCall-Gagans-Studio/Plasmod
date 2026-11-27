@@ -5,7 +5,7 @@ import { memoRef } from "../shared/memo-ref";
 import type { MemoList, MemoSummary } from "../shared/types";
 import { PjTabs } from "./pjtabs";
 import { Icon, Nav, RAIL, ago } from "./ui";
-import { json, FolderIcon } from "./memo-light";
+import { json, FolderIcon, TagIcon } from "./memo-light";
 import { Skeleton } from "./loading";
 import { MemoLink } from "./pjmenus";
 import { localMemoList, memoList, SyncBadge, useMemoSyncStatus } from "./memo-db";
@@ -85,10 +85,18 @@ function Facets({ list, project, tag, toggle, vertical }: { list: MemoList; proj
       ? `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] ${on ? "bg-chip font-semibold text-ink" : "text-ink-2 hover:bg-chip/60"}`
       : `flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] ${on ? "bg-ink font-semibold text-paper" : "bg-chip text-ink-2"}`;
   const count = (n: number) => <span className={`ml-auto pl-2 text-[11px] tabular-nums ${vertical ? "text-mute" : "opacity-60"}`}>{n}</span>;
-  // ワードクラウド: 件数が多いタグほど大きく（12〜19px）
+  // ワードクラウド: 件数（対数）に応じて、文字の大きさ・色の濃さ・余白が変わる丸いチップ。w は 0〜1
   const maxCount = Math.max(1, ...list.tags.map((t) => t.count));
-  const size = (n: number) => Math.round(12 + 7 * (Math.log(n + 1) / Math.log(maxCount + 1)));
-  const cloud = (on: boolean) => `max-w-full rounded-md px-1.5 py-0.5 text-left leading-tight ${on ? "bg-chip font-semibold text-ink" : "text-ink-2 hover:bg-chip/60"}`;
+  const weight = (n: number) => (maxCount <= 1 ? 0.5 : Math.log(n) / Math.log(maxCount));
+  const cloudStyle = (n: number, on: boolean): React.CSSProperties => {
+    const w = Math.max(0, Math.min(1, weight(n)));
+    return {
+      fontSize: Math.round(12 + 4 * w),
+      ...(on ? {} : { background: `color-mix(in srgb, var(--color-blue) ${Math.round(7 + 20 * w)}%, var(--color-chip))` }),
+    };
+  };
+  const cloud = (on: boolean) =>
+    `group inline-flex max-w-full items-center gap-1 rounded-full py-1 pl-2 pr-2.5 text-left leading-tight transition-colors ${on ? "bg-ink font-semibold text-paper" : "text-ink-2 hover:text-ink hover:brightness-95"}`;
   return (
     <div className={vertical ? "flex flex-col gap-5" : "flex flex-col gap-2"}>
       <div className={vertical ? "flex flex-col gap-0.5" : "flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]"} role="group" aria-label="プロジェクト">
@@ -111,18 +119,30 @@ function Facets({ list, project, tag, toggle, vertical }: { list: MemoList; proj
         )}
       </div>
       {(list.tags.length > 0 || tag) && (
-        <div className={vertical ? "flex flex-wrap items-baseline gap-x-1 gap-y-0.5" : "flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]"} role="group" aria-label="タグ">
-          {vertical && <div className="w-full px-2 pb-1 text-[11px] font-semibold tracking-wide text-mute">タグ</div>}
+        <div className={vertical ? "flex flex-wrap items-center gap-1.5 px-1" : "flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]"} role="group" aria-label="タグ">
+          {vertical && (
+            <div className="flex w-full items-center gap-1.5 px-1 pb-0.5 text-[11px] font-semibold tracking-wide text-mute">
+              <TagIcon size={12} />
+              タグ
+              <span className="ml-auto font-normal tabular-nums">{list.tags.length}</span>
+            </div>
+          )}
           {tag && !list.tags.some((t) => t.name === tag) && (
-            <button className={vertical ? cloud(true) : item(true)} onClick={() => toggle("tag", tag)}>
-              #{tag}
+            <button className={vertical ? cloud(true) : item(true)} style={vertical ? { fontSize: 12 } : undefined} onClick={() => toggle("tag", tag)}>
+              {vertical && <TagIcon size={12} />}
+              <span className="min-w-0 truncate">{tag}</span>
             </button>
           )}
-          {list.tags.map((t) => (
-            <button key={t.name} title={`${t.name}（${t.count}）`} className={vertical ? cloud(tag === t.name) : `flex flex-none items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] ${tag === t.name ? "border-ink text-ink" : "border-line text-mute"}`} style={vertical ? { fontSize: size(t.count) } : undefined} onClick={() => toggle("tag", t.name)}>
-              <span className="max-w-full break-all">{vertical ? t.name : `#${t.name}`}</span>
-            </button>
-          ))}
+          {list.tags.map((t) => {
+            const on = tag === t.name;
+            return (
+              <button key={t.name} title={`${t.name}（${t.count}）`} aria-pressed={on} className={vertical ? cloud(on) : `flex flex-none items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] ${on ? "border-ink text-ink" : "border-line text-mute"}`} style={vertical ? cloudStyle(t.count, on) : undefined} onClick={() => toggle("tag", t.name)}>
+                {vertical && <span className={`flex-none ${on ? "" : "text-blue"}`}><TagIcon size={12} /></span>}
+                <span className="min-w-0 truncate">{vertical ? t.name : `#${t.name}`}</span>
+                {vertical && <span className={`flex-none text-[10.5px] font-normal tabular-nums ${on ? "opacity-70" : "text-mute"}`}>{t.count}</span>}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
