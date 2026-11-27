@@ -27,6 +27,7 @@
   connections                Nous と MCP の接続の状況。有無と時刻だけで、トークンの値は出さない。更新もかけない
   display-names              プロファイルごとの表示名（profile.yaml の display_name）。JSON
   set-display-name PROFILE JSON  表示名だけを書く。JSON は {"name": 新しい名前, "expect": 今あるはずの名前}。今の値が expect と違えば書かずに conflict を返す（expect を省くと確認なしで書く）。内部の id・SOUL・モデル・権限・説明は触らない
+  set-description PROFILE JSON  プロファイルの説明（役割）だけを書く。JSON は {"description": 新しい説明, "expect": 今あるはずの説明}。今の値が expect と違えば書かずに conflict を返す（expect を省くと確認なしで書く）。この Hermes に説明を書く関数が無ければ何も書かずに失敗を返す。説明はカンバンの担当選択に使われる
   cron                       プロファイルごとの定期実行（cron/jobs.json）。スケジュール・状態・前回の結果だけで、送り先の ID などは出さない。JSON
 
 読み取りは kanban.db を読み取り専用で開く。書き込みは hermes の CLI を通す（Hermes 側の整合性チェックを使うため）。
@@ -899,6 +900,51 @@ else:
 """
 DISPLAY_NAME_MAX = 64
 
+# プロファイルの説明（役割）。Hermes の説明を書く関数を使う。推測で profile.yaml を直接書かない:
+# 関数が無い（版が違う）ときは何も書かずに unsupported を返す
+SET_DESCRIPTION_CODE = r"""
+import json
+import os
+from pathlib import Path
+import hermes_cli.profiles as P
+name = os.environ["PLASMOD_PROFILE"]
+want = os.environ["PLASMOD_DESCRIPTION"]
+expect = os.environ.get("PLASMOD_EXPECT")
+setter = getattr(P, "set_profile_description", None)
+if setter is None:
+    print(json.dumps({"ok": False, "unsupported": True}, ensure_ascii=False))
+else:
+    cur = P.read_profile_meta(Path(os.environ["PLASMOD_PROFILE_HOME"])).get("description") or ""
+    if expect is not None and cur != expect and cur != want:
+        print(json.dumps({"ok": False, "conflict": True, "current": cur}, ensure_ascii=False))
+    else:
+        if cur != want:
+            setter(name, want)
+        print(json.dumps({"ok": True, "current": want}, ensure_ascii=False))
+"""
+DESCRIPTION_MAX = 200
+
+
+def set_description(profile, raw):
+    homes = profiles()
+    if not PROFILE_RE.match(profile) or profile not in homes:
+        die("そのプロファイルは無い")
+    try:
+        arg = json.loads(raw)
+    except ValueError:
+        die("引数の JSON が読めない")
+    if not isinstance(arg, dict) or not isinstance(arg.get("description"), str):
+        die("description が要る")
+    desc = arg["description"].strip()
+    if not desc or len(desc) > DESCRIPTION_MAX or any(ord(c) < 32 or ord(c) == 127 for c in desc):
+        die(f"説明は 1〜{DESCRIPTION_MAX} 文字で、改行や制御文字は使えない")
+    env = {"PLASMOD_PROFILE": profile, "PLASMOD_PROFILE_HOME": homes[profile], "PLASMOD_DESCRIPTION": desc}
+    if "expect" in arg:
+        if not isinstance(arg["expect"], str):
+            die("expect は文字列")
+        env["PLASMOD_EXPECT"] = arg["expect"]
+    print(json.dumps(hermes_exec(SET_DESCRIPTION_CODE, env, "説明の書き込み"), ensure_ascii=False))
+
 
 def display_names():
     homes = profiles()
@@ -992,6 +1038,10 @@ def main(argv):
         with contextlib.suppress(OSError):
             os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
         set_display_name(rest[0], rest[1])
+    elif op == "set-description" and len(rest) == 2:
+        with contextlib.suppress(OSError):
+            os.makedirs(WORK_TMP, mode=0o700, exist_ok=True)
+        set_description(rest[0], rest[1])
     elif op == "cron" and not rest:
         cron()
     elif op == "archive" and len(rest) == 1:

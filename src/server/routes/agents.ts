@@ -21,9 +21,9 @@ const AVATAR_TYPE = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" } 
 const AVATAR_FILE = /^[a-z0-9_-]{1,32}-[0-9]{1,16}\.(png|jpg|webp)$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
-export function agentsRoutes({ app, cfg, hub, store, teams, names }: RouteContext, registry?: ProfileRegistry) {
+export function agentsRoutes({ app, cfg, hub, store, teams, names, roles }: RouteContext, registry?: ProfileRegistry) {
   /** 設定画面に返す一覧。Hermes のエージェントには、名前を Hermes に写した結果をつける */
-  const list = () => (registry?.all() ?? []).map((p) => (names && runtimeOf(p) === "hermes" ? { ...p, nameSync: names.get(p.id) } : p));
+  const list = () => (registry?.all() ?? []).map((p) => (names && runtimeOf(p) === "hermes" ? { ...p, nameSync: names.get(p.id), roleSync: roles?.get(p.id) } : p));
   // チーム
   const teamFail = (c: Context, e: unknown) => c.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, e instanceof TeamError ? e.status : 500);
   const body = (c: Context) => c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
@@ -161,6 +161,10 @@ export function agentsRoutes({ app, cfg, hub, store, teams, names }: RouteContex
       // Hermes が遅くても保存の返事は待たせない（結果はあとで一覧の nameSync に出る）
       void names.sync(id, p.name).catch(() => {}).finally(() => hub.changed());
     }
+    // 役割も Hermes のプロファイルの説明に写す（カンバンの担当選択に使われる）。空にしたときは Hermes 側を空にしない
+    if (patch.role && roles && p && runtimeOf(p) === "hermes") {
+      void roles.sync(id, patch.role).catch(() => {}).finally(() => hub.changed());
+    }
     return c.json({ agents: list() });
   });
 
@@ -171,6 +175,18 @@ export function agentsRoutes({ app, cfg, hub, store, teams, names }: RouteContex
     if (!registry || !names || !p || runtimeOf(p) !== "hermes") return c.json({ ok: false, error: "このエージェントは Hermes に写せない" }, 404);
     const b = await c.req.json<{ force?: unknown }>().catch(() => ({}) as { force?: unknown });
     const r = await names.sync(id, p.name, b.force === true);
+    hub.changed();
+    return c.json({ ok: r.state === "synced", sync: r, agents: list() });
+  });
+
+  // 役割（Hermes のプロファイルの説明）への反映をやり直す
+  app.post("/api/agents-settings/:id/sync-role", async (c) => {
+    const id = c.req.param("id");
+    const p = registry?.all().find((x) => x.id === id);
+    if (!registry || !roles || !p || runtimeOf(p) !== "hermes") return c.json({ ok: false, error: "このエージェントは Hermes に写せない" }, 404);
+    if (!p.role) return c.json({ ok: false, error: "役割が空なので写さない（Hermes 側の説明は消さない）" }, 400);
+    const b = await c.req.json<{ force?: unknown }>().catch(() => ({}) as { force?: unknown });
+    const r = await roles.sync(id, p.role, b.force === true);
     hub.changed();
     return c.json({ ok: r.state === "synced", sync: r, agents: list() });
   });

@@ -15,7 +15,7 @@ export interface ProfileOverride {
   role?: string;
 }
 
-export type ManagedProfile = AgentProfile & { hidden?: boolean; /** 名前を Hermes に写した結果（Hermes のエージェントだけ） */ nameSync?: NameSync };
+export type ManagedProfile = AgentProfile & { hidden?: boolean; /** 名前を Hermes に写した結果（Hermes のエージェントだけ） */ nameSync?: NameSync; /** 役割を Hermes のプロファイルの説明に写した結果 */ roleSync?: NameSync };
 
 const COLORS = ["#8FB8FF", "#E8A27C", "#7FD8C6", "#F2C98A", "#C7A6F2", "#F29CB7", "#9BD57F"];
 
