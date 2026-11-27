@@ -10,7 +10,7 @@ import { attribute } from "./memo-authorship";
 import { MicButton } from "./speech";
 import { Icon, ago } from "./ui";
 import { json, FolderIcon, TagIcon } from "./memo-light";
-import { TagField, BodyEditor } from "./memo-fields";
+import { TagField, ProjectField, BodyEditor } from "./memo-fields";
 import { hashQuery, listHref } from "./Memos";
 import { Skeleton } from "./loading";
 import { memoList, memoSync } from "./memo-db";
@@ -545,18 +545,7 @@ export function MemoPage({ id: initialId }: { id: number | "new" }) {
               <div className="mt-3 flex flex-col gap-0.5 border-b border-line pb-3 text-[13px]">
                 <div className="flex items-center gap-3 rounded-md">
                   <span className="flex w-28 flex-none items-center gap-2 text-mute"><FolderIcon />プロジェクト</span>
-                  <input
-                    value={draft.project}
-                    list="memo-projects"
-                    onChange={(e) => change({ project: e.target.value })}
-                    readOnly={archived}
-                    placeholder="未仕訳"
-                    aria-label="プロジェクト"
-                    className="min-h-8 min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
-                  />
-                  <datalist id="memo-projects">
-                    {known?.projects.map((p) => <option key={p.name} value={p.name} />)}
-                  </datalist>
+                  <ProjectField value={draft.project} options={known?.projects.map((p) => p.name) ?? []} onChange={(project) => change({ project })} readOnly={archived} />
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="flex min-h-8 w-28 flex-none items-center gap-2 text-mute"><Icon name="memo" size={14} />ヘッダー画像</span>
