@@ -27,6 +27,8 @@ import type { HermesNameSync } from "../hermes-names";
 export interface AppServices {
   /** Plasmod の名前を Hermes の表示名に写す（#36）。Hermes につながっていなければ無い */
   names?: HermesNameSync;
+  /** 役割を Hermes のプロファイルの説明に写す（#36） */
+  roles?: HermesNameSync;
   sessions?: SessionService;
   dev?: DevService;
   merge?: MergeDesk;

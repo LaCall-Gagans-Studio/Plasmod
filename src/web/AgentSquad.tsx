@@ -5,7 +5,7 @@ import { type AgentInfo, type AgentProfile, DEFAULT_TEAM, type NameSync, type Te
 import { fetchRetry } from "./api";
 import { Avatar } from "./ui";
 
-export type ManagedAgent = AgentProfile & { hidden?: boolean; nameSync?: NameSync };
+export type ManagedAgent = AgentProfile & { hidden?: boolean; nameSync?: NameSync; roleSync?: NameSync };
 
 /** 色の明るさから、上に載せる文字の色を決める（WCAG の相対輝度） */
 export function inkOn(color: string): "#17171a" | "#ffffff" {
@@ -60,7 +60,7 @@ export function useAgentSettings() {
         await take(r, at);
         done("saved");
         // 名前は Hermes への反映をサーバーが裏でやる。少しあとに結果（nameSync）を取り直す
-        if (body.name !== undefined) setTimeout(() => void fetch("/api/agents-settings").then((x) => take(x, edits.current)).catch(() => {}), 2500);
+        if (body.name !== undefined || body.role !== undefined) setTimeout(() => void fetch("/api/agents-settings").then((x) => take(x, edits.current)).catch(() => {}), 2500);
       })
       .catch((e) => {
         fail(e);
@@ -100,7 +100,11 @@ export function useAgentSettings() {
     const at = ++edits.current;
     return fetch(`/api/agents-settings/${encodeURIComponent(id)}/sync-name`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) }).then((r) => take(r, at)).catch(fail);
   };
-  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName, save };
+  const syncRole = (id: string, force = false) => {
+    const at = ++edits.current;
+    return fetch(`/api/agents-settings/${encodeURIComponent(id)}/sync-role`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) }).then((r) => take(r, at)).catch(fail);
+  };
+  return { agents, error, patch, upload, teams, loadTeams, scan, rediscover, syncName, syncRole, save };
 }
 
 /** 選手カードの表の面 */
@@ -143,30 +147,36 @@ export function PlayerCard({ a, info, no, open, onToggle, teamName }: { teamName
   );
 }
 
-/** 名前を Hermes の表示名に写した結果（#36）。Hermes のエージェントだけ。役割・人格・モデルは写さない */
-function NameSyncNote({ a, syncName }: { a: ManagedAgent; syncName: (id: string, force?: boolean) => Promise<unknown> }) {
+/** 名前・役割を Hermes に写した結果（#36）。Hermes のエージェントだけ。人格・モデル・権限は写さない */
+function SyncNote({ a, kind, sync, run: rerun }: { a: ManagedAgent; kind: "name" | "role"; sync?: NameSync; run: (id: string, force?: boolean) => Promise<unknown> }) {
   const [busy, setBusy] = useState(false);
   const run = (force: boolean) => {
     setBusy(true);
-    void syncName(a.id, force).finally(() => setBusy(false));
+    void rerun(a.id, force).finally(() => setBusy(false));
   };
-  const s = a.nameSync;
+  const s = sync;
   const btn = "ml-1.5 rounded-md border border-line-2 px-2 py-0.5 text-[11px] font-semibold text-ink-2 disabled:opacity-50";
   const base = "text-[11px] leading-relaxed";
+  const what = kind === "name" ? "Hermes の表示名" : "Hermes のプロファイルの説明";
+  const mine = kind === "name" ? a.name : (a.role ?? "");
+  const keep = kind === "name" ? "内部の ID・人格（SOUL）・モデル・権限・役割" : "内部の ID・名前・人格（SOUL）・モデル・権限";
+  // 役割は Hermes のカンバンが担当を選ぶ手がかりに使うので、振り分けが変わりうることを必ず添える
+  const warn = kind === "role" ? "。カンバンの担当選択の手がかりになるので、仕事の振り分けが変わることがある" : "";
+  if (kind === "role" && !mine) return <div className={`${base} text-mute`}>役割を入れると、{what}にも反映される{warn}。空にしても Hermes 側は消さない</div>;
   if (!s)
-    return <div className={`${base} text-mute`}>名前を変えると、Hermes の表示名にも反映される。内部の ID・人格（SOUL）・モデル・権限・役割は変わらない</div>;
+    return <div className={`${base} text-mute`}>{kind === "name" ? "名前" : "役割"}を変えると、{what}にも反映される{warn}。{keep}は変わらない</div>;
   if (s.state === "synced")
-    return <div className={`${base} text-mute`}>Hermes の表示名にも反映済み（「{s.synced}」）。内部の ID・人格・モデル・権限・役割は変わっていない</div>;
+    return <div className={`${base} text-mute`}>{what}にも反映済み（「{s.synced}」）{warn}。{keep}は変わっていない</div>;
   if (s.state === "conflict")
     return (
       <div className={`${base} text-orange-ink`} role="alert">
-        Hermes 側の表示名は「{s.current || "（空）"}」で、Plasmod の名前と違う。Hermes 側を直した可能性があるので、上書きしていない
-        <button disabled={busy} onClick={() => confirm(`Hermes の表示名「${s.current}」を「${a.name}」で上書きしますか？`) && run(true)} className={btn}>{busy ? "…" : "Plasmod の名前で上書き"}</button>
+        {what}は「{s.current || "（空）"}」で、Plasmod の{kind === "name" ? "名前" : "役割"}と違う。Hermes 側を直した可能性があるので、上書きしていない{warn}
+        <button disabled={busy} onClick={() => confirm(`${what}「${s.current}」を「${mine}」で上書きしますか？${warn ? "\nカンバンの担当選択に影響することがあります。" : ""}`) && run(true)} className={btn}>{busy ? "…" : `Plasmod の${kind === "name" ? "名前" : "役割"}で上書き`}</button>
       </div>
     );
   return (
     <div className={`${base} text-orange-ink`} role="alert">
-      Hermes に反映できなかった（Plasmod の名前は保存済み）: {s.error}
+      Hermes に反映できなかった（Plasmod の{kind === "name" ? "名前" : "役割"}は保存済み）: {s.error}
       <button disabled={busy} onClick={() => run(false)} className={btn}>{busy ? "…" : "再試行"}</button>
     </div>
   );
@@ -189,7 +199,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 /** プロフィールの編集: 顔・名前・役割・チーム・色・隠す */
-export function ProfileEditor({ a, patch, upload, teams, syncName, save }: { save?: { state: "idle" | "saving" | "saved" | "error"; text?: string }; teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void; syncName?: (id: string, force?: boolean) => Promise<unknown> }) {
+export function ProfileEditor({ a, patch, upload, teams, syncName, syncRole, save }: { save?: { state: "idle" | "saving" | "saved" | "error"; text?: string }; teams: Team[]; a: ManagedAgent; patch: (id: string, body: Record<string, unknown>) => Promise<unknown>; upload: (id: string, f: File | undefined) => void; syncName?: (id: string, force?: boolean) => Promise<unknown>; syncRole?: (id: string, force?: boolean) => Promise<unknown> }) {
   const input = "min-h-11 w-full min-w-0 rounded-xl border border-line-2 bg-panel-2 px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-mute/60 focus:border-ink focus:bg-panel";
   const color = /^#[0-9a-f]{6}$/i.test(a.color) ? a.color.toLowerCase() : "#2f6fdb";
   const custom = !SWATCHES.some((c) => c.toLowerCase() === color);
@@ -215,11 +225,12 @@ export function ProfileEditor({ a, patch, upload, teams, syncName, save }: { sav
 
       <Field label="名前">
         <input key={`n:${a.name}`} defaultValue={a.name} maxLength={40} onBlur={(e) => commit(e.target, a.name, "name")} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} aria-label={`${a.id} の名前`} className={input} />
-        {a.runtime !== "claude-code" && syncName && <NameSyncNote a={a} syncName={syncName} />}
+        {a.runtime !== "claude-code" && syncName && <SyncNote a={a} kind="name" sync={a.nameSync} run={syncName} />}
       </Field>
 
       <Field label="役割" hint="カードの上に出る短い肩書き">
         <input key={`r:${a.role ?? ""}`} defaultValue={a.role ?? ""} maxLength={40} placeholder="例: WINGMAN" onBlur={(e) => commit(e.target, a.role ?? "", "role")} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} aria-label={`${a.name}の役割`} className={input} />
+        {a.runtime !== "claude-code" && syncRole && <SyncNote a={a} kind="role" sync={a.roleSync} run={syncRole} />}
       </Field>
 
       {teams.length > 1 && (

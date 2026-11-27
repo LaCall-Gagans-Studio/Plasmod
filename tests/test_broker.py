@@ -489,12 +489,23 @@ import json, os
 from pathlib import Path
 def read_profile_meta(d):
     f = Path(d) / "meta.json"
-    return {"display_name": json.loads(f.read_text())["display_name"] if f.exists() else ""}
+    m = json.loads(f.read_text()) if f.exists() else {}
+    return {"display_name": m.get("display_name", ""), "description": m.get("description", "")}
 def set_profile_display_name(name, display):
     home = Path(os.environ["PLASMOD_PROFILE_HOME"])
-    (home / "meta.json").write_text(json.dumps({"display_name": display}))
+    m = read_profile_meta(home)
+    m["display_name"] = display
+    (home / "meta.json").write_text(json.dumps(m))
     with open(os.environ["FAKE_LOG"], "a") as f:
         f.write(json.dumps([name, display]) + "\\n")
+if os.environ.get("FAKE_NO_DESC") != "1":
+    def set_profile_description(name, desc):
+        home = Path(os.environ["PLASMOD_PROFILE_HOME"])
+        m = read_profile_meta(home)
+        m["description"] = desc
+        (home / "meta.json").write_text(json.dumps(m))
+        with open(os.environ["FAKE_LOG"], "a") as f:
+            f.write(json.dumps(["desc", name, desc]) + "\\n")
 '''
 
 
@@ -554,6 +565,32 @@ class DisplayNameTest(unittest.TestCase):
                 run("set-display-name", prof, json.dumps(arg))
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             run("set-display-name", "a", "not json")
+        self.assertEqual(self.written(), [])
+
+    def test_description_writes_only_the_description(self):
+        run("set-display-name", "a", json.dumps({"name": "名前"}))
+        out = json.loads(run("set-description", "a", json.dumps({"description": " 経理担当 ", "expect": ""})))
+        self.assertEqual(out, {"ok": True, "current": "経理担当"})
+        self.assertEqual(self.written()[-1], ["desc", "a", "経理担当"])
+        self.assertEqual(json.loads(run("display-names"))["a"], "名前")
+
+    def test_description_conflict_and_force(self):
+        run("set-description", "a", json.dumps({"description": "Hermes で書いた"}))
+        out = json.loads(run("set-description", "a", json.dumps({"description": "新しい", "expect": "前に書いた"})))
+        self.assertEqual(out, {"ok": False, "conflict": True, "current": "Hermes で書いた"})
+        self.assertTrue(json.loads(run("set-description", "a", json.dumps({"description": "新しい"})))["ok"])
+
+    def test_description_unsupported_writes_nothing(self):
+        broker.ENV = {**broker.ENV, "FAKE_NO_DESC": "1"}
+        out = json.loads(run("set-description", "a", json.dumps({"description": "x"})))
+        self.assertEqual(out, {"ok": False, "unsupported": True})
+        self.assertEqual(self.written(), [])
+
+    def test_description_rejects_bad_input(self):
+        for prof, arg in (("zzz", {"description": "x"}), ("a", {"description": ""}), ("a", {"description": "x" * 201}),
+                          ("a", {"description": "a\nb"}), ("a", {"description": 1})):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                run("set-description", prof, json.dumps(arg))
         self.assertEqual(self.written(), [])
 
 

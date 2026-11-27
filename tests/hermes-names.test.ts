@@ -69,3 +69,43 @@ describe("名前を Hermes に写す", () => {
     expect(JSON.parse(f.calls[1][2]).expect).toBe("A");
   });
 });
+
+describe("役割を Hermes のプロファイルの説明に写す", () => {
+  test("kind=description は set-description を、description 引数で呼ぶ。別の表に結果を残す", async () => {
+    const calls: string[][] = [];
+    const db = new Database(":memory:");
+    const call = async (...a: string[]) => {
+      calls.push(a);
+      return JSON.stringify({ ok: true, current: (JSON.parse(a[2]) as { description: string }).description });
+    };
+    const roles = new HermesNameSync(db, call, "description");
+    const names = new HermesNameSync(db, call);
+    expect(await roles.sync("acct", "経理担当")).toMatchObject({ state: "synced", synced: "経理担当" });
+    expect(calls[0][0]).toBe("set-description");
+    expect(JSON.parse(calls[0][2])).toEqual({ description: "経理担当", expect: "" });
+    expect(roles.get("acct")?.synced).toBe("経理担当");
+    expect(names.get("acct")).toBeUndefined();
+  });
+
+  test("Hermes 側に別の説明があれば上書きせず競合。force なら上書き", async () => {
+    let cur = "Hermes で書いた説明";
+    const call = async (...a: string[]) => {
+      const arg = JSON.parse(a[2]) as { description: string; expect?: string };
+      if (arg.expect !== undefined && cur !== arg.expect && cur !== arg.description) return JSON.stringify({ ok: false, conflict: true, current: cur });
+      cur = arg.description;
+      return JSON.stringify({ ok: true, current: cur });
+    };
+    const roles = new HermesNameSync(new Database(":memory:"), call, "description");
+    expect(await roles.sync("acct", "経理")).toMatchObject({ state: "conflict", current: "Hermes で書いた説明" });
+    expect(cur).toBe("Hermes で書いた説明");
+    expect(await roles.sync("acct", "経理", true)).toMatchObject({ state: "synced" });
+    expect(cur).toBe("経理");
+  });
+
+  test("この Hermes に説明を書く関数が無ければ、書かずに失敗として残す", async () => {
+    const roles = new HermesNameSync(new Database(":memory:"), async () => JSON.stringify({ ok: false, unsupported: true }), "description");
+    const r = await roles.sync("acct", "経理");
+    expect(r.state).toBe("failed");
+    expect(r.error).toContain("書く機能が見つからない");
+  });
+});
