@@ -6,13 +6,13 @@ export const json = async <T,>(res: Response): Promise<T> => {
 };
 
 export const FolderIcon = ({ size = 14 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true" className="flex-none">
     <path d="M3 6.5A1.5 1.5 0 014.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0121 8.7v9.8a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z" />
   </svg>
 );
 
 export const TagIcon = ({ size = 14 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true" className="flex-none">
     <path d="M3 12V4.5A1.5 1.5 0 014.5 3H12l9 9-9 9z" />
     <circle cx="7.5" cy="7.5" r="1.3" />
   </svg>

@@ -5,7 +5,7 @@ import { memoRef } from "../shared/memo-ref";
 import type { MemoList, MemoSummary } from "../shared/types";
 import { PjTabs } from "./pjtabs";
 import { Icon, Nav, RAIL, ago } from "./ui";
-import { json, FolderIcon, TagIcon } from "./memo-light";
+import { json, FolderIcon } from "./memo-light";
 import { Skeleton } from "./loading";
 import { MemoLink } from "./pjmenus";
 import { localMemoList, memoList, SyncBadge, useMemoSyncStatus } from "./memo-db";
@@ -85,6 +85,10 @@ function Facets({ list, project, tag, toggle, vertical }: { list: MemoList; proj
       ? `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] ${on ? "bg-chip font-semibold text-ink" : "text-ink-2 hover:bg-chip/60"}`
       : `flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] ${on ? "bg-ink font-semibold text-paper" : "bg-chip text-ink-2"}`;
   const count = (n: number) => <span className={`ml-auto pl-2 text-[11px] tabular-nums ${vertical ? "text-mute" : "opacity-60"}`}>{n}</span>;
+  // ワードクラウド: 件数が多いタグほど大きく（12〜19px）
+  const maxCount = Math.max(1, ...list.tags.map((t) => t.count));
+  const size = (n: number) => Math.round(12 + 7 * (Math.log(n + 1) / Math.log(maxCount + 1)));
+  const cloud = (on: boolean) => `max-w-full rounded-md px-1.5 py-0.5 text-left leading-tight ${on ? "bg-chip font-semibold text-ink" : "text-ink-2 hover:bg-chip/60"}`;
   return (
     <div className={vertical ? "flex flex-col gap-5" : "flex flex-col gap-2"}>
       <div className={vertical ? "flex flex-col gap-0.5" : "flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]"} role="group" aria-label="プロジェクト">
@@ -107,18 +111,16 @@ function Facets({ list, project, tag, toggle, vertical }: { list: MemoList; proj
         )}
       </div>
       {(list.tags.length > 0 || tag) && (
-        <div className={vertical ? "flex flex-col gap-0.5" : "flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]"} role="group" aria-label="タグ">
-          {vertical && <div className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-mute">タグ</div>}
+        <div className={vertical ? "flex flex-wrap items-baseline gap-x-1 gap-y-0.5" : "flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]"} role="group" aria-label="タグ">
+          {vertical && <div className="w-full px-2 pb-1 text-[11px] font-semibold tracking-wide text-mute">タグ</div>}
           {tag && !list.tags.some((t) => t.name === tag) && (
-            <button className={item(true)} onClick={() => toggle("tag", tag)}>
+            <button className={vertical ? cloud(true) : item(true)} onClick={() => toggle("tag", tag)}>
               #{tag}
             </button>
           )}
           {list.tags.map((t) => (
-            <button key={t.name} className={vertical ? item(tag === t.name) : `flex flex-none items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] ${tag === t.name ? "border-ink text-ink" : "border-line text-mute"}`} onClick={() => toggle("tag", t.name)}>
-              {vertical && <TagIcon />}
-              <span className="truncate">{vertical ? t.name : `#${t.name}`}</span>
-              {vertical && count(t.count)}
+            <button key={t.name} title={`${t.name}（${t.count}）`} className={vertical ? cloud(tag === t.name) : `flex flex-none items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] ${tag === t.name ? "border-ink text-ink" : "border-line text-mute"}`} style={vertical ? { fontSize: size(t.count) } : undefined} onClick={() => toggle("tag", t.name)}>
+              <span className="max-w-full break-all">{vertical ? t.name : `#${t.name}`}</span>
             </button>
           ))}
         </div>
