@@ -106,6 +106,14 @@ button {
   font-family: inherit;
 }
 
+/* カードの浮き（白地では薄い影、黒地では上辺のかすかな光） */
+.pl-card {
+  box-shadow: 0 1px 2px rgb(23 23 26 / 0.04), 0 4px 12px -6px rgb(23 23 26 / 0.08);
+}
+:root[data-theme="dark"] .pl-card {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
+}
+
 /*
  * 動きの決まり（v2.0 D1）。新しい動きは、この値を使う。
  * 速い 120ms: 押した反応  ／ 普通 200ms: 開閉・知らせ  ／ ゆっくり 520ms: 画面に現れる
