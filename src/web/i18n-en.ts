@@ -3,6 +3,7 @@ export const EN: Record<string, string> = {
   チャット: "Chat",
   プロジェクト: "Projects",
   ルーティーン: "Routines",
+  統計: "Stats",
   メニュー: "Menu",
   検索: "Search",
   メモ: "Memos",
